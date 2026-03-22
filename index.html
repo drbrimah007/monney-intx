@@ -1815,7 +1815,7 @@
       html += `<div class="fg" style="margin-bottom:6px;">
         <label style="font-weight:700;">Template</label>
         <select id="ne_tpl" onchange="switchEntryTemplate(this.value,'${cid||''}')">
-          <option value="">— Blank Entry —</option>
+          <option value="">📋 Simple / Personal Record</option>
           ${myTpls.map(t=>`<option value="${t.id}" ${tpl?.id===t.id?'selected':''}>${esc(t.name)}</option>`).join('')}
         </select>
       </div>`;
