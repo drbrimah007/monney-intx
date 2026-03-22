@@ -608,33 +608,33 @@
       let settingsItem = 'settings';
 
       if (role === 'admin') {
-        primaryItems = ['dash', 'contacts', 'entries'];
+        primaryItems = ['dash', 'contacts', 'entries', 'notifs'];
         moreItems = [
           { page: 'templates', label: 'Templates' },
           { page: 'templatedb', label: 'Template DB' },
           { page: 'recurring', label: 'Recurring' },
-          { page: 'notifs', label: 'Notifications' },
           { page: 'nok', label: 'Next of Kin' },
-          { page: 'audit', label: 'Audit Log' }
+          { page: 'audit', label: 'Audit Log' },
+          { page: 'profile', label: 'Profile' }
         ];
       } else if (role === 'standard') {
-        primaryItems = ['dash', 'contacts', 'entries'];
+        primaryItems = ['dash', 'contacts', 'entries', 'notifs'];
         moreItems = [
           { page: 'templates', label: 'Templates' },
           { page: 'templatedb', label: 'Template DB' },
           { page: 'recurring', label: 'Recurring' },
-          { page: 'notifs', label: 'Notifications' },
-          { page: 'nok', label: 'Next of Kin' }
+          { page: 'nok', label: 'Next of Kin' },
+          { page: 'profile', label: 'Profile' }
         ];
       } else if (role === 'contact') {
-        primaryItems = ['dash', 'entries'];
+        primaryItems = ['dash', 'entries', 'notifs'];
         moreItems = [
-          { page: 'notifs', label: 'Notifications' }
+          { page: 'profile', label: 'Profile' }
         ];
       }
 
       let html = '';
-      const navLabels = { dash: 'Dashboard', contacts: 'Contacts', entries: 'Entries' };
+      const navLabels = { dash: 'Dashboard', contacts: 'Contacts', entries: 'Entries', notifs: 'Notifications' };
 
       // Primary nav items
       primaryItems.forEach(page => {
@@ -4728,7 +4728,7 @@
 
     function checkAndShowUsernamePrompt() {
       const u = curUser();
-      if (!u.username || !u.username.trim() || _dismissedUsernamePrompt) return;
+      if ((u.username && u.username.trim()) || _dismissedUsernamePrompt) return;
 
       const html = `
         <div class="modal-bg" id="usernameModalBg" onclick="if(event.target===this)dismissUsernamePrompt()">
