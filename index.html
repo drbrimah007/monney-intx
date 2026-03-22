@@ -135,8 +135,8 @@
     .lp-ad-block .ad-sub { font-size:12px; color:var(--border); }
     .lp-ad-contact { font-size:12px; color:var(--accent); margin-top:4px; }
     .lp-ad-wide { margin:0 auto; width:100%; max-width:1000px; padding:0 32px 40px; }
-    .lp-footer { background:var(--bg2); border-top:1px solid var(--border); padding:28px 32px; text-align:center; color:var(--muted); font-size:13px; margin-top:auto; }
-    .lp-footer strong { color:var(--text); }
+    .lp-footer { background:var(--bg2); border-top:1px solid var(--border); padding:28px 32px; text-align:center; color:var(--text); font-size:13px; margin-top:auto; }
+    .lp-footer strong { color:var(--accent); font-weight:800; font-size:14px; }
     /* Auth modal tweaks */
     .auth-modal { max-width:420px; }
     .auth-divider { display:flex; align-items:center; gap:12px; margin:18px 0; color:var(--muted); font-size:12px; }
@@ -145,9 +145,10 @@
     @media print {
       body > *:not(#invoicePrintWrap) { display: none !important; }
       #invoicePrintWrap { position: static !important; background: #fff !important; z-index: auto !important; padding: 0 !important; }
-      #invoicePrintWrap > * { box-shadow: none !important; }
-      #invoicePrintDoc { max-width: 100% !important; margin: 0 !important; padding: 32px !important; box-shadow: none !important; border: none !important; }
+      #invoicePrintWrap > * { box-shadow: none !important; background: #fff !important; }
+      #invoicePrintDoc { max-width: 100% !important; margin: 0 !important; padding: 32px !important; box-shadow: none !important; border: none !important; background: #fff !important; color: #000 !important; }
       .inv-no-print { display: none !important; }
+      * { background: #fff !important; color: #000 !important; }
     }
   </style>
 </head>
@@ -161,7 +162,7 @@
     <div id="topbar">
       <div id="topbar-left">
         <button class="hamburger" onclick="toggleMobileNav()">☰</button>
-        <img src="money.png" style="height:40px;border-radius:6px" onerror="this.style.display='none'" alt="logo">
+        <img id="topbar-logo" src="money.png" style="height:40px;border-radius:6px" onerror="this.style.display='none'" alt="logo">
         <strong id="appname">Money Intx</strong>
       </div>
       <div id="topbar-center"></div>
@@ -290,6 +291,17 @@
     // If we're running on Vercel (or any server with /api routes), use the API.
     // If we're opening the HTML file directly (file://) fall back to localStorage.
     const _IS_SERVER = location.protocol !== 'file:' && location.hostname !== '';
+
+    // ── Debounced search helper ──────────────────────────────────────
+    let _searchTimer = null;
+    function debounceSearch(key, fn) {
+      return function(e) {
+        const val = e.target.value;
+        window[key] = val;
+        clearTimeout(_searchTimer);
+        _searchTimer = setTimeout(fn, 300);
+      };
+    }
 
     // ── load(): pull from server, fall back to localStorage ──────────────
     async function load() {
@@ -638,6 +650,16 @@
       const u = curUser();
       document.getElementById('userinfo').textContent = u.displayName;
       document.getElementById('appname').textContent = db.settings.appName || 'Money Intx';
+      // Update topbar logo to use settings logoData if available, otherwise fallback to money.png
+      const logoImg = document.getElementById('topbar-logo');
+      if (logoImg) {
+        if (db.settings?.logoData) {
+          logoImg.src = db.settings.logoData;
+          logoImg.style.display = '';
+        } else {
+          logoImg.src = 'money.png';
+        }
+      }
     }
 
     function nav(page) {
@@ -842,7 +864,7 @@
 
       let html = `<div class="page-header"><h2>Contacts</h2><button class="btn sm" onclick="openNewContact()">+ Add Contact</button></div><div class="card">
         <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;flex-wrap:wrap;">
-          <input type="search" placeholder="Search contacts…" value="${esc(window._search_contacts||'')}" oninput="window._search_contacts=this.value;PG.contacts=1;renderContacts()" style="flex:1;min-width:180px;max-width:340px;">
+          <input type="search" id="contacts_search_input" placeholder="Search contacts…" value="${esc(window._search_contacts||'')}" style="flex:1;min-width:180px;max-width:340px;">
           <button class="bs sm${sortDesc?' on':''}" onclick="window._sort_contacts=!${sortDesc};renderContacts()" title="Sort order">${sortDesc?'↓ Latest first':'↑ Oldest first'}</button>
           <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;margin-left:4px;"><input type="checkbox" ${showArchived?'checked':''} onchange="window._arch_contacts=this.checked;PG.contacts=1;renderContacts()"> Archived</label>
         </div>`;
@@ -874,6 +896,11 @@
         </div>`;
       html += '</div>';
       document.getElementById('content').innerHTML = html;
+      // Attach debounced search handler
+      const searchInput = document.getElementById('contacts_search_input');
+      if (searchInput) {
+        searchInput.addEventListener('input', debounceSearch('_search_contacts', () => { PG.contacts = 1; renderContacts(); }));
+      }
     }
 
     function openNewContact() {
@@ -917,6 +944,50 @@
       document.querySelector('.modal-bg')?.remove();
       toast('Contact created');
       renderContacts();
+    }
+
+    function openQuickContactModal() {
+      const d = document.createElement('div');
+      d.innerHTML = `<div class="modal-bg" id="quickContactBg" onclick="if(event.target===this)this.remove()">
+        <div class="modal" onclick="event.stopPropagation()" style="max-width:400px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+            <div class="modal-title" style="margin:0;">Quick Add Contact</div>
+            <button class="gh sm" onclick="document.getElementById('quickContactBg').remove()">✕</button>
+          </div>
+          <div class="fg"><label>Name *</label><input type="text" id="qc_name" placeholder="Contact name" autofocus></div>
+          <div class="fg"><label>Email</label><input type="email" id="qc_email" placeholder="email@example.com"></div>
+          <div class="fg"><label>Phone</label><input type="tel" id="qc_phone" placeholder="Phone number"></div>
+          <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;">
+            <button class="bs sm" onclick="document.getElementById('quickContactBg').remove()">Cancel</button>
+            <button class="btn sm" onclick="saveQuickContact()">Create &amp; Use</button>
+          </div>
+        </div></div>`;
+      document.body.appendChild(d.firstChild);
+      document.getElementById('qc_name').focus();
+    }
+
+    function saveQuickContact() {
+      const name = document.getElementById('qc_name')?.value.trim();
+      if (!name) return alert('Contact name required');
+      const email = document.getElementById('qc_email')?.value.trim() || '';
+      const phone = document.getElementById('qc_phone')?.value.trim() || '';
+      const newContact = {
+        id: uuid(),
+        userId: curUser().id,
+        name, email, phone, address: '', notes: '', tags: [],
+        startToy: 0, startYot: 0,
+        archived: false, photo: '', linkedUserId: null, createdAt: Date.now()
+      };
+      db.contacts.push(newContact);
+      save();
+      // Set the select to the new contact
+      const select = document.getElementById('necon');
+      if (select) {
+        select.innerHTML += `<option value="${newContact.id}" selected>${esc(newContact.name)}</option>`;
+        select.value = newContact.id;
+      }
+      document.getElementById('quickContactBg')?.remove();
+      toast('Contact created and selected');
     }
 
     function editContact(cid) {
@@ -1492,7 +1563,7 @@
       if (role === 'admin' || role === 'standard') html += `<button class="btn sm" onclick="openNewEntry()">+ Add Entry</button>`;
       html += `</div><div class="card">
         <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;flex-wrap:wrap;">
-          <input type="search" placeholder="Search entries…" value="${esc(window._search_entries||'')}" oninput="window._search_entries=this.value;PG.entries=1;renderEntries()" style="flex:1;min-width:180px;max-width:340px;">
+          <input type="search" id="entries_search_input" placeholder="Search entries…" value="${esc(window._search_entries||'')}" style="flex:1;min-width:180px;max-width:340px;">
           <button class="bs sm${sortDesc?' on':''}" onclick="window._sort_entries=!${sortDesc};renderEntries()" title="Sort order">${sortDesc?'↓ Latest first':'↑ Oldest first'}</button>
         </div>
         <div class="tbl-wrap"><table><thead><tr><th>Contact</th><th class="hide-mobile">Doc #</th><th class="hide-mobile">Amount</th><th class="hide-mobile">Type</th><th>Date</th><th>Status</th><th style="width:80px;">Action</th></tr></thead><tbody>`;
@@ -1508,6 +1579,7 @@
           <td><div class="action-menu"><button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button><div class="action-dropdown">
             <button onclick="openEntryInvoice('${e.id}')">📄 View</button>
             <button onclick="editEntry('${e.id}')">✏️ Edit</button>
+            <button onclick="openNotifyModal('${e.id}')">🔔 Notify</button>
             <button onclick="toggleArchiveEntry('${e.id}')">${e.archived ? 'Unarchive' : 'Archive'}</button>
             <button onclick="voidEntry('${e.id}')">Void</button>
             <button onclick="delEntry('${e.id}')" style="color: var(--red);">Delete</button>
@@ -1522,6 +1594,11 @@
         </div>`;
       html += '</div>';
       document.getElementById('content').innerHTML = html;
+      // Attach debounced search handler
+      const searchInput = document.getElementById('entries_search_input');
+      if (searchInput) {
+        searchInput.addEventListener('input', debounceSearch('_search_entries', () => { PG.entries = 1; renderEntries(); }));
+      }
     }
 
     // ── ENTRY FORM (new + edit) ────────────────────────────────────────
@@ -1577,7 +1654,12 @@
       }
       html += `<hr style="border:none;border-top:1px solid var(--border);margin:8px 0 14px;">`;
       // ── Core fields ──────────────────────────────────────────────────
-      html += `<div class="fg"><label>Contact *</label><select id="necon">${!cid&&!e?'<option value="">Select Contact...</option>':''}${cOpts}</select></div>`;
+      html += `<div class="fg"><label>Contact *</label>
+        <div style="display:flex;gap:8px;">
+          <select id="necon" style="flex:1;">${!cid&&!e?'<option value="">Select Contact...</option>':''}${cOpts}</select>
+          <button type="button" class="btn sm" onclick="openQuickContactModal()" style="flex-shrink:0;padding:10px 14px;">+ New</button>
+        </div>
+      </div>`;
       if (tpl) {
         // Transaction type + document number are fixed by the template.
         // In edit mode use the already-assigned invoice number, not the template counter.
@@ -2224,6 +2306,59 @@
       logAudit('delete_entry', { eid });
       toast('Entry deleted');
       refreshCurPage();
+    }
+
+    function openNotifyModal(eid) {
+      const e = db.entries.find(x => x.id === eid);
+      if (!e) return;
+      const c = db.contacts.find(x => x.id === e.cId);
+      const d = document.createElement('div');
+      d.innerHTML = `<div class="modal-bg" id="notifyModalBg" onclick="if(event.target===this)this.remove()">
+        <div class="modal" style="max-width:500px;" onclick="event.stopPropagation()">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+            <div class="modal-title" style="margin:0;">Send Notification</div>
+            <button class="gh sm" onclick="document.getElementById('notifyModalBg').remove()">✕</button>
+          </div>
+          <div class="card" style="margin-bottom:14px;background:var(--bg3);border:none;padding:12px;">
+            <div style="font-size:12px;color:var(--muted);margin-bottom:4px;">Record</div>
+            <div style="font-weight:700;">${esc(c?.name||'—')} — ${fmt(e.amount)}</div>
+          </div>
+          <div class="fg"><label>Message</label><textarea id="notify_msg" rows="3" placeholder="Enter your message..."></textarea></div>
+          <div class="fg"><label>Notify</label>
+            <div style="display:flex;flex-direction:column;gap:8px;">
+              <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;">
+                <input type="radio" name="notify_who" value="them" checked> Contact
+              </label>
+              <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;">
+                <input type="radio" name="notify_who" value="you"> You
+              </label>
+              <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;">
+                <input type="radio" name="notify_who" value="both"> Both
+              </label>
+            </div>
+          </div>
+          <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;border-top:1px solid var(--border);padding-top:14px;">
+            <button class="bs sm" onclick="document.getElementById('notifyModalBg').remove()">Cancel</button>
+            <button class="btn sm" onclick="sendNotification('${eid}')">Send</button>
+          </div>
+        </div></div>`;
+      document.body.appendChild(d.firstChild);
+    }
+
+    function sendNotification(eid) {
+      const msg = document.querySelector('[name="notify_who"]:checked')?.value || 'them';
+      const message = document.getElementById('notify_msg')?.value.trim() || '';
+      if (!message) return alert('Message required');
+      const e = db.entries.find(x => x.id === eid);
+      if (!e) return;
+      db.notifs.push({
+        id: uuid(), userId: curUser().id, cId: e.cId, eid,
+        msg: message, channel: 'inapp', sent: false, createdAt: Date.now()
+      });
+      save();
+      logAudit('send_notification', { eid, to: msg });
+      document.getElementById('notifyModalBg')?.remove();
+      toast('Notification sent');
     }
 
     // ============ PAGE: TEMPLATES ============
