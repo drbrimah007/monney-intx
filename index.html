@@ -5132,21 +5132,87 @@
       initApp();
     }
 
-    // Link any pending share token (set by view.html before navigating here)
+    // Called after login/signup — fetches the pending share entry and shows
+    // an Accept / Decline modal. Actual linking only happens on explicit accept.
     async function _linkPendingShare() {
       let token;
       try { token = sessionStorage.getItem('pendingShareToken'); } catch(_) {}
       if (!token) return;
       try {
-        sessionStorage.removeItem('pendingShareToken');
+        const r = await fetch('/api/share?t=' + encodeURIComponent(token), { credentials: 'include' });
+        const d = await r.json();
+        if (!d.ok) { sessionStorage.removeItem('pendingShareToken'); return; }
+        _showShareConsentModal(token, d.entry);
+      } catch(_) { sessionStorage.removeItem('pendingShareToken'); }
+    }
+
+    function _showShareConsentModal(token, e) {
+      const TXL2 = { toy:'They Owe You', yot:'You Owe Them', lend:'Lent', borrow:'Borrowed', gift:'Gift', other:'Other' };
+      const txLabel = TXL2[e.txType] || (e.txType || 'Transaction');
+      const txColor = { toy:'var(--green)', yot:'var(--red)', lend:'var(--accent)', borrow:'var(--red)' }[e.txType] || 'var(--muted)';
+      const amt     = e.amount != null ? `$${parseFloat(e.amount).toFixed(2)}` : '—';
+      const dt      = e.date ? new Date(e.date).toLocaleDateString() : '—';
+      const noteHtml = e.note ? `<p style="margin:0;font-size:13px;color:#333;background:#f5f5ff;border-left:3px solid var(--accent,#6c63ff);padding:10px 14px;border-radius:4px;">${esc(e.note)}</p>` : '';
+      const d = document.createElement('div');
+      d.id = 'shareConsentBg';
+      d.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:2000;display:flex;align-items:center;justify-content:center;padding:16px;';
+      d.innerHTML = `
+        <div style="background:#fff;border-radius:14px;max-width:440px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.25);overflow:hidden;">
+          <div style="background:#1a1a2e;padding:20px 24px;">
+            <div style="font-size:11px;font-weight:700;letter-spacing:.08em;color:#aaa;text-transform:uppercase;margin-bottom:4px;">Record shared with you</div>
+            <div style="font-size:18px;font-weight:800;color:#fff;">From ${esc(e.fromName || '—')}</div>
+          </div>
+          <div style="padding:20px 24px;border-bottom:1px solid #eee;">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px;">
+              <div>
+                <div style="font-size:11px;font-weight:700;letter-spacing:.06em;color:#aaa;text-transform:uppercase;margin-bottom:3px;">Amount</div>
+                <div style="font-size:28px;font-weight:900;color:#1a1a2e;">${esc(amt)}</div>
+              </div>
+              <div style="text-align:right;">
+                <div style="font-size:11px;font-weight:700;letter-spacing:.06em;color:#aaa;text-transform:uppercase;margin-bottom:3px;">Type</div>
+                <div style="font-size:14px;font-weight:700;color:${txColor};">${esc(txLabel)}</div>
+                <div style="font-size:12px;color:#aaa;margin-top:2px;">${dt}</div>
+              </div>
+            </div>
+            ${e.invoiceNumber ? `<div style="font-size:12px;color:#888;margin-bottom:10px;">Ref: <strong>${esc(e.invoiceNumber)}</strong></div>` : ''}
+            ${noteHtml}
+          </div>
+          <div style="padding:14px 24px;background:#fafafa;border-bottom:1px solid #eee;">
+            <p style="margin:0;font-size:12px;color:#777;line-height:1.5;">
+              Accepting adds this record to your account under <strong>Shared With You</strong>.
+              This is for tracking only — you are not taking on legal ownership of any debt.
+            </p>
+          </div>
+          <div style="padding:16px 24px;display:flex;flex-direction:column;gap:10px;">
+            <button id="shareAcceptBtn" class="btn" style="width:100%;font-size:15px;padding:13px;"
+              onclick="_acceptShare('${esc(token)}')">✅ Accept &amp; Add to My Account</button>
+            <button class="bs" style="width:100%;font-size:14px;padding:11px;color:#e53e3e;border-color:#e53e3e;"
+              onclick="_declineShare()">✕ Decline — Don't Add to My Account</button>
+          </div>
+        </div>`;
+      document.body.appendChild(d);
+    }
+
+    async function _acceptShare(token) {
+      const btn = document.getElementById('shareAcceptBtn');
+      if (btn) { btn.disabled = true; btn.textContent = 'Linking…'; }
+      try {
         await fetch('/api/share', {
           method: 'POST', credentials: 'include',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ action: 'link', token })
         });
-        // Flag so dashboard can skip onboarding and scroll to shared section
+        sessionStorage.removeItem('pendingShareToken');
         sessionStorage.setItem('justLinkedShare', '1');
       } catch(_) {}
+      document.getElementById('shareConsentBg')?.remove();
+      nav('dash');
+    }
+
+    function _declineShare() {
+      try { sessionStorage.removeItem('pendingShareToken'); } catch(_) {}
+      document.getElementById('shareConsentBg')?.remove();
+      toast('Record declined — nothing was added to your account.');
     }
 
     async function doLogout() {
