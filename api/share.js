@@ -27,6 +27,8 @@ async function ensureTable() {
   // Migration: add columns if the table already existed without them
   await sql`ALTER TABLE share_tokens ADD COLUMN IF NOT EXISTS linked_user_id UUID`;
   await sql`ALTER TABLE share_tokens ADD COLUMN IF NOT EXISTS linked_at TIMESTAMPTZ`;
+  await sql`ALTER TABLE share_tokens ADD COLUMN IF NOT EXISTS recipient_closed BOOLEAN NOT NULL DEFAULT false`;
+  await sql`ALTER TABLE share_tokens ADD COLUMN IF NOT EXISTS recipient_closed_at TIMESTAMPTZ`;
 }
 
 module.exports = async function handler(req, res) {
@@ -67,7 +69,7 @@ module.exports = async function handler(req, res) {
     try {
       await ensureTable();
       const rows = await sql`
-        SELECT entry_data, acknowledged, acknowledged_at, created_at
+        SELECT entry_data, acknowledged, acknowledged_at, recipient_closed, recipient_closed_at, created_at
         FROM share_tokens WHERE token = ${token} LIMIT 1
       `;
       if (rows.length === 0) {
@@ -76,10 +78,12 @@ module.exports = async function handler(req, res) {
       const row = rows[0];
       return res.json({
         ok: true,
-        entry:          row.entry_data,
-        acknowledged:   row.acknowledged,
-        acknowledgedAt: row.acknowledged_at,
-        sharedAt:       row.created_at
+        entry:              row.entry_data,
+        acknowledged:       row.acknowledged,
+        acknowledgedAt:     row.acknowledged_at,
+        recipientClosed:    row.recipient_closed,
+        recipientClosedAt:  row.recipient_closed_at,
+        sharedAt:           row.created_at
       });
     } catch (e) {
       console.error('[share/view]', e.message);
@@ -238,6 +242,87 @@ module.exports = async function handler(req, res) {
       } catch (e) {
         console.error('[share/create]', e.message);
         return res.status(500).json({ ok: false, error: 'Failed to create share link.' });
+      }
+    }
+
+    // ── owner-close: owner closes the record from their side ────────────
+    if (action === 'owner-close') {
+      const payload = requireAuth(req, res);
+      if (!payload) return;
+      const { entryId, closedMsg } = req.body;
+      if (!entryId) return res.status(400).json({ ok: false, error: 'entryId required' });
+      try {
+        await ensureTable();
+        // Update the entry_data snapshot in all matching share_tokens
+        const rows = await sql`
+          SELECT token, entry_data FROM share_tokens
+          WHERE entry_id = ${entryId} AND user_id = ${payload.id}
+        `;
+        for (const row of rows) {
+          const updated = { ...row.entry_data, status: 'closed', closedAt: Date.now(), closedMsg: closedMsg || '' };
+          await sql`UPDATE share_tokens SET entry_data = ${updated} WHERE token = ${row.token}`;
+        }
+        return res.json({ ok: true, closed: true });
+      } catch (e) {
+        console.error('[share/owner-close]', e.message);
+        return res.status(500).json({ ok: false, error: 'Failed to close record.' });
+      }
+    }
+
+    // ── recipient-close: contact closes from their side ─────────────────
+    if (action === 'recipient-close') {
+      const { token } = req.body;
+      if (!token) return res.status(400).json({ ok: false, error: 'Token required' });
+      try {
+        await ensureTable();
+        const rows = await sql`
+          SELECT user_id, entry_id FROM share_tokens WHERE token = ${token} LIMIT 1
+        `;
+        if (rows.length === 0) return res.status(404).json({ ok: false, error: 'Token not found.' });
+        const { user_id: ownerId, entry_id: entryId } = rows[0];
+
+        // 1. Mark recipient_closed on the token row
+        await sql`
+          UPDATE share_tokens SET recipient_closed = true, recipient_closed_at = now()
+          WHERE token = ${token}
+        `;
+
+        // 2. Update owner's data blob: set closedByRecipient on the entry + push in-app notif
+        try {
+          const [blobRow] = await sql`SELECT data FROM user_data WHERE user_id = ${ownerId} LIMIT 1`;
+          if (blobRow) {
+            const ownerData = blobRow.data || {};
+            const entry = (ownerData.entries || []).find(e => e.id === entryId);
+            if (entry) {
+              entry.closedByRecipient = true;
+              entry.closedByRecipientAt = Date.now();
+            }
+            // Push in-app notification for the owner
+            const contact = entry ? (ownerData.contacts || []).find(c => c.id === entry?.cId) : null;
+            if (!ownerData.notifs) ownerData.notifs = [];
+            ownerData.notifs.push({
+              id: 'n' + Math.random().toString(36).substr(2, 9),
+              userId: ownerId,
+              cId: entry?.cId || null,
+              eid: entryId,
+              msg: `${contact?.name || 'Your contact'} has closed their side of a record.`,
+              channel: 'in-app',
+              sent: true,
+              who: 'them',
+              sentTo: '',
+              read: false,
+              createdAt: Date.now()
+            });
+            await sql`UPDATE user_data SET data = ${ownerData}, updated_at = now() WHERE user_id = ${ownerId}`;
+          }
+        } catch (innerErr) {
+          console.error('[share/recipient-close] owner update failed:', innerErr.message);
+        }
+
+        return res.json({ ok: true, recipientClosed: true });
+      } catch (e) {
+        console.error('[share/recipient-close]', e.message);
+        return res.status(500).json({ ok: false, error: 'Failed to close record.' });
       }
     }
 

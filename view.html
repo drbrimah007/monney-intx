@@ -3,6 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="icon" type="image/png" href="favicon.png">
+  <link rel="apple-touch-icon" href="favicon.png">
   <title>Money Interaction Notice</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -301,6 +303,58 @@
       padding: 10px 0;
     }
 
+    /* Closure banner */
+    .closure-banner {
+      background: #f3f4f6;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 14px 16px;
+      margin-bottom: 16px;
+      display: none;
+    }
+    .closure-banner.show { display: block; }
+    .closure-banner-title {
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--text);
+      margin-bottom: 4px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .closure-banner-msg {
+      font-size: 13px;
+      color: var(--muted);
+      margin-bottom: 12px;
+      font-style: italic;
+    }
+    .btn-close-record {
+      display: block;
+      width: 100%;
+      padding: 12px;
+      background: var(--text);
+      color: #fff;
+      font-size: 14px;
+      font-weight: 700;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      text-align: center;
+      transition: opacity .15s;
+    }
+    .btn-close-record:hover { opacity: .85; }
+    .btn-close-record:disabled { opacity: .5; cursor: not-allowed; }
+    .recipient-closed-note {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      font-size: 13px;
+      color: var(--muted);
+      padding: 10px 0;
+      font-weight: 600;
+    }
+
     /* Auth modal */
     .modal-overlay {
       display: none;
@@ -437,6 +491,15 @@
           <p>This is a record for clarity only. <strong id="disclaimerName">Money Intx</strong> does not hold or process money.</p>
         </div>
 
+        <!-- Closure banner (shown when owner has closed the record) -->
+        <div class="closure-banner" id="closureBanner">
+          <div class="closure-banner-title">🔒 This record has been closed</div>
+          <div class="closure-banner-msg" id="closureMsgEl"></div>
+          <div id="recipientCloseArea">
+            <button class="btn-close-record" id="recipientCloseBtn" onclick="doRecipientClose()">Close from my side</button>
+          </div>
+        </div>
+
         <!-- CTA -->
         <div class="cta-block">
           <button class="btn-main" onclick="openAuthModal()">Track or respond to this →</button>
@@ -483,6 +546,7 @@
   let _token = TOKEN_PARAM;
   let _entry = null;
   let _acknowledged = false;
+  let _recipientClosed = false;
   let _siteUrl = '/';
 
   const TX_LABELS = {
@@ -533,6 +597,7 @@
       if (!res.ok || !data.ok) { showError(); return; }
       _entry = data.entry;
       _acknowledged = data.acknowledged;
+      _recipientClosed = data.recipientClosed || false;
       renderEntry(_entry, data.sharedAt);
     } catch (e) {
       showError();
@@ -600,6 +665,26 @@
       document.getElementById('ackArea').innerHTML = '<div class="ack-done">✅ Receipt acknowledged</div>';
     }
 
+    // Closure banner
+    const banner = document.getElementById('closureBanner');
+    if (e.status === 'closed') {
+      banner.classList.add('show');
+      const msgEl = document.getElementById('closureMsgEl');
+      if (e.closedMsg) {
+        msgEl.textContent = '"' + e.closedMsg + '"';
+        msgEl.style.display = '';
+      } else {
+        msgEl.style.display = 'none';
+      }
+      // If recipient already closed from their side, show done state
+      if (_recipientClosed) {
+        document.getElementById('recipientCloseArea').innerHTML =
+          '<div class="recipient-closed-note">✅ You have also closed this record</div>';
+      }
+    } else {
+      banner.classList.remove('show');
+    }
+
     // Show card
     document.getElementById('loadingState').style.display = 'none';
     document.getElementById('mainCard').style.display = '';
@@ -634,6 +719,32 @@
   }
   function closeAuthModal() {
     document.getElementById('authModal').classList.remove('open');
+  }
+
+  async function doRecipientClose() {
+    const btn = document.getElementById('recipientCloseBtn');
+    if (!btn || btn.disabled) return;
+    btn.disabled = true;
+    btn.textContent = 'Closing…';
+    try {
+      const res = await fetch('/api/share', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'recipient-close', token: _token })
+      });
+      const data = await res.json();
+      if (data.ok) {
+        _recipientClosed = true;
+        document.getElementById('recipientCloseArea').innerHTML =
+          '<div class="recipient-closed-note">✅ You have also closed this record</div>';
+      } else {
+        btn.disabled = false;
+        btn.textContent = 'Close from my side';
+      }
+    } catch (e) {
+      btn.disabled = false;
+      btn.textContent = 'Close from my side';
+    }
   }
 
   // Load on boot

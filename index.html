@@ -3,6 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <link rel="icon" type="image/png" href="favicon.png">
+  <link rel="apple-touch-icon" href="favicon.png">
   <title>Money Intx — Financial Tracking</title>
   <style>
     :root {
@@ -89,6 +91,45 @@
     .stat-lbl { font-size: 12px; color: var(--muted); font-weight: 600; text-transform: uppercase; }
     .hamburger { display: none; background: none; border: none; color: var(--text); font-size: 22px; cursor: pointer; }
     @media(max-width:640px) { .hamburger { display: block; } #nav { display: none; } #nav.open { display: flex; flex-direction: column; } }
+    /* ── Mobile bottom tab bar ─────────────────────────────────────── */
+    #mobile-tab-bar {
+      display: none;
+      position: fixed; bottom: 0; left: 0; right: 0; z-index: 200;
+      background: var(--bg2); border-top: 1px solid var(--border);
+      padding-bottom: env(safe-area-inset-bottom);
+    }
+    #mobile-tab-bar .tab-bar-inner {
+      display: flex; align-items: stretch; height: 56px;
+    }
+    #mobile-tab-bar button {
+      flex: 1; background: none; border: none; color: var(--muted);
+      font-size: 11px; font-weight: 600; cursor: pointer;
+      display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
+      padding: 6px 2px; transition: color .15s;
+    }
+    #mobile-tab-bar button.active { color: var(--accent); }
+    #mobile-tab-bar button .tab-icon { font-size: 20px; line-height: 1; }
+    #mobile-tab-bar .tab-notif-badge {
+      position: relative; display: inline-flex; align-items: center; justify-content: center;
+    }
+    #mobile-tab-bar .tab-notif-badge .badge-dot {
+      position: absolute; top: -2px; right: -6px;
+      background: #ef4444; color: #fff; font-size: 9px; font-weight: 700;
+      border-radius: 99px; min-width: 15px; height: 15px; padding: 0 3px;
+      display: flex; align-items: center; justify-content: center;
+    }
+    @media(max-width:640px) {
+      #mobile-tab-bar { display: block; }
+      #main { padding-bottom: calc(56px + env(safe-area-inset-bottom)); }
+    }
+    /* ── Searchable contact select ─────────────────────────────────── */
+    .cs-wrap { position: relative; flex: 1; }
+    .cs-list { display: none; position: absolute; z-index: 9100; top: calc(100% + 4px); left: 0; right: 0;
+      max-height: 220px; overflow-y: auto; background: var(--bg2); border: 1px solid var(--border);
+      border-radius: 10px; box-shadow: 0 6px 24px rgba(0,0,0,.2); }
+    .csopt { padding: 10px 14px; cursor: pointer; font-size: 14px; display: flex; align-items: baseline; gap: 6px; }
+    .csopt:hover, .csopt:focus { background: var(--bg3); }
+    .csopt .cs-sub { font-size: 11px; color: var(--muted); }
     .nav-btn { background: none; border: none; color: var(--muted); padding: 8px 12px; cursor: pointer; font-size: 14px; border-radius: 6px; font-weight: 500; white-space: nowrap; transition: background 0.15s, color 0.15s; }
     .nav-btn:hover,.nav-btn.on { background: var(--bg3); color: var(--text); }
     .nav-dropdown { box-shadow: var(--shadow); }
@@ -196,9 +237,9 @@
     <div id="main">
       <div id="content"></div>
     </div>
-    <div id="mobile-quick-add" style="display:none;position:fixed;bottom:0;left:0;right:0;padding:10px 16px;background:var(--bg2);border-top:1px solid var(--border);display:flex;gap:10px;z-index:100;">
-      <button class="btn sm" style="flex:1;background:var(--green);color:#fff;padding:12px;" onclick="openNewEntryModal('toy')">+ They Owe You</button>
-      <button class="btn sm" style="flex:1;background:var(--red);color:#fff;padding:12px;" onclick="openNewEntryModal('yot')">+ You Owe Them</button>
+    <!-- Mobile bottom tab bar -->
+    <div id="mobile-tab-bar">
+      <div class="tab-bar-inner" id="mobileTabBarInner"></div>
     </div>
   </div>
 
@@ -217,7 +258,7 @@
           address: '',
           photo: '',
           status: 'active',
-          notifPrefs: { inapp: true, email: false, sms: false },
+          notifPrefs: { inapp: true, email: true, sms: false },
           discoverable: true,
           createdAt: Date.now()
         }
@@ -264,7 +305,8 @@
       partially_settled: 'Partially Settled',
       overdue: 'Overdue',
       archived: 'Archived',
-      voided: 'Voided'
+      voided: 'Voided',
+      closed: 'Closed'
     };
 
     const TXL = {
@@ -285,6 +327,79 @@
 
     // ============ UTILITY FUNCTIONS ============
     function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+    // ── Searchable contact select helpers ───────────────────────────────────
+    function buildContactSearch(contacts, selectedId, id, placeholder) {
+      const ph = placeholder || 'Search contact…';
+      const sel = contacts.find(c => c.id === selectedId);
+      const items = contacts.map(c => {
+        const safeLabel = c.name.replace(/'/g, '&#39;').replace(/"/g, '&quot;');
+        const safeId    = c.id.replace(/'/g, '&#39;');
+        return `<div class="csopt" data-label="${safeLabel}" data-val="${safeId}"
+                  onmousedown="event.preventDefault();_csSelect('${id}','${safeId}','${safeLabel}')"
+                >${esc(c.name)}${c.email?`<span class="cs-sub">${esc(c.email)}</span>`:''}</div>`;
+      }).join('');
+      return `<div class="cs-wrap">
+        <input type="text" id="${id}_search" autocomplete="off" placeholder="${ph}"
+          value="${sel ? esc(sel.name) : ''}" style="width:100%;box-sizing:border-box;"
+          oninput="_csFilter('${id}')"
+          onfocus="_csFilter('${id}')"
+          onblur="_csBlur('${id}')">
+        <input type="hidden" id="${id}" value="${selectedId||''}">
+        <div id="${id}_list" class="cs-list">
+          ${items||`<div style="padding:10px 14px;color:var(--muted);font-size:13px;">No contacts yet — click + New</div>`}
+        </div>
+      </div>`;
+    }
+    function _csFilter(id) {
+      const q = (document.getElementById(id+'_search')?.value||'').toLowerCase();
+      const list = document.getElementById(id+'_list');
+      if (!list) return;
+      list.querySelectorAll('.csopt').forEach(el => {
+        el.style.display = (el.dataset.label||'').toLowerCase().includes(q) ? '' : 'none';
+      });
+      list.style.display = '';
+    }
+    function _csBlur(id) {
+      setTimeout(() => {
+        const list = document.getElementById(id+'_list');
+        if (list) list.style.display = 'none';
+        // If the search text doesn't match any selection, restore the label or clear
+        const hidden = document.getElementById(id);
+        const search = document.getElementById(id+'_search');
+        if (hidden && search) {
+          if (!hidden.value) { search.value = ''; return; }
+          // Find the item with this value to restore label
+          const opt = document.querySelector(`#${id}_list .csopt[data-val="${hidden.value}"]`);
+          if (opt) search.value = opt.dataset.label || search.value;
+        }
+      }, 200);
+    }
+    function _csSelect(id, val, label) {
+      const hidden = document.getElementById(id);
+      const search = document.getElementById(id+'_search');
+      const list   = document.getElementById(id+'_list');
+      if (hidden) hidden.value = val;
+      if (search) search.value = label;
+      if (list)   list.style.display = 'none';
+    }
+    // Add a new contact option to an existing cs-wrap dropdown
+    function _csAddOption(id, val, label) {
+      const list = document.getElementById(id+'_list');
+      if (!list) return;
+      const safeLabel = label.replace(/'/g, '&#39;').replace(/"/g, '&quot;');
+      const safeId    = val.replace(/'/g, '&#39;');
+      const div = document.createElement('div');
+      div.className = 'csopt';
+      div.dataset.label = label;
+      div.dataset.val   = val;
+      div.setAttribute('onmousedown', `event.preventDefault();_csSelect('${id}','${safeId}','${safeLabel}')`);
+      div.textContent = label;
+      // Remove "no contacts yet" placeholder if present
+      const empty = list.querySelector('[data-empty]');
+      if (empty) empty.remove();
+      list.appendChild(div);
+    }
     // ── Transaction type colour (used in tables + popups) ────────────────
     function txTypeColor(txType) {
       if (txType==='they_owe_you'||txType==='invoice'||txType==='bill') return 'var(--green)';
@@ -301,7 +416,8 @@
         (s==='partially_settled')  ? 'badge-yellow' :
         (s==='disputed')           ? 'badge-red'    :
         (s==='draft')              ? 'badge-gray'   :
-        (s==='voided')             ? 'badge-gray'   : 'badge-blue';
+        (s==='voided')             ? 'badge-gray'   :
+        (s==='closed')             ? 'badge-gray'   : 'badge-blue';
       return `<span class="badge ${cls}">${esc(label)}</span>`;
     }
     // ── Is this entry displayed in Invoice mode? ──────────────────────────
@@ -335,7 +451,7 @@
         try {
           const res = await fetch('/api/data/load', { credentials: 'include' });
           if (res.ok) {
-            const { data, user: srvUser } = await res.json();
+            const { data, user: srvUser, allUsers, platformSettings } = await res.json();
             // Merge server user into db.users and set session
             db = Object.keys(data).length ? data : defDB();
             if (srvUser) {
@@ -352,10 +468,29 @@
                 db.users.push({ id: srvUser.id, displayName: srvUser.displayName,
                   email: srvUser.email, username: srvUser.username,
                   role: srvUser.role, status: 'active',
-                  notifPrefs: { inapp: true, email: false, sms: false },
+                  notifPrefs: { inapp: true, email: true, sms: false },
                   discoverable: true, createdAt: Date.now(),
                   invoiceShow: {}, logoData: '' });
               }
+            }
+            // Admin: sync all server users into local db.users so admin panel is always fresh
+            if (allUsers && Array.isArray(allUsers)) {
+              allUsers.forEach(su => {
+                const ex = db.users.find(u => u.id === su.id);
+                if (ex) {
+                  ex.displayName = su.displayName; ex.email = su.email;
+                  ex.role = su.role; ex.status = su.status;
+                } else {
+                  db.users.push({ ...su, phone:'', address:'', photo:'', notifPrefs:{inapp:true,email:true,sms:false}, discoverable:true, invoiceShow:{}, logoData:'' });
+                }
+              });
+            }
+            // Non-admin: inherit admin's platform branding for emails/headers
+            if (platformSettings) {
+              if (platformSettings.appName)  db.settings.appName  = platformSettings.appName;
+              if (platformSettings.tagline)  db.settings.tagline  = platformSettings.tagline;
+              if (platformSettings.siteUrl)  db.settings.siteUrl  = platformSettings.siteUrl;
+              if (platformSettings.logoData) db.settings.logoData = platformSettings.logoData;
             }
             migrate();
             // Mirror to localStorage as offline cache
@@ -663,6 +798,42 @@
 
       nav.innerHTML = html;
       nav.classList.remove('open');
+
+      // ── Mobile bottom tab bar ────────────────────────────────────────
+      const tabBar = document.getElementById('mobileTabBarInner');
+      if (tabBar) {
+        const unread = (db.notifs||[]).filter(n => n.userId === curUser().id && !n.read).length;
+        const badgeHtml = unread > 0
+          ? `<span class="badge-dot">${unread > 9 ? '9+' : unread}</span>` : '';
+        const tabItems = role === 'admin'
+          ? [
+              { page: 'dash',     icon: '🏠', label: 'Home' },
+              { page: 'contacts', icon: '👤', label: 'Contacts' },
+              { page: 'entries',  icon: '📋', label: 'Entries' },
+              { page: 'notifs',   icon: '🔔', label: 'Notifs', badge: badgeHtml },
+              { page: 'settings', icon: '⚙️', label: 'More' }
+            ]
+          : role === 'standard'
+          ? [
+              { page: 'dash',     icon: '🏠', label: 'Home' },
+              { page: 'contacts', icon: '👤', label: 'Contacts' },
+              { page: 'entries',  icon: '📋', label: 'Entries' },
+              { page: 'notifs',   icon: '🔔', label: 'Notifs', badge: badgeHtml },
+              { page: 'settings', icon: '⚙️', label: 'More' }
+            ]
+          : [
+              { page: 'dash',     icon: '🏠', label: 'Home' },
+              { page: 'entries',  icon: '📋', label: 'Entries' },
+              { page: 'notifs',   icon: '🔔', label: 'Notifs', badge: badgeHtml },
+              { page: 'settings', icon: '⚙️', label: 'More' }
+            ];
+
+        tabBar.innerHTML = tabItems.map(t => `
+          <button onclick="nav('${t.page}')" class="${_curPage===t.page?'active':''}">
+            <div class="tab-icon tab-notif-badge">${t.icon}${t.badge||''}</div>
+            <span>${t.label}</span>
+          </button>`).join('');
+      }
     }
 
     function closeMoreDropdown() {
@@ -730,19 +901,24 @@
       const logoImg = document.getElementById('topbar-logo');
       const appNameEl = document.getElementById('appname');
       const logoData = db.settings?.logoData || '';
+      const appName  = db.settings?.appName  || 'Money Intx';
+      appNameEl.textContent = appName;
+      document.title = appName;
       if (logoData) {
         logoImg.src = logoData;
         logoImg.style.display = '';
         appNameEl.style.display = 'none';
       } else {
-        logoImg.src = '';
-        logoImg.style.display = 'none';
-        appNameEl.style.display = '';
-        appNameEl.textContent = db.settings?.appName || 'Money Intx';
+        // Use the bundled logo.svg as fallback; hide on error to show name
+        logoImg.src = 'logo.svg';
+        logoImg.onerror = () => { logoImg.style.display = 'none'; appNameEl.style.display = ''; };
+        logoImg.onload  = () => { logoImg.style.display = ''; appNameEl.style.display = 'none'; };
+        logoImg.style.display = '';
+        appNameEl.style.display = 'none';
       }
     }
 
-    function nav(page) {
+    function nav(page, _skipHash) {
       if (document.getElementById('nav').classList.contains('open')) toggleMobileNav();
       const role = curRole();
       if (page === 'dash' && (role === 'admin' || role === 'standard' || role === 'contact')) { _curPage = 'dash'; renderDash(); }
@@ -756,7 +932,10 @@
       else if (page === 'users' && isAdmin()) { _curPage = 'users'; renderUsers(); }
       else if (page === 'audit' && isAdmin()) { _curPage = 'audit'; renderAudit(); }
       else if (page === 'settings') { _curPage = 'settings'; renderSettings(); }
-      else nav('dash');
+      else { nav('dash'); return; }
+      // Keep the URL hash in sync so refresh restores the same page
+      if (!_skipHash) history.replaceState(null, '', '#' + _curPage);
+      renderNav(); // refresh active tab highlight
     }
 
     // Refresh the current page after a save operation
@@ -1151,12 +1330,11 @@
       };
       db.contacts.push(newContact);
       save();
-      // Set the select to the new contact
-      const select = document.getElementById('necon');
-      if (select) {
-        select.innerHTML += `<option value="${newContact.id}" selected>${esc(newContact.name)}</option>`;
-        select.value = newContact.id;
-      }
+      // Set the searchable contact select to the new contact (entry form + recurring form)
+      ['necon','rcon'].forEach(id => {
+        _csAddOption(id, newContact.id, newContact.name);
+        _csSelect(id, newContact.id, newContact.name);
+      });
       document.getElementById('quickContactBg')?.remove();
       toast('Contact created and selected');
     }
@@ -1756,6 +1934,7 @@
             <button onclick="openShareModal('${e.id}')">🔗 Share</button>
             <button onclick="toggleArchiveEntry('${e.id}')">${e.archived ? 'Unarchive' : 'Archive'}</button>
             <button onclick="voidEntry('${e.id}')">Void</button>
+            <button onclick="${e.status==='closed' ? 'reopenEntry' : 'openCloseModal'}('${e.id}')">${e.status==='closed' ? '🔓 Reopen' : '🔒 Close Record'}</button>
             <button onclick="delEntry('${e.id}')" style="color: var(--red);">Delete</button>
           </div></div></td>
         </tr>`;
@@ -1829,8 +2008,8 @@
       html += `<hr style="border:none;border-top:1px solid var(--border);margin:8px 0 14px;">`;
       // ── Core fields ──────────────────────────────────────────────────
       html += `<div class="fg"><label>Contact *</label>
-        <div style="display:flex;gap:8px;">
-          <select id="necon" style="flex:1;">${!cid&&!e?'<option value="">Select Contact...</option>':''}${cOpts}</select>
+        <div style="display:flex;gap:8px;align-items:flex-start;">
+          ${buildContactSearch(contacts, cid||e?.cId||'', 'necon')}
           <button type="button" class="btn sm" onclick="openQuickContactModal()" style="flex-shrink:0;padding:10px 14px;">+ New</button>
         </div>
       </div>`;
@@ -2377,7 +2556,6 @@
         // ── Manual entry: simple form ─────────────────────────────────────
         const u = curUser();
         const contacts = curRole()==='admin' ? db.contacts : db.contacts.filter(c=>c.userId===u.id);
-        const cOpts = contacts.map(c=>`<option value="${c.id}" ${e.cId===c.id?'selected':''}>${esc(c.name)}</option>`).join('');
         const dateVal = new Date(e.date).toISOString().split('T')[0];
         const d = document.createElement('div');
         d.innerHTML = `<div class="modal-bg" id="editEntryBg" onclick="if(event.target===this)this.remove()">
@@ -2386,7 +2564,7 @@
               <div class="modal-title" style="margin:0;">Edit Entry</div>
               <button class="gh sm" onclick="document.getElementById('editEntryBg').remove()">✕</button>
             </div>
-            <div class="fg"><label>Contact *</label><select id="eecon">${cOpts}</select></div>
+            <div class="fg"><label>Contact *</label>${buildContactSearch(contacts, e.cId||'', 'eecon')}</div>
             <div class="fg"><label>Transaction Type *</label><select id="eetx"><option value="">—</option>${txOpts([],e.txType)}</select></div>
             <div class="fg"><label>Amount *</label><input type="number" id="eeamt" value="${e.amount}" min="0" max="9999999" step="0.01"></div>
             <div class="grid2">
@@ -2509,6 +2687,130 @@
       }
     }
 
+    function openCloseModal(eid) {
+      const e = db.entries.find(x => x.id === eid);
+      if (!e) return;
+      const c = db.contacts.find(x => x.id === e.cId);
+      const d = document.createElement('div');
+      d.innerHTML = `<div class="modal-bg" id="closeModalBg" onclick="if(event.target===this)this.remove()">
+        <div class="modal" style="max-width:460px;" onclick="event.stopPropagation()">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+            <div class="modal-title" style="margin:0;">🔒 Close Record</div>
+            <button class="gh sm" onclick="document.getElementById('closeModalBg').remove()">✕</button>
+          </div>
+          <div style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:14px;">
+            <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px;">Record</div>
+            <div style="font-weight:700;">${esc(c?.name||'—')} — ${fmt(e.amount)}</div>
+          </div>
+          <p style="font-size:13px;color:var(--muted);margin-bottom:14px;">
+            Closing this record will mark it as <strong>Closed</strong> and notify ${esc(c?.name||'your contact')} that you have closed it. They can also close it from their side.
+          </p>
+          <div class="fg">
+            <label>Closing message <span style="font-size:11px;color:var(--muted);">(optional)</span></label>
+            <textarea id="closeMsgInput" rows="3" placeholder="e.g. This matter has been resolved." style="width:100%;"></textarea>
+          </div>
+          <div style="display:flex;gap:10px;margin-top:4px;">
+            <button class="bs" style="flex:1;" onclick="document.getElementById('closeModalBg').remove()">Cancel</button>
+            <button class="bp" style="flex:1;" onclick="doCloseEntry('${eid}')">🔒 Close Record</button>
+          </div>
+        </div>
+      </div>`;
+      document.body.appendChild(d);
+    }
+
+    async function doCloseEntry(eid) {
+      const msg = (document.getElementById('closeMsgInput')?.value || '').trim();
+      const e = db.entries.find(x => x.id === eid);
+      if (!e) return;
+      const c = db.contacts.find(x => x.id === e.cId);
+
+      // 1. Update local entry
+      e.status = 'closed';
+      e.closedAt = Date.now();
+      e.closedMsg = msg;
+      e.closedByRecipient = false;
+      save();
+      logAudit('close_entry', { eid, msg });
+
+      // 2. Close the modal
+      document.getElementById('closeModalBg')?.remove();
+      toast('Record closed');
+      refreshCurPage();
+
+      // 3. Update share_tokens snapshot + trigger email to contact (non-blocking)
+      if (_IS_SERVER) {
+        try {
+          await fetch('/api/share', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              action: 'owner-close',
+              entryId: eid,
+              closedMsg: msg
+            })
+          });
+        } catch (_) {}
+
+        // Send notification email to contact if they have an email
+        try {
+          const u = curUser();
+          const appName = db.settings?.appName || 'Money Intx';
+          const siteUrl = db.settings?.siteUrl || window.location.origin;
+          // Find the share token for this entry so we can include the link
+          const stRes = await fetch('/api/share', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              action: 'create',
+              entryId: eid,
+              contactName: c?.name || '',
+              fromName: u?.name || u?.email || '',
+              fromEmail: u?.email || '',
+              txType: e.txType,
+              amount: e.amount,
+              date: e.date,
+              note: e.note || '',
+              invoiceNumber: e.invoiceNumber || '',
+              status: 'closed',
+              appName,
+              siteUrl
+            })
+          });
+          const stData = await stRes.json();
+          const shareUrl = stData.shareUrl || '';
+
+          if (c?.email) {
+            const closingNote = msg ? `\n\n"${msg}"` : '';
+            await fetch('/api/email', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                to: c.email,
+                subject: `${u?.name || appName} has closed a record`,
+                text: `Hi ${c.name},\n\n${u?.name || 'The sender'} has closed the following record:${closingNote}\n\nAmount: ${fmt(e.amount)}\n\nYou can view the record and close it from your side here:\n${shareUrl}\n\n— ${appName}`,
+                appName, siteUrl
+              })
+            });
+          }
+        } catch (_) {}
+      }
+    }
+
+    function reopenEntry(eid) {
+      if (!confirm('Reopen this record?')) return;
+      const e = db.entries.find(x => x.id === eid);
+      if (!e) return;
+      e.status = 'posted';
+      delete e.closedAt;
+      delete e.closedMsg;
+      delete e.closedByRecipient;
+      delete e.closedByRecipientAt;
+      save();
+      logAudit('reopen_entry', { eid });
+      toast('Record reopened');
+      refreshCurPage();
+    }
+
     function delEntry(eid) {
       if (!confirm('Delete this entry?')) return;
       const e = db.entries.find(x => x.id === eid);
@@ -2550,6 +2852,14 @@
               <button type="button" id="nwho_them" class="nwho-btn" style="padding:8px 18px;font-size:13px;background:var(--accent);color:#fff;border:none;cursor:pointer;font-weight:600;" onclick="_setNwho('them')">Contact</button>
               <button type="button" id="nwho_you" class="nwho-btn" style="padding:8px 18px;font-size:13px;background:var(--bg3);color:var(--text);border:none;border-left:1px solid var(--border);cursor:pointer;" onclick="_setNwho('you')">You</button>
               <button type="button" id="nwho_both" class="nwho-btn" style="padding:8px 18px;font-size:13px;background:var(--bg3);color:var(--text);border:none;border-left:1px solid var(--border);cursor:pointer;" onclick="_setNwho('both')">Both</button>
+            </div>
+          </div>
+          <div id="notify_email_wrap" style="margin-top:10px;${c?.email ? 'display:none;' : ''}">
+            <div style="background:#fff8e1;border:1px solid #ffe082;border-radius:8px;padding:10px 14px;">
+              <div style="font-size:13px;color:#795548;margin-bottom:8px;">⚠️ <strong>${esc(c?.name||'This contact')}</strong> has no email on file.</div>
+              <input type="email" id="notify_contact_email" placeholder="Enter email to send notification"
+                style="width:100%;box-sizing:border-box;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;background:var(--bg2);color:var(--text);" />
+              <div style="font-size:11px;color:var(--muted);margin-top:4px;">Email will be saved to this contact.</div>
             </div>
           </div>
           <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;border-top:1px solid var(--border);padding-top:14px;">
@@ -2610,6 +2920,9 @@
         b.style.color      = active ? '#fff' : 'var(--text)';
         b.style.fontWeight = active ? '600' : '400';
       });
+      // Show email prompt only when notification targets the contact
+      const wrap = document.getElementById('notify_email_wrap');
+      if (wrap) wrap.style.display = (val === 'them' || val === 'both') ? '' : 'none';
     }
 
     // Shared helper — saves to db.notifs AND calls the email API
@@ -2670,11 +2983,12 @@
             body: JSON.stringify({
               action: 'send-reminder',
               recipientEmail: addr,
-              fromName: u.displayName || u.email || 'Money Intx',
+              fromName: u.displayName || u.email || (db.settings?.appName || 'Money Intx'),
               fromEmail: u.email || '',
               message,
               invoiceNumber: e.invoiceNumber || null,
               amount: e.amount || null,
+              txType: e.txType || null,
               viewUrl: _viewUrl,
               siteUrl: _siteUrl,
               appName: db.settings?.appName || 'Money Intx',
@@ -2696,8 +3010,70 @@
       const who = window._notifyWhoVal || 'them';
       const message = document.getElementById('notify_msg')?.value.trim() || '';
       if (!message) return alert('Message required');
+      // If the user provided an inline email for a contact without one, save it now
+      if (who === 'them' || who === 'both') {
+        const inlineEmail = document.getElementById('notify_contact_email')?.value.trim() || '';
+        if (inlineEmail) {
+          const en = db.entries.find(x => x.id === eid);
+          if (en) {
+            const ct = db.contacts.find(x => x.id === en.cId);
+            if (ct && !ct.email) { ct.email = inlineEmail; save(); }
+          }
+        }
+      }
       document.getElementById('notifyModalBg')?.remove();
       _sendNotificationForEntry(eid, message, who);
+    }
+
+    // Toggle recurring notify section + show email prompt if contact has no email
+    function _toggleRNotify() {
+      const chk = document.getElementById('r_notify_chk');
+      const wrap = document.getElementById('r_notify_wrap');
+      if (!wrap) return;
+      wrap.style.display = chk?.checked ? 'block' : 'none';
+      if (!chk?.checked) return;
+      // Check if selected contact has email
+      const cid = document.getElementById('rcon')?.value || '';
+      const c = db.contacts.find(x => x.id === cid);
+      const emailWrap = document.getElementById('r_notify_email_wrap');
+      if (emailWrap) emailWrap.style.display = (!c?.email) ? 'block' : 'none';
+    }
+
+    // Send a notification for a recurring record (no entryId yet)
+    async function _sendRecurringNotif(rid, message) {
+      const r = db.recurring.find(x => x.id === rid);
+      if (!r) return;
+      const contact = db.contacts.find(x => x.id === r.cId);
+      const u = curUser();
+      const recipientEmail = contact?.email || '';
+      if (!recipientEmail) {
+        toast('⚠️ No email on record — notification saved but not emailed.', 4000);
+        return;
+      }
+      const appName = db.settings?.appName || 'Money Intx';
+      const siteUrl = db.settings?.siteUrl || window.location.origin;
+      const tagline = db.settings?.tagline || 'Making Money Matters Memorable';
+      try {
+        await fetch('/api/email', {
+          method: 'POST', credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'send-reminder',
+            recipientEmail,
+            fromName: u.displayName || u.email || appName,
+            fromEmail: u.email || '',
+            message,
+            amount: r.amount || null,
+            txType: r.txType || null,
+            viewUrl: siteUrl,
+            siteUrl, appName, tagline
+          })
+        });
+        toast('✅ Notification sent');
+      } catch(err) {
+        console.error('recurring notify error:', err);
+        toast('⚠️ Email failed — check console');
+      }
     }
 
     // ============ SHARE MODAL ============
@@ -2808,12 +3184,14 @@
 
       let html = `<div class="page-header"><h2>Templates</h2>
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-          <button class="bs sm" onclick="nav('templatedb')" style="font-size:12px;">🌐 Browse Template DB</button>
-          <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;">
-            <input type="checkbox" ${showArchived?'checked':''} onchange="window._tmplShowArch=this.checked;PG.templates=1;renderTemplates()"> Archived
-          </label>
+          <button class="bs sm" onclick="nav('templatedb')" style="font-size:12px;">🌐 Template DB</button>
           <button class="btn sm" onclick="openTemplateBuilder()">+ New Template</button>
         </div>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap;">
+        <label style="display:inline-flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;padding:6px 10px;background:var(--bg3);border:1px solid var(--border);border-radius:6px;">
+          <input type="checkbox" ${showArchived?'checked':''} onchange="window._tmplShowArch=this.checked;PG.templates=1;renderTemplates()"> Show Archived
+        </label>
       </div>
       <div style="display:flex;gap:8px;align-items:center;margin-bottom:14px;flex-wrap:wrap;">
         <input type="search" placeholder="Search templates…" value="${esc(window._search_templates||'')}" oninput="window._search_templates=this.value;PG.templates=1;renderTemplates()" style="flex:1;min-width:180px;max-width:340px;">
@@ -2864,6 +3242,7 @@
 
     // ── PUBLIC TEMPLATE DB ─────────────────────────────────────────────
     function renderTemplateDB() {
+      if (!db.templates) db.templates = [];
       const q = (window._search_tdb||'').toLowerCase().trim();
       const allPublic = db.templates.filter(t => t.isPublic && !t.archived);
       const listed = q ? allPublic.filter(t => (t.name||'').toLowerCase().includes(q) || (t.desc||'').toLowerCase().includes(q) || (t.creatorName||'').toLowerCase().includes(q)) : allPublic;
@@ -3588,14 +3967,18 @@
       // r = null for new, object for edit
       const u = curUser();
       const contacts = curRole() === 'admin' ? db.contacts : db.contacts.filter(c => c.userId === u.id);
-      const cOpts = contacts.map(c => `<option value="${c.id}" ${r?.cId===c.id?'selected':''}>${esc(c.name)}</option>`).join('');
       const startVal = r ? new Date(r.startDate).toISOString().split('T')[0] : new Date().toISOString().split('T')[0];
       const endVal   = r?.endDate ? new Date(r.endDate).toISOString().split('T')[0] : '';
       const freqs = ['daily','weekly','biweekly','monthly','quarterly','yearly'];
       const fOpts = freqs.map(f=>`<option value="${f}" ${r?.freq===f?'selected':''}>${f.charAt(0).toUpperCase()+f.slice(1)}</option>`).join('');
       const isRepeatN = r?.freq === 'repeat_n';
       return `
-        <div class="fg"><label>Contact *</label><select id="rcon">${r?'':'<option value="">Select Contact...</option>'}${cOpts}</select></div>
+        <div class="fg"><label>Contact *</label>
+          <div style="display:flex;gap:8px;align-items:flex-start;">
+            ${buildContactSearch(contacts, r?.cId||'', 'rcon')}
+            <button type="button" class="btn sm" onclick="openQuickContactModal()" style="flex-shrink:0;padding:10px 14px;">+ New</button>
+          </div>
+        </div>
         <div class="fg"><label>Name / Description *</label><input type="text" id="rname" value="${esc(r?.name||'')}" placeholder="e.g. Monthly rent"></div>
         <div class="fg"><label>Transaction Type *</label>
           <select id="rtx">
@@ -3621,6 +4004,23 @@
         <div class="fg">
           <label>End Date <span style="color:var(--muted);font-weight:400;">(optional — leave blank to repeat indefinitely)</span></label>
           <input type="date" id="renddate" value="${endVal}">
+        </div>
+        <div style="border-top:1px solid var(--border);margin-top:14px;padding-top:12px;">
+          <label style="display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;cursor:pointer;">
+            <input type="checkbox" id="r_notify_chk" onchange="_toggleRNotify()">
+            <span>🔔 Notify contact when created</span>
+          </label>
+          <div id="r_notify_wrap" style="display:none;margin-top:10px;">
+            <textarea id="r_notify_msg" rows="2" style="width:100%;box-sizing:border-box;">A recurring transaction has been set up for your account</textarea>
+            <div id="r_notify_email_wrap" style="display:none;margin-top:8px;">
+              <div style="background:#fff8e1;border:1px solid #ffe082;border-radius:8px;padding:10px 14px;">
+                <div style="font-size:13px;color:#795548;margin-bottom:8px;">⚠️ Selected contact has no email on file.</div>
+                <input type="email" id="r_notify_contact_email" placeholder="Enter email to send notification"
+                  style="width:100%;box-sizing:border-box;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;background:var(--bg2);color:var(--text);" />
+                <div style="font-size:11px;color:var(--muted);margin-top:4px;">Email will be saved to this contact.</div>
+              </div>
+            </div>
+          </div>
         </div>`;
     }
 
@@ -3642,7 +4042,11 @@
           </div>
         </div></div>`;
       document.body.appendChild(d.firstChild);
-      if (cid) document.getElementById('rcon').value = cid;
+      if (cid) {
+        const c = db.contacts.find(x => x.id === cid);
+        if (c) _csSelect('rcon', c.id, c.name);
+        else document.getElementById('rcon').value = cid;
+      }
     }
 
     function saveNewRecurring() {
@@ -3664,10 +4068,21 @@
       const endDateStr  = document.getElementById('renddate')?.value;
       const endDate     = endDateStr ? new Date(endDateStr).getTime() : null;
       const repeatTimes = freq === 'repeat_n' ? parseInt(document.getElementById('rreptimes').value) : null;
-      db.recurring.push({ id:uuid(), userId:curUser().id, cId:cid, name, txType, amount:parseFloat(amt),
+      const newRid = uuid();
+      db.recurring.push({ id:newRid, userId:curUser().id, cId:cid, name, txType, amount:parseFloat(amt),
         startDate, endDate, repeatTimes, freq, status:'active', archived:false, lastPosted:null, createdAt:Date.now() });
       save();
       logAudit('add_recurring', {cid, name, freq});
+      // Notify contact if checkbox is checked
+      const rNotifyChk = document.getElementById('r_notify_chk');
+      const rNotifyMsg = document.getElementById('r_notify_msg')?.value.trim();
+      if (rNotifyChk?.checked && rNotifyMsg) {
+        // Check for inline email if contact has none
+        const rc = db.contacts.find(x => x.id === cid);
+        const inlineEmail = document.getElementById('r_notify_contact_email')?.value.trim() || '';
+        if (inlineEmail && rc && !rc.email) { rc.email = inlineEmail; save(); }
+        _sendRecurringNotif(newRid, rNotifyMsg);
+      }
       document.getElementById('recModalBg')?.remove();
       toast('Recurring created');
       renderRecurring();
@@ -4189,7 +4604,7 @@
           ? `<img src="${s.logoData}" style="height:64px;border-radius:8px;object-fit:contain;border:1px solid var(--border);padding:4px;background:var(--bg);">`
           : `<div style="width:64px;height:64px;border-radius:8px;background:var(--bg3);border:1px dashed var(--border);display:flex;align-items:center;justify-content:center;font-size:24px;">💰</div>`;
 
-        let html = `<div class="page-header"><h2>Admin Settings</h2></div>
+        let html = `<div class="page-header"><h2>Admin Settings</h2><button class="btn sm" onclick="saveAllAdminSettings()">💾 Save All Settings</button></div>
         <p style="color:var(--muted);font-size:13px;margin-bottom:20px;">Configure your site identity, organization info, and system defaults. Changes here affect how the app appears to all users.</p>`;
 
         // ── BRANDING ──────────────────────────────────────────────────
@@ -4392,11 +4807,11 @@
           <div style="display:flex;flex-direction:column;gap:10px;max-width:400px;">
             <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:var(--bg3);border-radius:8px;">
               <div><div style="font-size:14px;font-weight:600;">In-App Notifications</div></div>
-              <label class="toggle"><input type="checkbox" id="pnotif_inapp" ${u.notifPrefs?.inapp?'checked':''}><span class="slider"></span></label>
+              <label class="toggle"><input type="checkbox" id="pnotif_inapp" ${(u.notifPrefs?.inapp !== false)?'checked':''}><span class="slider"></span></label>
             </div>
             <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:var(--bg3);border-radius:8px;">
               <div><div style="font-size:14px;font-weight:600;">Email Notifications</div></div>
-              <label class="toggle"><input type="checkbox" id="pnotif_email" ${u.notifPrefs?.email?'checked':''}><span class="slider"></span></label>
+              <label class="toggle"><input type="checkbox" id="pnotif_email" ${(u.notifPrefs?.email !== false)?'checked':''}><span class="slider"></span></label>
             </div>
             ${db.settings.notifDefaults?.smsEnabled ? `
             <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:var(--bg3);border-radius:8px;">
@@ -4482,17 +4897,26 @@
       }
     }
 
-    function saveAdminSettings() {
+    function saveAllAdminSettings() {
+      // Save every section on the admin settings page in one shot
+      if (document.getElementById('sappname'))    saveAdminSettings(true);
+      if (document.getElementById('sconame'))     saveOrgInfo(true);
+      if (document.getElementById('spshow_logo')) savePublicVisibility(true);
+      if (document.getElementById('snotifsend'))  saveNotifDefaults(true);
+      save();
+      updateUserInfo();
+      logAudit('save_all_admin_settings', {});
+      toast('✅ All settings saved');
+    }
+
+    function saveAdminSettings(silent) {
       db.settings.appName = document.getElementById('sappname').value || 'Money Intx';
       db.settings.tagline = document.getElementById('stagline').value || 'Making Money Matters Memorable';
       db.settings.siteUrl = document.getElementById('ssiteurl').value || 'https://moneyinteractions.com';
-      save();
-      updateUserInfo();
-      logAudit('update_admin_branding', { appName: db.settings.appName });
-      toast('Branding saved');
+      if (!silent) { save(); updateUserInfo(); logAudit('update_admin_branding', { appName: db.settings.appName }); toast('Branding saved'); }
     }
 
-    function saveOrgInfo() {
+    function saveOrgInfo(silent) {
       db.settings.company = {
         name: document.getElementById('sconame').value,
         address: document.getElementById('scoaddr').value,
@@ -4502,40 +4926,34 @@
         aboutText: document.getElementById('scoabout').value,
         contactText: document.getElementById('scocont').value
       };
-      save();
-      logAudit('update_org_info', { name: db.settings.company.name });
-      toast('Organization info saved');
+      if (!silent) { save(); logAudit('update_org_info', { name: db.settings.company.name }); toast('Organization info saved'); }
     }
 
-    function savePublicVisibility() {
+    function savePublicVisibility(silent) {
       db.settings.publicShow = {
-        logo: document.getElementById('spshow_logo').checked,
-        companyName: document.getElementById('spshow_name').checked,
-        address: document.getElementById('spshow_addr').checked,
-        email: document.getElementById('spshow_email').checked,
-        phone: document.getElementById('spshow_phone').checked,
-        website: document.getElementById('spshow_web').checked,
-        aboutText: document.getElementById('spshow_about').checked,
-        contactText: document.getElementById('spshow_contact').checked
+        logo:        document.getElementById('spshow_logo')?.checked    || false,
+        companyName: document.getElementById('spshow_companyName')?.checked || false,
+        address:     document.getElementById('spshow_address')?.checked  || false,
+        email:       document.getElementById('spshow_email')?.checked    || false,
+        phone:       document.getElementById('spshow_phone')?.checked    || false,
+        website:     document.getElementById('spshow_website')?.checked  || false,
+        aboutText:   document.getElementById('spshow_aboutText')?.checked|| false,
+        contactText: document.getElementById('spshow_contactText')?.checked||false
       };
-      save();
-      logAudit('update_public_visibility', {});
-      toast('Visibility saved');
+      if (!silent) { save(); logAudit('update_public_visibility', {}); toast('Visibility saved'); }
     }
 
-    function saveNotifDefaults() {
+    function saveNotifDefaults(silent) {
       const ch = [];
       if (document.getElementById('snotif_inapp')?.checked) ch.push('inapp');
       if (document.getElementById('snotif_email')?.checked) ch.push('email');
       if (document.getElementById('snotif_sms')?.checked) ch.push('sms');
       db.settings.notifDefaults = {
-        autoSend: document.getElementById('snotifsend').checked,
+        autoSend: document.getElementById('snotifsend')?.checked || false,
         channels: ch.length ? ch : ['inapp'],
-        smsEnabled: document.getElementById('snotifssms').checked
+        smsEnabled: document.getElementById('snotifssms')?.checked || false
       };
-      save();
-      logAudit('update_notif_defaults', {});
-      toast('Notification defaults saved');
+      if (!silent) { save(); logAudit('update_notif_defaults', {}); toast('Notification defaults saved'); }
     }
 
     function saveProfile() {
@@ -4609,7 +5027,7 @@
             if (!db.users) db.users = [];
             const existing = db.users.find(u => u.id === json.user.id);
             if (!existing) db.users.push({ ...json.user, displayName: json.user.displayName,
-              status: 'active', notifPrefs: { inapp: true, email: false, sms: false },
+              status: 'active', notifPrefs: { inapp: true, email: true, sms: false },
               discoverable: true, invoiceShow: {}, logoData: '' });
           }
           return json;
@@ -4626,7 +5044,7 @@
           const u = { id: uuid(), role: 'standard', displayName: displayName.trim(),
             username: email.trim().split('@')[0], email: email.trim(), _pw: password,
             phone: '', address: '', photo: '', status: 'active',
-            notifPrefs: { inapp: true, email: false, sms: false }, discoverable: true,
+            notifPrefs: { inapp: true, email: true, sms: false }, discoverable: true,
             createdAt: Date.now(), invoiceShow: {}, logoData: '' };
           db.users.push(u); db.settings.sessionUserId = u.id; save();
           return { ok: true, user: { id: u.id, displayName: u.displayName, email: u.email, role: u.role } };
@@ -4643,7 +5061,7 @@
             db.settings.sessionUserId = json.user.id;
             if (!db.users) db.users = [];
             db.users.push({ ...json.user, status: 'active',
-              notifPrefs: { inapp: true, email: false, sms: false },
+              notifPrefs: { inapp: true, email: true, sms: false },
               discoverable: true, invoiceShow: {}, logoData: '' });
           }
           return json;
@@ -5363,8 +5781,15 @@
         nav('entries');
         setTimeout(() => openEntryInvoice(_dlEntry), 250);
       } else {
-        nav('dash');
+        // Restore page from URL hash (survives refresh)
+        const hashPage = (location.hash || '').replace('#', '').trim();
+        nav(hashPage || 'dash');
       }
+      // Support browser back/forward
+      window.addEventListener('hashchange', () => {
+        const p = (location.hash || '').replace('#', '').trim();
+        if (p && p !== _curPage) nav(p, true);
+      });
       // Show username prompt if user hasn't set one yet
       setTimeout(checkAndShowUsernamePrompt, 300);
     }

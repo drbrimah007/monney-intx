@@ -16,9 +16,9 @@ module.exports = async function handler(req, res) {
   const { action } = req.body || {};
 
   if (action === 'send-reminder') {
-    const { recipientEmail, fromName, fromEmail, message, invoiceNumber, amount, viewUrl, siteUrl, appName, tagline } = req.body;
+    const { recipientEmail, fromName, fromEmail, message, invoiceNumber, amount, txType, viewUrl, siteUrl, appName, tagline } = req.body;
     if (!recipientEmail) return res.status(400).json({ ok: false, error: 'recipientEmail is required.' });
-    const result = await sendReminderEmail({ to: recipientEmail, fromName, fromEmail, message, invoiceNumber, amount, viewUrl, siteUrl, appName, tagline });
+    const result = await sendReminderEmail({ to: recipientEmail, fromName, fromEmail, message, invoiceNumber, amount, txType, viewUrl, siteUrl, appName, tagline });
     return res.json(result);
   }
 
