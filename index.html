@@ -2481,6 +2481,30 @@
         toast('⚠️ No email on record for this contact — notification saved but not emailed.', 4000);
         return;
       }
+      // Generate a public share link so recipient can view without needing to log in
+      const _siteUrl = db.settings?.siteUrl || window.location.origin;
+      let _viewUrl = _siteUrl + '?entry=' + eid; // fallback (owner deep-link)
+      try {
+        const _shareRes = await fetch('/api/share', {
+          method: 'POST', credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'create', entryId: eid,
+            contactName: contact?.name || '',
+            fromName: u.displayName || u.email || (db.settings?.appName || 'Money Intx'),
+            fromEmail: u.email || '',
+            txType: e.txType, amount: e.amount, date: e.date,
+            note: e.note || '', invoiceNumber: e.invoiceNumber || null,
+            status: e.status || 'posted',
+            appName: db.settings?.appName || 'Money Intx',
+            siteUrl: _siteUrl,
+            tagline: db.settings?.tagline || 'Making Money Matters Memorable'
+          })
+        });
+        const _shareData = await _shareRes.json();
+        if (_shareData.ok && _shareData.shareUrl) _viewUrl = _shareData.shareUrl;
+      } catch(_) { /* keep fallback */ }
+
       try {
         for (const addr of toAddresses) {
           await fetch('/api/email', {
@@ -2495,8 +2519,8 @@
               message,
               invoiceNumber: e.invoiceNumber || null,
               amount: e.amount || null,
-              viewUrl: (db.settings?.siteUrl || window.location.origin) + '?entry=' + eid,
-              siteUrl: db.settings?.siteUrl || window.location.origin,
+              viewUrl: _viewUrl,
+              siteUrl: _siteUrl,
               appName: db.settings?.appName || 'Money Intx',
               tagline: db.settings?.tagline || 'Making Money Matters Memorable'
             })
