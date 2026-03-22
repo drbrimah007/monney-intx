@@ -546,8 +546,13 @@
       if (!dd) return;
       if (dd.classList.contains('open')) { dd.classList.remove('open'); return; }
       const r = btn.getBoundingClientRect();
-      dd.style.top = (r.bottom + 4) + 'px';
-      dd.style.left = Math.max(4, r.right - 150) + 'px';
+      const ddH = 200; // generous estimated height
+      const spaceBelow = window.innerHeight - r.bottom;
+      // Flip upward if not enough space below
+      const topPos = spaceBelow < ddH + 8 ? Math.max(4, r.top - ddH - 4) : r.bottom + 4;
+      const leftPos = Math.max(4, Math.min(r.right - 150, window.innerWidth - 160));
+      dd.style.top = topPos + 'px';
+      dd.style.left = leftPos + 'px';
       dd.classList.add('open');
     }
     document.addEventListener('click', function(e) {
@@ -639,7 +644,7 @@
         html += `<div class="nav-more" style="position:relative;display:inline-block;">
           <button class="nav-btn" onclick="toggleMoreDropdown()">More ▾</button>
           <div id="moreDropdown" class="nav-dropdown" style="position:absolute;top:100%;left:0;background:var(--bg2);border:1px solid var(--border);border-radius:8px;min-width:150px;z-index:500;display:none;flex-direction:column;box-shadow:var(--shadow);">
-            ${moreItems.map(item => `<button class="nav-dropdown-item" onclick="nav('${item.page}')">${item.label}</button>`).join('')}
+            ${moreItems.map(item => `<button class="nav-dropdown-item" onclick="closeMoreDropdown();nav('${item.page}')">${item.label}</button>`).join('')}
           </div>
         </div>`;
       }
@@ -654,6 +659,10 @@
       nav.classList.remove('open');
     }
 
+    function closeMoreDropdown() {
+      const dd = document.getElementById('moreDropdown');
+      if (dd) dd.style.display = 'none';
+    }
     function toggleMoreDropdown() {
       const dd = document.getElementById('moreDropdown');
       if (dd) {
@@ -1852,6 +1861,16 @@
         });
         html += `</div>`;
       }
+      // ── Notify contact on save ────────────────────────────────────────
+      html += `<div style="border-top:1px solid var(--border);margin-top:14px;padding-top:12px;">
+        <label style="display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;cursor:pointer;">
+          <input type="checkbox" id="ne_notify_chk" onchange="document.getElementById('ne_notify_wrap').style.display=this.checked?'block':'none'">
+          <span>🔔 Notify contact after saving</span>
+        </label>
+        <div id="ne_notify_wrap" style="display:none;margin-top:10px;">
+          <textarea id="ne_notify_msg" rows="2" style="width:100%;box-sizing:border-box;" placeholder="For your kind attention"></textarea>
+        </div>
+      </div>`;
       return html;
     }
 
@@ -2207,11 +2226,18 @@
         id: _entryTpl.id, name: _entryTpl.name, txType: _entryTpl.txType,
         invoicePrefix: _entryTpl.invoicePrefix, fields: _entryTpl.fields
       })) : null;
-      db.entries.push({ id:uuid(), userId:curUser().id, cId:cid, txType, amount,
+      const newEid = uuid();
+      db.entries.push({ id:newEid, userId:curUser().id, cId:cid, txType, amount,
         note, date, status:safeStatus(status), archived:false, shared:false, responses:[],
         templateId:_entryTpl?.id||null, templateData:tplData,
         templateSnapshot, invoiceNumber, entryNum, createdAt:Date.now() });
       save(); logAudit('add_entry',{cid,txType,amount,tpl:_entryTpl?.name||null,invoiceNumber});
+      // Notify contact if checkbox is checked
+      const notifyChk = document.getElementById('ne_notify_chk');
+      const notifyMsg = document.getElementById('ne_notify_msg')?.value.trim();
+      if (notifyChk?.checked && notifyMsg) {
+        _sendNotificationForEntry(newEid, notifyMsg, 'them');
+      }
       closeEntryModal();
       toast(`Entry saved${invoiceNumber ? ' — ' + invoiceNumber : ''}`);
       refreshCurPage();
@@ -2407,7 +2433,7 @@
             <div style="font-size:12px;color:var(--muted);margin-bottom:4px;">Record</div>
             <div style="font-weight:700;">${esc(c?.name||'—')} — ${fmt(e.amount)}</div>
           </div>
-          <div class="fg"><label>Message</label><textarea id="notify_msg" rows="3" placeholder="Enter your message..."></textarea></div>
+          <div class="fg"><label>Message</label><textarea id="notify_msg" rows="3" placeholder="For your kind attention"></textarea></div>
           <div class="fg"><label>Notify</label>
             <div style="display:flex;flex-direction:column;gap:8px;">
               <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;">
@@ -2429,20 +2455,59 @@
       document.body.appendChild(d.firstChild);
     }
 
-    function sendNotification(eid) {
-      const msg = document.querySelector('[name="notify_who"]:checked')?.value || 'them';
-      const message = document.getElementById('notify_msg')?.value.trim() || '';
-      if (!message) return alert('Message required');
+    // Shared helper — saves to db.notifs AND calls the email API
+    async function _sendNotificationForEntry(eid, message, who) {
       const e = db.entries.find(x => x.id === eid);
       if (!e) return;
+      const contact = db.contacts.find(x => x.id === e.cId);
+      const u = curUser();
+      // Save in-app notification record
       db.notifs.push({
-        id: uuid(), userId: curUser().id, cId: e.cId, eid,
-        msg: message, channel: 'inapp', sent: false, createdAt: Date.now()
+        id: uuid(), userId: u.id, cId: e.cId, eid,
+        msg: message, channel: 'email', sent: false, createdAt: Date.now()
       });
       save();
-      logAudit('send_notification', { eid, to: msg });
+      logAudit('send_notification', { eid, to: who });
+      // Determine recipient email(s)
+      const recipientEmail = contact?.email || '';
+      const myEmail = u.email || '';
+      const toAddresses = [];
+      if (who === 'them' || who === 'both') { if (recipientEmail) toAddresses.push(recipientEmail); }
+      if (who === 'you' || who === 'both')  { if (myEmail)        toAddresses.push(myEmail); }
+      if (toAddresses.length === 0) {
+        toast('⚠️ No email on record for this contact — notification saved but not emailed.', 4000);
+        return;
+      }
+      try {
+        for (const addr of toAddresses) {
+          await fetch('/api/email/send-reminder', {
+            method: 'POST',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              recipientEmail: addr,
+              fromName: u.displayName || u.email || 'Money Intx',
+              message,
+              invoiceNumber: e.invoiceNumber || null
+            })
+          });
+        }
+        // Mark sent
+        const notif = db.notifs.find(n => n.eid === eid && n.msg === message);
+        if (notif) { notif.sent = true; save(); }
+        toast('✅ Notification emailed');
+      } catch(err) {
+        console.error('send-reminder error:', err);
+        toast('⚠️ Saved but email failed — check console');
+      }
+    }
+
+    function sendNotification(eid) {
+      const who = document.querySelector('[name="notify_who"]:checked')?.value || 'them';
+      const message = document.getElementById('notify_msg')?.value.trim() || '';
+      if (!message) return alert('Message required');
       document.getElementById('notifyModalBg')?.remove();
-      toast('Notification sent');
+      _sendNotificationForEntry(eid, message, who);
     }
 
     // ============ PAGE: TEMPLATES ============
