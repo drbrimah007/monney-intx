@@ -55,6 +55,20 @@ VALUES (
 )
 ON CONFLICT (email) DO NOTHING;
 
+-- ── SHARE TOKENS ──────────────────────────────────────────────────────────
+-- Stores public shareable links for entries. No auth required to view.
+CREATE TABLE IF NOT EXISTS share_tokens (
+  token            TEXT        PRIMARY KEY,
+  user_id          UUID        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  entry_id         TEXT        NOT NULL,
+  entry_data       JSONB       NOT NULL,
+  acknowledged     BOOLEAN     NOT NULL DEFAULT false,
+  acknowledged_at  TIMESTAMPTZ,
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_share_tokens_entry ON share_tokens(entry_id, user_id);
+
 -- NOTE: The hash above is a placeholder. After deploying, use the /api/auth/signup
 -- endpoint to create your real admin account, or update the hash using:
 --   node -e "console.log(require('bcryptjs').hashSync('yourpassword', 10))"

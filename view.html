@@ -1,0 +1,638 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Money Interaction Notice</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --accent: #6c63ff;
+      --accent-light: #f0efff;
+      --green: #16a34a;
+      --green-bg: #f0fdf4;
+      --amber: #b45309;
+      --amber-bg: #fffbeb;
+      --blue: #1d4ed8;
+      --blue-bg: #eff6ff;
+      --text: #111827;
+      --muted: #6b7280;
+      --border: #e5e7eb;
+      --bg: #f3f4f6;
+      --card: #ffffff;
+      --header-bg: #1a1a2e;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ── TOP BAR ───────────────────────────────────────────────────── */
+    .topbar {
+      background: var(--header-bg);
+      height: 56px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 20px;
+      flex-shrink: 0;
+    }
+    .topbar-brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      text-decoration: none;
+    }
+    .topbar-brand img { height: 28px; object-fit: contain; }
+    .topbar-brand span {
+      font-size: 18px;
+      font-weight: 800;
+      color: #fff;
+      letter-spacing: -0.3px;
+    }
+    .topbar-login {
+      font-size: 13px;
+      color: #bbb;
+      text-decoration: none;
+      padding: 6px 14px;
+      border: 1px solid rgba(255,255,255,.2);
+      border-radius: 6px;
+      transition: background .15s;
+    }
+    .topbar-login:hover { background: rgba(255,255,255,.1); color: #fff; }
+
+    /* ── MAIN CONTENT ─────────────────────────────────────────────── */
+    .main {
+      flex: 1;
+      padding: 20px 16px 32px;
+      display: flex;
+      justify-content: center;
+    }
+
+    .card-wrap {
+      width: 100%;
+      max-width: 540px;
+    }
+
+    /* ── STATE SCREENS ─────────────────────────────────────────────── */
+    .state-screen {
+      background: var(--card);
+      border-radius: 16px;
+      box-shadow: 0 2px 16px rgba(0,0,0,.07);
+      padding: 40px 24px;
+      text-align: center;
+    }
+    .state-icon { font-size: 48px; margin-bottom: 16px; }
+    .state-title { font-size: 20px; font-weight: 700; margin-bottom: 8px; }
+    .state-sub { font-size: 14px; color: var(--muted); }
+
+    /* ── MAIN CARD ─────────────────────────────────────────────────── */
+    .main-card {
+      background: var(--card);
+      border-radius: 16px;
+      box-shadow: 0 2px 16px rgba(0,0,0,.07);
+      overflow: hidden;
+    }
+
+    .card-body { padding: 20px; }
+    @media (min-width: 480px) { .card-body { padding: 28px; } }
+
+    /* Title block */
+    .eyebrow {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: .1em;
+      margin-bottom: 8px;
+    }
+    .card-title {
+      font-size: 22px;
+      font-weight: 700;
+      color: var(--text);
+      margin-bottom: 6px;
+      line-height: 1.2;
+    }
+    @media (min-width: 480px) { .card-title { font-size: 26px; } }
+    .card-subtitle {
+      font-size: 14px;
+      color: var(--muted);
+      margin-bottom: 18px;
+    }
+
+    /* Status row */
+    .status-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 20px;
+    }
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 12px;
+      font-weight: 600;
+      padding: 4px 12px;
+      border-radius: 99px;
+    }
+    .pill-due     { background: var(--amber-bg); color: var(--amber); }
+    .pill-settled { background: var(--green-bg); color: var(--green); }
+    .pill-partial { background: var(--blue-bg);  color: var(--blue); }
+    .pill-default { background: #f3f4f6; color: var(--muted); }
+    .shared-date  { font-size: 12px; color: var(--muted); }
+
+    /* Amount block */
+    .amount-block {
+      text-align: center;
+      padding: 20px 0 24px;
+      border-top: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 20px;
+    }
+    .amount-label {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      margin-bottom: 6px;
+    }
+    .amount-value {
+      font-size: 44px;
+      font-weight: 800;
+      color: var(--text);
+      line-height: 1.1;
+      letter-spacing: -1px;
+    }
+    @media (min-width: 480px) { .amount-value { font-size: 52px; } }
+    .amount-sub {
+      font-size: 12px;
+      color: var(--muted);
+      margin-top: 6px;
+    }
+
+    /* Parties */
+    .parties-box {
+      background: #f9fafb;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 14px 16px;
+      margin-bottom: 16px;
+    }
+    .party-row {
+      display: flex;
+      align-items: baseline;
+      gap: 10px;
+      padding: 6px 0;
+    }
+    .party-row + .party-row { border-top: 1px solid var(--border); }
+    .party-label { font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; min-width: 36px; }
+    .party-value { font-size: 15px; font-weight: 600; color: var(--text); }
+
+    /* Details */
+    .details-box {
+      margin-bottom: 16px;
+    }
+    .details-title {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      margin-bottom: 8px;
+    }
+    .detail-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 12px;
+      padding: 8px 0;
+      border-bottom: 1px solid var(--border);
+      font-size: 13px;
+    }
+    .detail-row:first-of-type { border-top: 1px solid var(--border); }
+    .detail-key { color: var(--muted); flex-shrink: 0; }
+    .detail-val { color: var(--text); font-weight: 500; text-align: right; word-break: break-word; }
+
+    /* Disclaimer */
+    .disclaimer {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      background: #f9fafb;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 14px;
+      margin-bottom: 20px;
+      margin-top: 4px;
+    }
+    .disclaimer-icon { font-size: 14px; flex-shrink: 0; margin-top: 1px; }
+    .disclaimer p { font-size: 12px; color: var(--muted); line-height: 1.5; }
+
+    /* CTA */
+    .cta-block { text-align: center; }
+    .btn-main {
+      display: block;
+      width: 100%;
+      padding: 15px;
+      background: var(--accent);
+      color: #fff;
+      font-size: 15px;
+      font-weight: 700;
+      border: none;
+      border-radius: 10px;
+      cursor: pointer;
+      text-decoration: none;
+      text-align: center;
+      transition: background .15s, transform .1s;
+      min-height: 50px;
+    }
+    .btn-main:hover { background: #5a52d5; }
+    .btn-main:active { transform: scale(.98); }
+    .cta-sub {
+      font-size: 13px;
+      color: var(--muted);
+      margin-top: 12px;
+      margin-bottom: 6px;
+    }
+    .auth-links {
+      display: flex;
+      justify-content: center;
+      gap: 20px;
+    }
+    .auth-links a {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--accent);
+      text-decoration: none;
+    }
+    .auth-links a:hover { text-decoration: underline; }
+
+    .btn-ack {
+      background: none;
+      border: none;
+      color: var(--muted);
+      font-size: 13px;
+      cursor: pointer;
+      margin-top: 14px;
+      padding: 8px 0;
+      text-decoration: underline;
+      display: block;
+      width: 100%;
+      text-align: center;
+    }
+    .btn-ack:hover { color: var(--text); }
+
+    .ack-done {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      font-size: 13px;
+      color: var(--green);
+      font-weight: 600;
+      padding: 10px 0;
+    }
+
+    /* Auth modal */
+    .modal-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,.5);
+      z-index: 999;
+      align-items: flex-end;
+      justify-content: center;
+      padding: 0;
+    }
+    @media (min-width: 480px) {
+      .modal-overlay { align-items: center; padding: 24px; }
+    }
+    .modal-overlay.open { display: flex; }
+    .modal-sheet {
+      background: #fff;
+      border-radius: 20px 20px 0 0;
+      padding: 28px 24px 40px;
+      width: 100%;
+      max-width: 480px;
+    }
+    @media (min-width: 480px) {
+      .modal-sheet { border-radius: 16px; padding: 32px; }
+    }
+    .modal-title { font-size: 20px; font-weight: 700; margin-bottom: 8px; }
+    .modal-sub { font-size: 14px; color: var(--muted); margin-bottom: 24px; }
+    .modal-options { display: flex; flex-direction: column; gap: 12px; }
+    .btn-option {
+      display: block;
+      width: 100%;
+      padding: 14px;
+      border-radius: 10px;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      text-align: center;
+      text-decoration: none;
+      transition: background .15s;
+    }
+    .btn-option-primary { background: var(--accent); color: #fff; border: none; }
+    .btn-option-primary:hover { background: #5a52d5; }
+    .btn-option-secondary { background: #f3f4f6; color: var(--text); border: 1px solid var(--border); }
+    .btn-option-secondary:hover { background: #e9eaec; }
+    .btn-cancel {
+      width: 100%;
+      padding: 12px;
+      margin-top: 8px;
+      background: none;
+      border: none;
+      color: var(--muted);
+      font-size: 14px;
+      cursor: pointer;
+    }
+
+    /* Footer */
+    .footer {
+      text-align: center;
+      padding: 20px 16px 24px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .footer a { color: var(--accent); text-decoration: none; }
+    .footer a:hover { text-decoration: underline; }
+    .footer-links { display: flex; justify-content: center; gap: 16px; margin-top: 6px; flex-wrap: wrap; }
+  </style>
+</head>
+<body>
+
+<!-- TOP BAR -->
+<header class="topbar">
+  <a class="topbar-brand" href="/" id="brandLink">
+    <span id="siteNameEl">Money Intx</span>
+  </a>
+  <a class="topbar-login" href="/" id="loginLink">Log In</a>
+</header>
+
+<!-- MAIN -->
+<main class="main">
+  <div class="card-wrap">
+    <!-- Loading state -->
+    <div class="state-screen" id="loadingState">
+      <div class="state-icon">⏳</div>
+      <div class="state-title">Loading record…</div>
+    </div>
+
+    <!-- Error state -->
+    <div class="state-screen" id="errorState" style="display:none;">
+      <div class="state-icon">🔗</div>
+      <div class="state-title">Link not found</div>
+      <div class="state-sub">This link may have expired or been removed.</div>
+    </div>
+
+    <!-- Main card (hidden until loaded) -->
+    <div class="main-card" id="mainCard" style="display:none;">
+      <div class="card-body">
+
+        <!-- Title block -->
+        <div class="eyebrow">Money Interaction Notice</div>
+        <div class="card-title">A record has been shared with you</div>
+        <div class="card-subtitle">Review the details below for clarity.</div>
+
+        <!-- Status row -->
+        <div class="status-row">
+          <span class="pill" id="statusPill"></span>
+          <span class="shared-date" id="sharedDateEl"></span>
+        </div>
+
+        <!-- Amount block -->
+        <div class="amount-block">
+          <div class="amount-label" id="amountLabel">Amount</div>
+          <div class="amount-value" id="amountValue">—</div>
+          <div class="amount-sub">Recorded for clarity only</div>
+        </div>
+
+        <!-- Parties -->
+        <div class="parties-box">
+          <div class="party-row">
+            <span class="party-label">From</span>
+            <span class="party-value" id="fromName">—</span>
+          </div>
+          <div class="party-row">
+            <span class="party-label">To</span>
+            <span class="party-value" id="toName">—</span>
+          </div>
+        </div>
+
+        <!-- Details -->
+        <div class="details-box" id="detailsBox"></div>
+
+        <!-- Disclaimer -->
+        <div class="disclaimer">
+          <span class="disclaimer-icon">ℹ️</span>
+          <p>This is a record for clarity only. <strong id="disclaimerName">Money Intx</strong> does not hold or process money.</p>
+        </div>
+
+        <!-- CTA -->
+        <div class="cta-block">
+          <button class="btn-main" onclick="openAuthModal()">Track or respond to this →</button>
+          <div class="cta-sub">Want to keep track of records like this?</div>
+          <div class="auth-links">
+            <a href="#" onclick="openAuthModal('signup');return false;">Create Account</a>
+            <a href="#" onclick="openAuthModal('login');return false;">Log In</a>
+          </div>
+          <div id="ackArea">
+            <button class="btn-ack" id="ackBtn" onclick="doAcknowledge()">Acknowledge receipt</button>
+          </div>
+        </div>
+
+      </div><!-- /card-body -->
+    </div><!-- /main-card -->
+  </div><!-- /card-wrap -->
+</main>
+
+<!-- AUTH MODAL -->
+<div class="modal-overlay" id="authModal" onclick="if(event.target===this)closeAuthModal()">
+  <div class="modal-sheet">
+    <div class="modal-title">Continue to Money Intx</div>
+    <div class="modal-sub">Create an account or log in to track and respond to this record.</div>
+    <div class="modal-options">
+      <a class="btn-option btn-option-primary" href="/" id="signupLink">Create Account — it's free</a>
+      <a class="btn-option btn-option-secondary" href="/" id="loginBtn">Log In</a>
+    </div>
+    <button class="btn-cancel" onclick="closeAuthModal()">Maybe later</button>
+  </div>
+</div>
+
+<!-- FOOTER -->
+<footer class="footer">
+  <div id="footerBrand">Money Intx — Making Money Matters Memorable</div>
+  <div class="footer-links">
+    <a href="/">Home</a>
+    <a href="/?page=privacy">Privacy</a>
+    <a href="/?page=terms">Terms</a>
+  </div>
+</footer>
+
+<script>
+  const TOKEN_PARAM = new URLSearchParams(window.location.search).get('t');
+  let _token = TOKEN_PARAM;
+  let _entry = null;
+  let _acknowledged = false;
+  let _siteUrl = '/';
+
+  const TX_LABELS = {
+    they_owe_you:  'They owe you',
+    invoice:       'Invoice',
+    bill:          'Bill',
+    you_owe_them:  'You owe them',
+    they_paid_you: 'Payment received',
+    you_paid_them: 'You paid them'
+  };
+
+  function fmt(n) {
+    const v = parseFloat(n);
+    if (isNaN(v)) return '—';
+    return '$' + v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+
+  function statusPillClass(status) {
+    if (!status) return 'pill-default';
+    const s = status.toLowerCase();
+    if (s === 'posted' || s === 'sent' || s === 'due') return 'pill-due';
+    if (s === 'paid' || s === 'settled' || s === 'void') return 'pill-settled';
+    if (s === 'partial') return 'pill-partial';
+    return 'pill-default';
+  }
+
+  function statusLabel(status) {
+    const map = { posted:'Due', sent:'Sent', paid:'Paid', settled:'Settled', void:'Void', partial:'Partially Settled', draft:'Draft' };
+    return map[(status||'').toLowerCase()] || (status ? status.charAt(0).toUpperCase() + status.slice(1) : 'Due');
+  }
+
+  function amountDirection(txType, isRecipient) {
+    // isRecipient = the person viewing (the contact) — flip perspective
+    if (txType === 'they_owe_you' || txType === 'invoice' || txType === 'bill') return 'You owe';
+    if (txType === 'you_owe_them') return 'You are owed';
+    if (txType === 'they_paid_you') return 'Payment made';
+    if (txType === 'you_paid_them') return 'Payment received';
+    return 'Amount';
+  }
+
+  async function loadEntry() {
+    if (!_token) {
+      showError(); return;
+    }
+    try {
+      const res = await fetch('/api/share/view?t=' + encodeURIComponent(_token));
+      const data = await res.json();
+      if (!res.ok || !data.ok) { showError(); return; }
+      _entry = data.entry;
+      _acknowledged = data.acknowledged;
+      renderEntry(_entry, data.sharedAt);
+    } catch (e) {
+      showError();
+    }
+  }
+
+  function showError() {
+    document.getElementById('loadingState').style.display = 'none';
+    document.getElementById('errorState').style.display = '';
+  }
+
+  function renderEntry(e, sharedAt) {
+    _siteUrl = e.siteUrl || '/';
+
+    // Update branding
+    const siteName = e.appName || 'Money Intx';
+    document.getElementById('siteNameEl').textContent = siteName;
+    document.getElementById('disclaimerName').textContent = siteName;
+    document.getElementById('footerBrand').textContent = siteName + ' — ' + (e.tagline || 'Making Money Matters Memorable');
+    document.title = 'Money Interaction Notice — ' + siteName;
+
+    // Update login link to go to actual site
+    document.getElementById('loginLink').href = _siteUrl;
+    document.getElementById('brandLink').href = _siteUrl;
+    document.getElementById('signupLink').href = _siteUrl + '?register=1';
+    document.getElementById('loginBtn').href  = _siteUrl;
+
+    // Status pill
+    const pill = document.getElementById('statusPill');
+    pill.textContent = statusLabel(e.status);
+    pill.className = 'pill ' + statusPillClass(e.status);
+
+    // Shared date
+    const d = sharedAt ? new Date(sharedAt) : new Date(e.sharedAt);
+    document.getElementById('sharedDateEl').textContent = 'Shared on ' + d.toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' });
+
+    // Amount
+    document.getElementById('amountLabel').textContent = amountDirection(e.txType, true);
+    document.getElementById('amountValue').textContent = fmt(e.amount);
+
+    // Parties
+    document.getElementById('fromName').textContent = e.fromName || '—';
+    document.getElementById('toName').textContent   = e.contactName || '—';
+
+    // Details
+    const details = [];
+    if (e.date) details.push({ k: 'Date', v: new Date(e.date).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' }) });
+    if (e.invoiceNumber) details.push({ k: 'Reference', v: e.invoiceNumber });
+    if (e.txType) details.push({ k: 'Type', v: TX_LABELS[e.txType] || e.txType });
+    if (e.note) details.push({ k: 'Note', v: e.note });
+
+    const box = document.getElementById('detailsBox');
+    if (details.length > 0) {
+      box.innerHTML = `<div class="details-title">Details</div>` +
+        details.map(d => `<div class="detail-row"><span class="detail-key">${d.k}</span><span class="detail-val">${d.v}</span></div>`).join('');
+    }
+
+    // Acknowledge state
+    if (_acknowledged) {
+      document.getElementById('ackArea').innerHTML = '<div class="ack-done">✅ Receipt acknowledged</div>';
+    }
+
+    // Show card
+    document.getElementById('loadingState').style.display = 'none';
+    document.getElementById('mainCard').style.display = '';
+  }
+
+  async function doAcknowledge() {
+    const btn = document.getElementById('ackBtn');
+    if (!btn) return;
+    btn.disabled = true;
+    btn.textContent = 'Acknowledging…';
+    try {
+      const res = await fetch('/api/share/acknowledge', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: _token })
+      });
+      const data = await res.json();
+      if (data.ok) {
+        document.getElementById('ackArea').innerHTML = '<div class="ack-done">✅ Receipt acknowledged</div>';
+      } else {
+        btn.disabled = false;
+        btn.textContent = 'Acknowledge receipt';
+      }
+    } catch(e) {
+      btn.disabled = false;
+      btn.textContent = 'Acknowledge receipt';
+    }
+  }
+
+  function openAuthModal(mode) {
+    document.getElementById('authModal').classList.add('open');
+  }
+  function closeAuthModal() {
+    document.getElementById('authModal').classList.remove('open');
+  }
+
+  // Load on boot
+  loadEntry();
+</script>
+</body>
+</html>
