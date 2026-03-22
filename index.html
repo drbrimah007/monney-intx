@@ -122,6 +122,35 @@
       #mobile-tab-bar { display: block; }
       #main { padding-bottom: calc(56px + env(safe-area-inset-bottom)); }
     }
+    /* ── Mobile "More" bottom sheet ────────────────────────────────── */
+    #mobile-more-sheet {
+      display: none; position: fixed; inset: 0; z-index: 9500;
+    }
+    #mobile-more-sheet .sheet-backdrop {
+      position: absolute; inset: 0; background: rgba(0,0,0,.55);
+    }
+    #mobile-more-sheet .sheet-body {
+      position: absolute; bottom: 0; left: 0; right: 0;
+      background: var(--bg2); border-radius: 18px 18px 0 0;
+      border-top: 1px solid var(--border);
+      padding: 12px 0 calc(12px + env(safe-area-inset-bottom));
+      animation: slideUp .22s ease;
+    }
+    @keyframes slideUp { from{transform:translateY(100%)} to{transform:none} }
+    #mobile-more-sheet .sheet-handle {
+      width: 36px; height: 4px; background: var(--border); border-radius: 2px;
+      margin: 0 auto 14px;
+    }
+    #mobile-more-sheet .sheet-item {
+      display: flex; align-items: center; gap: 14px;
+      padding: 14px 24px; font-size: 15px; font-weight: 500;
+      cursor: pointer; color: var(--text); background: none; border: none;
+      width: 100%; text-align: left;
+    }
+    #mobile-more-sheet .sheet-item:hover, #mobile-more-sheet .sheet-item:active { background: var(--bg3); }
+    #mobile-more-sheet .sheet-item .si-icon { font-size: 20px; width: 28px; text-align: center; }
+    #mobile-more-sheet .sheet-divider { height: 1px; background: var(--border); margin: 6px 0; }
+    #mobile-more-sheet .sheet-item.active { color: var(--accent); font-weight: 700; }
     /* ── Searchable contact select ─────────────────────────────────── */
     .cs-wrap { position: relative; flex: 1; }
     .cs-list { display: none; position: absolute; z-index: 9100; top: calc(100% + 4px); left: 0; right: 0;
@@ -240,6 +269,13 @@
     <!-- Mobile bottom tab bar -->
     <div id="mobile-tab-bar">
       <div class="tab-bar-inner" id="mobileTabBarInner"></div>
+    </div>
+    <!-- Mobile "More" bottom sheet -->
+    <div id="mobile-more-sheet">
+      <div class="sheet-backdrop" onclick="closeMobileMore()"></div>
+      <div class="sheet-body" id="mobileMoreBody">
+        <div class="sheet-handle"></div>
+      </div>
     </div>
   </div>
 
@@ -805,35 +841,66 @@
         const unread = (db.notifs||[]).filter(n => n.userId === curUser().id && !n.read).length;
         const badgeHtml = unread > 0
           ? `<span class="badge-dot">${unread > 9 ? '9+' : unread}</span>` : '';
-        const tabItems = role === 'admin'
+        // Fixed tab items — "More" opens bottom sheet, never navigates directly
+        const tabItems = (role === 'admin' || role === 'standard')
           ? [
               { page: 'dash',     icon: '🏠', label: 'Home' },
               { page: 'contacts', icon: '👤', label: 'Contacts' },
               { page: 'entries',  icon: '📋', label: 'Entries' },
               { page: 'notifs',   icon: '🔔', label: 'Notifs', badge: badgeHtml },
-              { page: 'settings', icon: '⚙️', label: 'More' }
-            ]
-          : role === 'standard'
-          ? [
-              { page: 'dash',     icon: '🏠', label: 'Home' },
-              { page: 'contacts', icon: '👤', label: 'Contacts' },
-              { page: 'entries',  icon: '📋', label: 'Entries' },
-              { page: 'notifs',   icon: '🔔', label: 'Notifs', badge: badgeHtml },
-              { page: 'settings', icon: '⚙️', label: 'More' }
+              { page: '__more__', icon: '⋯',  label: 'More' }
             ]
           : [
               { page: 'dash',     icon: '🏠', label: 'Home' },
               { page: 'entries',  icon: '📋', label: 'Entries' },
               { page: 'notifs',   icon: '🔔', label: 'Notifs', badge: badgeHtml },
-              { page: 'settings', icon: '⚙️', label: 'More' }
+              { page: '__more__', icon: '⋯',  label: 'More' }
             ];
 
-        tabBar.innerHTML = tabItems.map(t => `
-          <button onclick="nav('${t.page}')" class="${_curPage===t.page?'active':''}">
+        const morePages = ['settings','templates','templatedb','recurring','nok','audit','users'];
+        const moreActive = morePages.includes(_curPage);
+        tabBar.innerHTML = tabItems.map(t => {
+          const isMore = t.page === '__more__';
+          const active = isMore ? moreActive : _curPage === t.page;
+          return `<button onclick="${isMore ? 'toggleMobileMore()' : "nav('"+t.page+"')"}"
+            class="${active ? 'active' : ''}">
             <div class="tab-icon tab-notif-badge">${t.icon}${t.badge||''}</div>
             <span>${t.label}</span>
-          </button>`).join('');
+          </button>`;
+        }).join('');
       }
+    }
+
+    function toggleMobileMore() {
+      const sheet = document.getElementById('mobile-more-sheet');
+      if (!sheet) return;
+      const role = curRole();
+      // Build menu items based on role
+      const items = [
+        { page: 'settings',  icon: '⚙️', label: 'Settings' },
+        { page: 'templates', icon: '📄', label: 'Templates',    roles: ['admin','standard'] },
+        { page: 'templatedb',icon: '🌐', label: 'Template DB',  roles: ['admin','standard'] },
+        { page: 'recurring', icon: '🔁', label: 'Recurring',    roles: ['admin','standard'] },
+        { page: 'nok',       icon: '🔐', label: 'Next of Kin',  roles: ['admin','standard'] },
+        { page: 'audit',     icon: '📝', label: 'Audit Log',    roles: ['admin'] },
+        { page: 'users',     icon: '👥', label: 'Users',        roles: ['admin'] },
+      ].filter(i => !i.roles || i.roles.includes(role));
+
+      const body = document.getElementById('mobileMoreBody');
+      body.innerHTML = `<div class="sheet-handle"></div>` +
+        items.map((item, idx) =>
+          (idx > 0 && item.page === 'audit' ? '<div class="sheet-divider"></div>' : '') +
+          `<button class="sheet-item${_curPage===item.page?' active':''}" onclick="closeMobileMore();nav('${item.page}')">
+            <span class="si-icon">${item.icon}</span>${item.label}
+          </button>`
+        ).join('');
+
+      sheet.style.display = 'block';
+    }
+
+    function closeMobileMore() {
+      const sheet = document.getElementById('mobile-more-sheet');
+      if (sheet) sheet.style.display = 'none';
     }
 
     function closeMoreDropdown() {
