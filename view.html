@@ -554,11 +554,16 @@
     document.getElementById('footerBrand').textContent = siteName + ' — ' + (e.tagline || 'Making Money Matters Memorable');
     document.title = 'Money Interaction Notice — ' + siteName;
 
-    // Update login link to go to actual site
-    document.getElementById('loginLink').href  = _siteUrl + '?login=1';
-    document.getElementById('brandLink').href  = _siteUrl;
-    document.getElementById('signupLink').href = _siteUrl + '?register=1';
-    document.getElementById('loginBtn').href   = _siteUrl + '?login=1';
+    // Outbound auth links — save token first so the main app can link this
+    // record to the user's account immediately after they sign up or log in
+    function _goWithToken(url) {
+      try { sessionStorage.setItem('pendingShareToken', _token); } catch(_) {}
+      window.location.href = url;
+    }
+    document.getElementById('loginLink').onclick  = e => { e.preventDefault(); _goWithToken(_siteUrl + '?login=1'); };
+    document.getElementById('brandLink').href      = _siteUrl;
+    document.getElementById('signupLink').onclick  = e => { e.preventDefault(); _goWithToken(_siteUrl + '?register=1'); };
+    document.getElementById('loginBtn').onclick    = e => { e.preventDefault(); _goWithToken(_siteUrl + '?login=1'); };
 
     // Status pill
     const pill = document.getElementById('statusPill');

@@ -919,27 +919,98 @@
           </tbody></table></div>`}
         </div>`;
 
-        // Show first entry CTA if no entries and hasn't been prompted yet
+        // Shared with you section — loaded async, replaces onboarding if records exist
+        html += `<div id="shared-with-me"></div>`;
+
+        // Show first entry CTA only if no entries — async loader will hide it if shared records found
         if (myEntries.length === 0) {
+          html += `<div id="first-entry-cta">`;
           if (!hasSeenFirstEntryPrompt) {
-            // Auto-show modal first time
-            setTimeout(() => showFirstEntryModal(), 200);
-            db.settings['hasSeenFirstEntryPrompt_' + u.id] = true;
-            save();
+            html += `</div>`;
+            setTimeout(() => {
+              showFirstEntryModal();
+              db.settings['hasSeenFirstEntryPrompt_' + u.id] = true;
+              save();
+            }, 200);
           } else {
-            // Show persistent CTA banner
             html += `<div style="background:linear-gradient(135deg,rgba(108,99,255,.1),rgba(108,99,255,.05));border:1px solid var(--border);border-radius:var(--radius);padding:16px;margin-top:16px;text-align:center;">
               <div style="font-size:14px;font-weight:600;margin-bottom:12px;">👉 Start by recording a money interaction</div>
               <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;">
                 <button class="btn sm" onclick="openNewEntryModal('toy')">They Owe You</button>
                 <button class="bs sm" onclick="openNewEntryModal('yot')" style="border-color:var(--red);color:var(--red);">You Owe Them</button>
               </div>
-            </div>`;
+            </div></div>`;
           }
         }
       }
 
       document.getElementById('content').innerHTML = html;
+
+      // Load "Shared with you" records asynchronously for standard users
+      if (curRole() !== 'admin' && curRole() !== 'contact' && _IS_SERVER) {
+        _loadSharedWithMe();
+      }
+    }
+
+    async function _loadSharedWithMe() {
+      const el = document.getElementById('shared-with-me');
+      if (!el) return;
+      try {
+        const res  = await fetch('/api/share?linked=1', { credentials: 'include' });
+        const data = await res.json();
+        if (!data.ok || !data.shared || data.shared.length === 0) {
+          // Check for justLinkedShare flag even if list is empty (race condition)
+          return;
+        }
+        const records = data.shared;
+        // If there are shared records, hide the onboarding CTA
+        const ctaEl = document.getElementById('first-entry-cta');
+        if (ctaEl) ctaEl.style.display = 'none';
+
+        const justLinked = sessionStorage.getItem('justLinkedShare');
+        if (justLinked) sessionStorage.removeItem('justLinkedShare');
+
+        let html = `<div class="card" style="margin-top:16px;${justLinked ? 'border:2px solid var(--accent);' : ''}">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+            <h3 style="margin:0;">🔗 Shared With You</h3>
+            <span style="font-size:12px;color:var(--muted)">${records.length} record${records.length !== 1 ? 's' : ''}</span>
+          </div>`;
+
+        if (justLinked) {
+          html += `<div style="background:rgba(108,99,255,.08);border:1px solid rgba(108,99,255,.2);border-radius:8px;padding:12px 16px;margin-bottom:14px;font-size:13px;color:var(--accent);font-weight:600;">
+            ✅ Record linked to your account — you can view it any time from here.
+          </div>`;
+        }
+
+        html += `<div class="tbl-wrap"><table><thead><tr>
+          <th>From</th><th>Amount</th><th>Type</th><th>Date</th><th>Status</th><th></th>
+        </tr></thead><tbody>`;
+
+        records.forEach(r => {
+          const e = r.entry;
+          const amt = e.amount != null ? `<strong>$${parseFloat(e.amount).toFixed(2)}</strong>` : '—';
+          const dt  = e.date ? new Date(e.date).toLocaleDateString() : '—';
+          const txLabel = { toy:'They Owe You', yot:'You Owe Them', lend:'Lent', borrow:'Borrowed', gift:'Gift', other:'Other' }[e.txType] || (e.txType || '—');
+          const txColor = { toy:'var(--green)', yot:'var(--red)', lend:'var(--accent)', borrow:'var(--red)' }[e.txType] || 'var(--muted)';
+          const statusColors = { posted:'#888', accepted:'var(--green)', rejected:'var(--red)', settled:'var(--accent)', disputed:'orange' };
+          const sBadge = `<span style="font-size:11px;font-weight:700;color:${statusColors[e.status]||'#888'};text-transform:uppercase;">${e.status||'posted'}</span>`;
+          const siteUrl = e.siteUrl || 'https://moneyinteractions.com';
+          html += `<tr>
+            <td><strong>${esc(e.fromName||'—')}</strong></td>
+            <td>${amt}</td>
+            <td><span style="font-weight:700;color:${txColor}">${esc(txLabel)}</span></td>
+            <td>${dt}</td>
+            <td>${sBadge}</td>
+            <td><a href="${esc(siteUrl)}/view?t=${esc(r.token)}" target="_blank" style="font-size:12px;color:var(--accent);font-weight:600;">View →</a></td>
+          </tr>`;
+        });
+
+        html += `</tbody></table></div></div>`;
+        el.innerHTML = html;
+
+        // Scroll to it if this is a fresh link
+        if (justLinked) setTimeout(() => el.scrollIntoView({ behavior: 'smooth', block: 'start' }), 150);
+      } catch(_) {}
     }
 
     // ============ PAGE: CONTACTS ============
@@ -5036,6 +5107,7 @@
       }
       closeAuthModal();
       await load(); // pull their data from server
+      await _linkPendingShare();
       initApp();
     }
 
@@ -5056,7 +5128,25 @@
       }
       closeAuthModal();
       await load(); // pull fresh data (empty blob for new user)
+      await _linkPendingShare();
       initApp();
+    }
+
+    // Link any pending share token (set by view.html before navigating here)
+    async function _linkPendingShare() {
+      let token;
+      try { token = sessionStorage.getItem('pendingShareToken'); } catch(_) {}
+      if (!token) return;
+      try {
+        sessionStorage.removeItem('pendingShareToken');
+        await fetch('/api/share', {
+          method: 'POST', credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'link', token })
+        });
+        // Flag so dashboard can skip onboarding and scroll to shared section
+        sessionStorage.setItem('justLinkedShare', '1');
+      } catch(_) {}
     }
 
     async function doLogout() {
