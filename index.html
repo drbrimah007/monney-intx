@@ -608,15 +608,8 @@
       let settingsItem = 'settings';
 
       if (role === 'admin') {
-        primaryItems = ['dash', 'contacts', 'entries', 'notifs'];
-        moreItems = [
-          { page: 'templates', label: 'Templates' },
-          { page: 'templatedb', label: 'Template DB' },
-          { page: 'recurring', label: 'Recurring' },
-          { page: 'nok', label: 'Next of Kin' },
-          { page: 'audit', label: 'Audit Log' },
-          { page: 'settings', label: 'Profile' }
-        ];
+        primaryItems = ['dash', 'contacts', 'entries', 'templates', 'templatedb', 'recurring', 'nok', 'notifs', 'audit', 'users'];
+        moreItems = [];
       } else if (role === 'standard') {
         primaryItems = ['dash', 'contacts', 'entries', 'notifs'];
         moreItems = [
@@ -634,7 +627,7 @@
       }
 
       let html = '';
-      const navLabels = { dash: 'Dashboard', contacts: 'Contacts', entries: 'Entries', notifs: 'Notifications' };
+      const navLabels = { dash: 'Dashboard', contacts: 'Contacts', entries: 'Entries', notifs: 'Notifications', templates: 'Templates', templatedb: 'Template DB', recurring: 'Recurring', nok: 'Next of Kin', audit: 'Audit Log', users: 'Users' };
 
       // Primary nav items
       primaryItems.forEach(page => {
@@ -4035,7 +4028,7 @@
               <div><div style="font-size:14px;font-weight:600;">Email Notifications</div></div>
               <label class="toggle"><input type="checkbox" id="pnotif_email" ${u.notifPrefs?.email?'checked':''}><span class="slider"></span></label>
             </div>
-            ${db.settings.notifDefaults.smsEnabled ? `
+            ${db.settings.notifDefaults?.smsEnabled ? `
             <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:var(--bg3);border-radius:8px;">
               <div><div style="font-size:14px;font-weight:600;">SMS Notifications</div></div>
               <label class="toggle"><input type="checkbox" id="pnotif_sms" ${u.notifPrefs?.sms?'checked':''}><span class="slider"></span></label>
