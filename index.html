@@ -122,6 +122,27 @@
       #mobile-tab-bar { display: block; }
       #main { padding-bottom: calc(56px + env(safe-area-inset-bottom)); }
     }
+    /* ── Notify toggle card ─────────────────────────────────────────── */
+    .notify-toggle-row {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 13px 16px; background: var(--bg3); border: 2px solid var(--border);
+      border-radius: 12px; cursor: pointer; transition: border-color .2s, background .2s;
+      width: 100%; text-align: left; box-sizing: border-box;
+    }
+    .notify-toggle-row.on { border-color: var(--accent); background: rgba(108,99,255,.08); }
+    .notify-toggle-row .ntl-left { display: flex; align-items: center; gap: 10px; font-size: 14px; font-weight: 600; color: var(--text); }
+    .toggle-switch { width: 40px; height: 22px; background: var(--border); border-radius: 11px; position: relative; transition: background .2s; flex-shrink: 0; pointer-events: none; }
+    .toggle-switch.on { background: var(--accent); }
+    .toggle-switch::after { content: ''; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; background: #fff; border-radius: 50%; transition: transform .2s; box-shadow: 0 1px 3px rgba(0,0,0,.3); }
+    .toggle-switch.on::after { transform: translateX(18px); }
+    /* ── Entry type tab switcher ─────────────────────────────────────── */
+    .entry-type-tabs { display: flex; gap: 6px; margin-bottom: 16px; }
+    .entry-type-tab {
+      flex: 1; padding: 9px 8px; border-radius: 10px; font-size: 13px; font-weight: 600;
+      border: 2px solid var(--border); background: var(--bg3); color: var(--muted); cursor: pointer;
+      transition: all .15s; text-align: center;
+    }
+    .entry-type-tab.active { border-color: var(--accent); background: rgba(108,99,255,.12); color: var(--accent); }
     /* ── Mobile "More" bottom sheet ────────────────────────────────── */
     #mobile-more-sheet {
       display: none; position: fixed; inset: 0; z-index: 9500;
@@ -2188,13 +2209,21 @@
         html += `</div>`;
       }
       // ── Notify contact on save ────────────────────────────────────────
-      html += `<div style="border-top:1px solid var(--border);margin-top:14px;padding-top:12px;">
-        <label style="display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;cursor:pointer;">
-          <input type="checkbox" id="ne_notify_chk" onchange="document.getElementById('ne_notify_wrap').style.display=this.checked?'block':'none'">
-          <span>🔔 Notify contact after saving</span>
-        </label>
+      html += `<div style="border-top:1px solid var(--border);margin-top:14px;padding-top:14px;">
+        <button type="button" class="notify-toggle-row" id="ne_notify_btn" onclick="_toggleNotify('ne')">
+          <span class="ntl-left"><span style="font-size:18px;">🔔</span> Notify contact after saving</span>
+          <span class="toggle-switch" id="ne_notify_sw"></span>
+        </button>
         <div id="ne_notify_wrap" style="display:none;margin-top:10px;">
-          <textarea id="ne_notify_msg" rows="2" style="width:100%;box-sizing:border-box;">For your kind attention</textarea>
+          <textarea id="ne_notify_msg" rows="2" style="width:100%;box-sizing:border-box;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg2);color:var(--text);font-size:14px;resize:vertical;">For your kind attention</textarea>
+          <div id="ne_notify_email_wrap" style="display:none;margin-top:8px;">
+            <div style="background:#fff8e1;border:1px solid #ffe082;border-radius:8px;padding:10px 14px;">
+              <div style="font-size:13px;color:#795548;margin-bottom:8px;">⚠️ Selected contact has no email on file.</div>
+              <input type="email" id="ne_notify_contact_email" placeholder="Enter email to send notification"
+                style="width:100%;box-sizing:border-box;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;background:var(--bg2);color:var(--text);" />
+              <div style="font-size:11px;color:var(--muted);margin-top:4px;">Email will be saved to this contact.</div>
+            </div>
+          </div>
         </div>
       </div>`;
       return html;
@@ -2249,6 +2278,10 @@
           </div>
           <button class="gh sm" onclick="closeEntryModal()">✕</button>
         </div>
+        <div class="entry-type-tabs">
+          <button type="button" class="entry-type-tab active">📋 One-Time Entry</button>
+          <button type="button" class="entry-type-tab" onclick="switchToRecurring()">🔁 Make Recurring</button>
+        </div>
         <div id="entryFormBody">${entryFormBody(_entryFormCid, null, null, dir)}</div>
         <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;border-top:1px solid var(--border);padding-top:14px;">
           <button class="bs" onclick="closeEntryModal()">Cancel</button>
@@ -2259,6 +2292,12 @@
 
     function closeEntryModal() {
       document.getElementById('entryModalBg')?.remove();
+    }
+    // Switch from entry form to recurring form, carrying over contact + direction
+    function switchToRecurring() {
+      const cid = document.getElementById('necon')?.value || _entryFormCid || null;
+      closeEntryModal();
+      openNewRecurring(cid);
     }
 
     // ── Paired-field row management ──────────────────────────────────────
@@ -2582,10 +2621,13 @@
         }).catch(() => {});
       }
 
-      // Notify contact if checkbox is checked
-      const notifyChk = document.getElementById('ne_notify_chk');
+      // Notify contact if toggle is on
+      const notifyOn  = document.getElementById('ne_notify_btn')?.classList.contains('on');
       const notifyMsg = document.getElementById('ne_notify_msg')?.value.trim();
-      if (notifyChk?.checked && notifyMsg) {
+      if (notifyOn && notifyMsg) {
+        // Save inline email to contact if provided
+        const inlineEmail = document.getElementById('ne_notify_contact_email')?.value.trim() || '';
+        if (inlineEmail && contact && !contact.email) { contact.email = inlineEmail; save(); }
         _sendNotificationForEntry(newEid, notifyMsg, 'them');
       }
       closeEntryModal();
@@ -3092,19 +3134,27 @@
       _sendNotificationForEntry(eid, message, who);
     }
 
-    // Toggle recurring notify section + show email prompt if contact has no email
-    function _toggleRNotify() {
-      const chk = document.getElementById('r_notify_chk');
-      const wrap = document.getElementById('r_notify_wrap');
-      if (!wrap) return;
-      wrap.style.display = chk?.checked ? 'block' : 'none';
-      if (!chk?.checked) return;
-      // Check if selected contact has email
-      const cid = document.getElementById('rcon')?.value || '';
-      const c = db.contacts.find(x => x.id === cid);
-      const emailWrap = document.getElementById('r_notify_email_wrap');
-      if (emailWrap) emailWrap.style.display = (!c?.email) ? 'block' : 'none';
+    // Unified notify toggle — prefix is 'ne' (entry form) or 'r' (recurring form)
+    function _toggleNotify(prefix) {
+      const btn  = document.getElementById(prefix + '_notify_btn');
+      const sw   = document.getElementById(prefix + '_notify_sw');
+      const wrap = document.getElementById(prefix + '_notify_wrap');
+      if (!btn || !wrap) return;
+      const turningOn = !btn.classList.contains('on');
+      btn.classList.toggle('on', turningOn);
+      if (sw) sw.classList.toggle('on', turningOn);
+      wrap.style.display = turningOn ? 'block' : 'none';
+      if (turningOn) {
+        // Show email prompt if the selected contact has no email
+        const conId = prefix === 'ne' ? 'necon' : 'rcon';
+        const cid = document.getElementById(conId)?.value || '';
+        const c = cid ? db.contacts.find(x => x.id === cid) : null;
+        const emailWrap = document.getElementById(prefix + '_notify_email_wrap');
+        if (emailWrap) emailWrap.style.display = (!c?.email) ? 'block' : 'none';
+      }
     }
+    // Keep _toggleRNotify as alias for backward compat
+    function _toggleRNotify() { _toggleNotify('r'); }
 
     // Send a notification for a recurring record (no entryId yet)
     async function _sendRecurringNotif(rid, message) {
@@ -4072,13 +4122,13 @@
           <label>End Date <span style="color:var(--muted);font-weight:400;">(optional — leave blank to repeat indefinitely)</span></label>
           <input type="date" id="renddate" value="${endVal}">
         </div>
-        <div style="border-top:1px solid var(--border);margin-top:14px;padding-top:12px;">
-          <label style="display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;cursor:pointer;">
-            <input type="checkbox" id="r_notify_chk" onchange="_toggleRNotify()">
-            <span>🔔 Notify contact when created</span>
-          </label>
+        <div style="border-top:1px solid var(--border);margin-top:14px;padding-top:14px;">
+          <button type="button" class="notify-toggle-row" id="r_notify_btn" onclick="_toggleNotify('r')">
+            <span class="ntl-left"><span style="font-size:18px;">🔔</span> Notify contact when created</span>
+            <span class="toggle-switch" id="r_notify_sw"></span>
+          </button>
           <div id="r_notify_wrap" style="display:none;margin-top:10px;">
-            <textarea id="r_notify_msg" rows="2" style="width:100%;box-sizing:border-box;">A recurring transaction has been set up for your account</textarea>
+            <textarea id="r_notify_msg" rows="2" style="width:100%;box-sizing:border-box;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg2);color:var(--text);font-size:14px;resize:vertical;">A recurring transaction has been set up for your account</textarea>
             <div id="r_notify_email_wrap" style="display:none;margin-top:8px;">
               <div style="background:#fff8e1;border:1px solid #ffe082;border-radius:8px;padding:10px 14px;">
                 <div style="font-size:13px;color:#795548;margin-bottom:8px;">⚠️ Selected contact has no email on file.</div>
@@ -4140,10 +4190,10 @@
         startDate, endDate, repeatTimes, freq, status:'active', archived:false, lastPosted:null, createdAt:Date.now() });
       save();
       logAudit('add_recurring', {cid, name, freq});
-      // Notify contact if checkbox is checked
-      const rNotifyChk = document.getElementById('r_notify_chk');
+      // Notify contact if toggle is on
+      const rNotifyOn  = document.getElementById('r_notify_btn')?.classList.contains('on');
       const rNotifyMsg = document.getElementById('r_notify_msg')?.value.trim();
-      if (rNotifyChk?.checked && rNotifyMsg) {
+      if (rNotifyOn && rNotifyMsg) {
         // Check for inline email if contact has none
         const rc = db.contacts.find(x => x.id === cid);
         const inlineEmail = document.getElementById('r_notify_contact_email')?.value.trim() || '';
