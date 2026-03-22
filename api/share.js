@@ -111,6 +111,8 @@ module.exports = async function handler(req, res) {
     }
 
     // ── link token to current user (auth required) ──────────────────────────
+    // Also permanently writes linkedUserId into the sender's contact record so
+    // ALL future entries for that contact are auto-resolved — email doesn't matter.
     if (action === 'link') {
       const payload = requireAuth(req, res);
       if (!payload) return;
@@ -118,21 +120,48 @@ module.exports = async function handler(req, res) {
       if (!token) return res.status(400).json({ ok: false, error: 'Token required' });
       try {
         await ensureTable();
-        // Don't link if the token belongs to this same user (they sent it to themselves)
         const rows = await sql`
-          SELECT user_id, entry_data FROM share_tokens WHERE token = ${token} LIMIT 1
+          SELECT user_id, entry_id, entry_data FROM share_tokens WHERE token = ${token} LIMIT 1
         `;
         if (rows.length === 0) return res.status(404).json({ ok: false, error: 'Token not found.' });
-        if (rows[0].user_id === payload.id) {
-          // Same person — return the entry data but don't create a link
-          return res.json({ ok: true, selfLink: true, entry: rows[0].entry_data });
+        const senderId  = rows[0].user_id;
+        const entryId   = rows[0].entry_id;
+        const entryData = rows[0].entry_data;
+
+        // Self-link: sender previewing their own share link
+        if (senderId === payload.id) {
+          return res.json({ ok: true, selfLink: true, entry: entryData });
         }
+
+        // 1. Link the token to John's account
         await sql`
           UPDATE share_tokens
           SET linked_user_id = ${payload.id}, linked_at = now()
           WHERE token = ${token} AND (linked_user_id IS NULL OR linked_user_id = ${payload.id})
         `;
-        return res.json({ ok: true, linked: true, entry: rows[0].entry_data });
+
+        // 2. Permanently link the contact in Perry's data blob → identity resolved
+        //    regardless of what email Perry used for this contact
+        try {
+          const [blobRow] = await sql`SELECT data FROM user_data WHERE user_id = ${senderId} LIMIT 1`;
+          if (blobRow) {
+            const senderData = blobRow.data || {};
+            const entry   = (senderData.entries  || []).find(e => e.id === entryId);
+            const contact = entry ? (senderData.contacts || []).find(c => c.id === entry.cId) : null;
+            if (contact && !contact.linkedUserId) {
+              contact.linkedUserId = payload.id;
+              await sql`
+                UPDATE user_data SET data = ${senderData}, updated_at = now()
+                WHERE user_id = ${senderId}
+              `;
+            }
+          }
+        } catch (innerErr) {
+          // Non-fatal — token link already succeeded
+          console.error('[share/link] contact update failed:', innerErr.message);
+        }
+
+        return res.json({ ok: true, linked: true, entry: entryData });
       } catch (e) {
         console.error('[share/link]', e.message);
         return res.status(500).json({ ok: false, error: 'Failed to link record.' });
@@ -148,14 +177,37 @@ module.exports = async function handler(req, res) {
       if (!entryId) return res.status(400).json({ ok: false, error: 'entryId required' });
       try {
         await ensureTable();
+
+        // Look up the sender's blob to resolve contact.linkedUserId
+        // This enables auto-linking for established relationships
+        let autoLinkedUserId = null;
+        try {
+          const [blobRow] = await sql`SELECT data FROM user_data WHERE user_id = ${payload.id} LIMIT 1`;
+          if (blobRow) {
+            const senderData = blobRow.data || {};
+            const entry   = (senderData.entries  || []).find(e => e.id === entryId);
+            const contact = entry ? (senderData.contacts || []).find(c => c.id === entry.cId) : null;
+            if (contact?.linkedUserId) autoLinkedUserId = contact.linkedUserId;
+          }
+        } catch (_) {}
+
         const existing = await sql`
-          SELECT token FROM share_tokens WHERE entry_id = ${entryId} AND user_id = ${payload.id} LIMIT 1
+          SELECT token, linked_user_id FROM share_tokens
+          WHERE entry_id = ${entryId} AND user_id = ${payload.id} LIMIT 1
         `;
         if (existing.length > 0) {
           const token = existing[0].token;
-          const base  = siteUrl || 'https://moneyinteractions.com';
+          // If not yet linked but we now know the linked user, fill it in
+          if (autoLinkedUserId && !existing[0].linked_user_id) {
+            await sql`
+              UPDATE share_tokens SET linked_user_id = ${autoLinkedUserId}, linked_at = now()
+              WHERE token = ${token}
+            `;
+          }
+          const base = siteUrl || 'https://moneyinteractions.com';
           return res.json({ ok: true, token, shareUrl: `${base}/view?t=${token}` });
         }
+
         const token = crypto.randomBytes(18).toString('base64url');
         const entryData = {
           entryId, contactName, fromName, fromEmail: fromEmail || '',
@@ -167,12 +219,22 @@ module.exports = async function handler(req, res) {
           tagline: tagline || 'Making Money Matters Memorable',
           sharedAt: Date.now()
         };
-        await sql`
-          INSERT INTO share_tokens (token, user_id, entry_id, entry_data)
-          VALUES (${token}, ${payload.id}, ${entryId}, ${entryData})
-        `;
+
+        if (autoLinkedUserId) {
+          // Established relationship — auto-link, no consent step needed
+          await sql`
+            INSERT INTO share_tokens (token, user_id, entry_id, entry_data, linked_user_id, linked_at)
+            VALUES (${token}, ${payload.id}, ${entryId}, ${entryData}, ${autoLinkedUserId}, now())
+          `;
+        } else {
+          await sql`
+            INSERT INTO share_tokens (token, user_id, entry_id, entry_data)
+            VALUES (${token}, ${payload.id}, ${entryId}, ${entryData})
+          `;
+        }
+
         const base = siteUrl || 'https://moneyinteractions.com';
-        return res.json({ ok: true, token, shareUrl: `${base}/view?t=${token}` });
+        return res.json({ ok: true, token, shareUrl: `${base}/view?t=${token}`, autoLinked: !!autoLinkedUserId });
       } catch (e) {
         console.error('[share/create]', e.message);
         return res.status(500).json({ ok: false, error: 'Failed to create share link.' });

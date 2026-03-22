@@ -2301,11 +2301,35 @@
         invoicePrefix: _entryTpl.invoicePrefix, fields: _entryTpl.fields
       })) : null;
       const newEid = uuid();
+      const contact = db.contacts.find(c => c.id === cid);
       db.entries.push({ id:newEid, userId:curUser().id, cId:cid, txType, amount,
         note, date, status:safeStatus(status), archived:false, shared:false, responses:[],
         templateId:_entryTpl?.id||null, templateData:tplData,
         templateSnapshot, invoiceNumber, entryNum, createdAt:Date.now() });
       save(); logAudit('add_entry',{cid,txType,amount,tpl:_entryTpl?.name||null,invoiceNumber});
+
+      // If this contact has accepted a previous record (linkedUserId is set),
+      // auto-create and auto-link a share token — no consent step needed,
+      // relationship already established. Works regardless of email used.
+      if (contact?.linkedUserId && _IS_SERVER) {
+        const u = curUser();
+        const siteUrl = db.settings?.siteUrl || window.location.origin;
+        fetch('/api/share', {
+          method: 'POST', credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'create', entryId: newEid,
+            contactName: contact.name || '',
+            fromName:  u.displayName || u.email || (db.settings?.appName || 'Money Intx'),
+            fromEmail: u.email || '',
+            txType, amount, date, note, invoiceNumber,
+            status: safeStatus(status),
+            appName: db.settings?.appName || 'Money Intx',
+            siteUrl, tagline: db.settings?.tagline || 'Making Money Matters Memorable'
+          })
+        }).catch(() => {});
+      }
+
       // Notify contact if checkbox is checked
       const notifyChk = document.getElementById('ne_notify_chk');
       const notifyMsg = document.getElementById('ne_notify_msg')?.value.trim();
