@@ -2585,12 +2585,10 @@
                 </div>` : ''}
               </div>
               <div style="flex-shrink:0;">
-                ${alreadyCopied
-                  ? `<div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;">
-                      <span class="badge badge-green" style="padding:5px 10px;">✓ Already copied</span>
-                      <button class="bs sm" onclick="loadPublicTemplate('${t.id}')" style="font-size:12px;">📋 Copy again</button>
-                     </div>`
-                  : `<button class="btn sm" onclick="loadPublicTemplate('${t.id}')">📋 Load Template</button>`}
+                <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;">
+                  ${alreadyCopied ? `<span class="badge badge-green" style="padding:5px 10px;">✓ Copied</span>` : ''}
+                  <button class="btn sm" onclick="loadPublicTemplate('${t.id}')">${alreadyCopied ? '📋 Load Again' : '📋 Load Template'}</button>
+                </div>
               </div>
             </div>
           </div>`;
