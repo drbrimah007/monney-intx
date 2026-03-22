@@ -183,7 +183,7 @@
     <div id="topbar">
       <div id="topbar-left">
         <button class="hamburger" onclick="toggleMobileNav()">☰</button>
-        <img id="topbar-logo" src="money.png" style="height:40px;border-radius:6px" onerror="this.style.display='none'" alt="logo">
+        <img id="topbar-logo" src="" style="height:40px;border-radius:6px;display:none;" alt="logo">
         <strong id="appname">Money Intx</strong>
       </div>
       <div id="topbar-center"></div>
@@ -729,14 +729,16 @@
       // Header branding: show logo OR app name, not both
       const logoImg = document.getElementById('topbar-logo');
       const appNameEl = document.getElementById('appname');
-      if (db.settings?.logoData) {
-        logoImg.src = db.settings.logoData;
+      const logoData = db.settings?.logoData || '';
+      if (logoData) {
+        logoImg.src = logoData;
         logoImg.style.display = '';
         appNameEl.style.display = 'none';
       } else {
+        logoImg.src = '';
         logoImg.style.display = 'none';
         appNameEl.style.display = '';
-        appNameEl.textContent = db.settings.appName || 'Money Intx';
+        appNameEl.textContent = db.settings?.appName || 'Money Intx';
       }
     }
 
