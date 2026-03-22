@@ -2547,7 +2547,8 @@
       const allPublic = db.templates.filter(t => t.isPublic && !t.archived);
       const listed = q ? allPublic.filter(t => (t.name||'').toLowerCase().includes(q) || (t.desc||'').toLowerCase().includes(q) || (t.creatorName||'').toLowerCase().includes(q)) : allPublic;
       const sorted = [...listed].sort((a,b) => (b.createdAt||0)-(a.createdAt||0));
-      const myIds = new Set(db.templates.filter(t => t.copiedFrom).map(t => t.copiedFrom));
+      const u = curUser();
+      const myIds = new Set(db.templates.filter(t => t.copiedFrom && t.userId === u.id).map(t => t.copiedFrom));
 
       let html = `<div class="page-header">
         <div>
@@ -2585,7 +2586,10 @@
               </div>
               <div style="flex-shrink:0;">
                 ${alreadyCopied
-                  ? `<span class="badge badge-green" style="padding:6px 12px;">✓ Copied</span>`
+                  ? `<div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;">
+                      <span class="badge badge-green" style="padding:5px 10px;">✓ Already copied</span>
+                      <button class="bs sm" onclick="loadPublicTemplate('${t.id}')" style="font-size:12px;">📋 Copy again</button>
+                     </div>`
                   : `<button class="btn sm" onclick="loadPublicTemplate('${t.id}')">📋 Load Template</button>`}
               </div>
             </div>
@@ -2616,7 +2620,7 @@
       save();
       logAudit('load_public_template', { srcId: tid, copyId: copy.id, name: copy.name });
       toast(`"${copy.name}" copied to your templates.`);
-      renderTemplateDB();
+      nav('templates');
     }
 
     function openTemplateBuilder(tid) {
