@@ -2520,10 +2520,16 @@
       refreshCurPage();
     }
 
-    function openNotifyModal(eid) {
+    async function openNotifyModal(eid) {
+      window._notifyWhoVal = 'them'; // reset to default on each open
       const e = db.entries.find(x => x.id === eid);
       if (!e) return;
       const c = db.contacts.find(x => x.id === e.cId);
+      const u = curUser();
+      const siteUrl = db.settings?.siteUrl || window.location.origin;
+      const appName = db.settings?.appName || 'Money Intx';
+      const tagline = db.settings?.tagline || 'Making Money Matters Memorable';
+
       const d = document.createElement('div');
       d.innerHTML = `<div class="modal-bg" id="notifyModalBg" onclick="if(event.target===this)this.remove()">
         <div class="modal" style="max-width:500px;" onclick="event.stopPropagation()">
@@ -2531,30 +2537,77 @@
             <div class="modal-title" style="margin:0;">Send Notification</div>
             <button class="gh sm" onclick="document.getElementById('notifyModalBg').remove()">✕</button>
           </div>
-          <div class="card" style="margin-bottom:14px;background:var(--bg3);border:none;padding:12px;">
-            <div style="font-size:12px;color:var(--muted);margin-bottom:4px;">Record</div>
+          <div style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:14px;">
+            <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px;">Record</div>
             <div style="font-weight:700;">${esc(c?.name||'—')} — ${fmt(e.amount)}</div>
           </div>
-          <div class="fg"><label>Message</label><textarea id="notify_msg" rows="3">For your kind attention</textarea></div>
-          <div class="fg"><label>Notify</label>
-            <div style="display:flex;flex-direction:row;flex-wrap:wrap;gap:6px 18px;margin-top:6px;">
-              <label style="display:inline-flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;white-space:nowrap;">
-                <input type="radio" name="notify_who" value="them" checked style="margin:0;flex-shrink:0;"> Contact
-              </label>
-              <label style="display:inline-flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;white-space:nowrap;">
-                <input type="radio" name="notify_who" value="you" style="margin:0;flex-shrink:0;"> You
-              </label>
-              <label style="display:inline-flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;white-space:nowrap;">
-                <input type="radio" name="notify_who" value="both" style="margin:0;flex-shrink:0;"> Both
-              </label>
+          <div class="fg"><label>Message</label><textarea id="notify_msg" rows="3" style="width:100%;">For your kind attention</textarea></div>
+          <div class="fg">
+            <label style="display:block;margin-bottom:8px;">Notify</label>
+            <div style="display:inline-flex;border:1px solid var(--border);border-radius:8px;overflow:hidden;">
+              <button type="button" id="nwho_them" class="nwho-btn" style="padding:8px 18px;font-size:13px;background:var(--accent);color:#fff;border:none;cursor:pointer;font-weight:600;" onclick="_setNwho('them')">Contact</button>
+              <button type="button" id="nwho_you" class="nwho-btn" style="padding:8px 18px;font-size:13px;background:var(--bg3);color:var(--text);border:none;border-left:1px solid var(--border);cursor:pointer;" onclick="_setNwho('you')">You</button>
+              <button type="button" id="nwho_both" class="nwho-btn" style="padding:8px 18px;font-size:13px;background:var(--bg3);color:var(--text);border:none;border-left:1px solid var(--border);cursor:pointer;" onclick="_setNwho('both')">Both</button>
             </div>
           </div>
           <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;border-top:1px solid var(--border);padding-top:14px;">
             <button class="bs sm" onclick="document.getElementById('notifyModalBg').remove()">Cancel</button>
             <button class="btn sm" onclick="sendNotification('${eid}')">Send</button>
           </div>
+          <div style="border-top:1px solid var(--border);margin-top:14px;padding-top:14px;">
+            <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px;">Or share directly</div>
+            <div id="notifyShareWrap" style="text-align:center;">
+              <div style="font-size:13px;color:var(--muted);">Generating link…</div>
+            </div>
+          </div>
         </div></div>`;
       document.body.appendChild(d.firstChild);
+
+      // Async: generate share link and populate the share section
+      try {
+        const res = await fetch('/api/share', {
+          method: 'POST', credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'create', entryId: eid,
+            contactName: c?.name || '', fromName: u.displayName || u.email || appName,
+            fromEmail: u.email || '', txType: e.txType, amount: e.amount,
+            date: e.date, note: e.note || '', invoiceNumber: e.invoiceNumber || null,
+            status: e.status || 'posted', appName, siteUrl, tagline
+          })
+        });
+        const data = await res.json();
+        if (!data.ok) throw new Error(data.error || 'Failed');
+        window._notifyShareUrl = data.shareUrl;
+        const recipientTxLabel = { they_owe_you:'You owe', they_paid_you:'You have settled', you_owe_them:'We owe you', you_paid_them:'We have settled you' }[e.txType] || (TXL[e.txType]||e.txType);
+        const shareMsg = `Hi ${c?.name||''},\n\nThis is to inform you that:\n\n${recipientTxLabel}: ${fmt(e.amount)}\n\nView full details here:\n${data.shareUrl}\n\nYour kind attention is requested.`;
+        const wrap = document.getElementById('notifyShareWrap');
+        if (!wrap) return;
+        wrap.innerHTML = `
+          <div style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:8px 12px;margin-bottom:10px;display:flex;align-items:center;gap:8px;">
+            <span style="font-size:12px;color:var(--accent);flex:1;word-break:break-all;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(data.shareUrl)}</span>
+            <button class="btn sm" style="flex-shrink:0;font-size:12px;" onclick="navigator.clipboard.writeText(window._notifyShareUrl);toast('Link copied!');">Copy</button>
+          </div>
+          <textarea id="notifyShareMsg" rows="4" style="width:100%;font-size:12px;border:1px solid var(--border);border-radius:8px;padding:8px;resize:vertical;background:var(--bg2);color:var(--text);margin-bottom:8px;">${esc(shareMsg)}</textarea>
+          <div style="display:flex;gap:8px;">
+            <button class="bs sm" style="flex:1;" onclick="navigator.clipboard.writeText(document.getElementById('notifyShareMsg').value);toast('Message copied!');">📋 Copy Message</button>
+            ${'share' in navigator ? '<button class="bs sm" style="flex:1;" onclick="navigator.share({title:\'Notice\',text:document.getElementById(\'notifyShareMsg\').value,url:window._notifyShareUrl}).catch(()=>{});">📤 Share via…</button>' : ''}
+          </div>`;
+      } catch(_) {
+        const wrap = document.getElementById('notifyShareWrap');
+        if (wrap) wrap.innerHTML = `<div style="font-size:12px;color:var(--muted);">Share link unavailable — use Send above.</div>`;
+      }
+    }
+
+    window._notifyWhoVal = 'them'; // tracks current segmented control selection
+    function _setNwho(val) {
+      window._notifyWhoVal = val;
+      document.querySelectorAll('.nwho-btn').forEach(b => {
+        const active = b.id === 'nwho_' + val;
+        b.style.background = active ? 'var(--accent)' : 'var(--bg3)';
+        b.style.color      = active ? '#fff' : 'var(--text)';
+        b.style.fontWeight = active ? '600' : '400';
+      });
     }
 
     // Shared helper — saves to db.notifs AND calls the email API
@@ -2638,7 +2691,7 @@
     }
 
     function sendNotification(eid) {
-      const who = document.querySelector('[name="notify_who"]:checked')?.value || 'them';
+      const who = window._notifyWhoVal || 'them';
       const message = document.getElementById('notify_msg')?.value.trim() || '';
       if (!message) return alert('Message required');
       document.getElementById('notifyModalBg')?.remove();
@@ -2693,24 +2746,23 @@
         if (!data.ok) throw new Error(data.error || 'Failed');
 
         const shareUrl = data.shareUrl;
-        const defaultMsg = `Hi, I've recorded this transaction for clarity:\n\n${fmt(e.amount)} — ${TXL[e.txType]||e.txType}\n\nView details here:\n${shareUrl}\n\nYour kind attention is requested.`;
+        // Store URL safely so onclick handlers never need to embed it in HTML attributes
+        window._shareModalUrl = shareUrl;
+        // Recipient-perspective labels (message goes TO the contact)
+        const recipientTxLabel = { they_owe_you:'You owe', they_paid_you:'You have settled', you_owe_them:'We owe you', you_paid_them:'We have settled you' }[e.txType] || (TXL[e.txType]||e.txType);
+        const defaultMsg = `Hi ${contact?.name||''},\n\nThis is to inform you that:\n\n${recipientTxLabel}: ${fmt(e.amount)}\n\nView full details here:\n${shareUrl}\n\nYour kind attention is requested.`;
 
         const wrap = document.getElementById('shareLinkWrap');
         if (!wrap) return;
         wrap.innerHTML = `
           <div style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:10px 14px;margin-bottom:14px;display:flex;align-items:center;gap:8px;">
             <span style="font-size:13px;color:var(--accent);flex:1;word-break:break-all;text-align:left;">${esc(shareUrl)}</span>
-            <button class="btn sm" style="flex-shrink:0;" onclick="navigator.clipboard.writeText(${JSON.stringify(shareUrl)});toast('Link copied!');">Copy</button>
+            <button class="btn sm" style="flex-shrink:0;" onclick="navigator.clipboard.writeText(window._shareModalUrl);toast('Link copied!');">Copy</button>
           </div>
           <textarea id="shareMsg" rows="5" style="width:100%;font-size:13px;border:1px solid var(--border);border-radius:8px;padding:10px;resize:vertical;background:var(--bg2);color:var(--text);margin-bottom:12px;">${esc(defaultMsg)}</textarea>
           <div style="display:flex;gap:8px;flex-wrap:wrap;">
-            <button class="btn" style="flex:1;" onclick="
-              navigator.clipboard.writeText(document.getElementById('shareMsg').value);
-              toast('Message copied!');
-            ">📋 Copy Message</button>
-            ${'share' in navigator ? `<button class="bs" style="flex:1;" onclick="
-              navigator.share({ title: 'Money Interaction Notice', text: document.getElementById('shareMsg').value, url: ${JSON.stringify(shareUrl)} }).catch(()=>{});
-            ">📤 Share via…</button>` : ''}
+            <button class="btn" style="flex:1;" onclick="navigator.clipboard.writeText(document.getElementById('shareMsg').value);toast('Message copied!');">📋 Copy Message</button>
+            ${'share' in navigator ? '<button class="bs" style="flex:1;" onclick="navigator.share({title:\'Money Interaction Notice\',text:document.getElementById(\'shareMsg\').value,url:window._shareModalUrl}).catch(()=>{});">📤 Share via…</button>' : ''}
           </div>`;
       } catch(err) {
         const wrap = document.getElementById('shareLinkWrap');
