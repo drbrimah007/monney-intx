@@ -85,8 +85,11 @@
     .stat-lbl { font-size: 12px; color: var(--muted); font-weight: 600; text-transform: uppercase; }
     .hamburger { display: none; background: none; border: none; color: var(--text); font-size: 22px; cursor: pointer; }
     @media(max-width:640px) { .hamburger { display: block; } #nav { display: none; } #nav.open { display: flex; flex-direction: column; } }
-    .nav-btn { background: none; border: none; color: var(--muted); padding: 8px 12px; cursor: pointer; font-size: 14px; border-radius: 6px; font-weight: 500; white-space: nowrap; }
+    .nav-btn { background: none; border: none; color: var(--muted); padding: 8px 12px; cursor: pointer; font-size: 14px; border-radius: 6px; font-weight: 500; white-space: nowrap; transition: background 0.15s, color 0.15s; }
     .nav-btn:hover,.nav-btn.on { background: var(--bg3); color: var(--text); }
+    .nav-dropdown { box-shadow: var(--shadow); }
+    .nav-dropdown-item { background: none; border: none; color: var(--text); padding: 10px 16px; cursor: pointer; font-size: 13px; text-align: left; transition: background 0.15s; }
+    .nav-dropdown-item:hover { background: var(--bg3); }
     .action-menu { position: relative; display: inline-block; }
     .action-menu-btn { background: var(--bg3); border: 1px solid var(--border); color: var(--text); border-radius: 6px; padding: 4px 10px; cursor: pointer; font-size: 18px; }
     .action-dropdown { display: none; position: fixed; background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; min-width: 150px; z-index: 9000; box-shadow: var(--shadow); }
@@ -105,6 +108,20 @@
     .avatar { width: 36px; height: 36px; border-radius: 50%; background: var(--accent); color: #fff; font-weight: 800; font-size: 14px; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
     .logo-preview { width: 60px; height: 60px; background: var(--bg3); border-radius: 8px; border: 1px solid var(--border); display: flex; align-items: center; justify-content: center; overflow: hidden; }
     .logo-preview img { max-width: 100%; max-height: 100%; }
+    /* ---- MOBILE QUICK ADD ---- */
+    #mobile-quick-add { display: none !important; }
+    @media (max-width: 640px) {
+      #shell:not(.hidden) #mobile-quick-add { display: flex !important; }
+      #main { padding-bottom: 80px; }
+    }
+    /* ---- UX POLISH ---- */
+    .btn, .bs { transition: transform 0.1s, background 0.15s, border-color 0.15s; }
+    .btn:active, .bs:active { transform: scale(0.97); }
+    .modal-content { animation: slideUp 0.2s ease; }
+    @keyframes slideUp { from { transform: translateY(12px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+    .toast { animation: fadeInUp 0.2s ease; }
+    @keyframes fadeInUp { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+    .modal-body { gap: 14px; }
     /* ---- LANDING PAGE ---- */
     #landing { display:none; min-height:100vh; background:var(--bg); flex-direction:column; }
     #landing.active { display:flex; }
@@ -175,6 +192,10 @@
     <div id="main">
       <div id="content"></div>
     </div>
+    <div id="mobile-quick-add" style="display:none;position:fixed;bottom:0;left:0;right:0;padding:10px 16px;background:var(--bg2);border-top:1px solid var(--border);display:flex;gap:10px;z-index:100;">
+      <button class="btn sm" style="flex:1;background:var(--green);color:#fff;padding:12px;" onclick="openNewEntryModal('toy')">+ They Owe You</button>
+      <button class="btn sm" style="flex:1;background:var(--red);color:#fff;padding:12px;" onclick="openNewEntryModal('yot')">+ You Owe Them</button>
+    </div>
   </div>
 
   <script>
@@ -205,6 +226,7 @@
       nok: [],
       releases: [],
       audit: [],
+      emailLog: [],
       settings: {
         appName: 'Money Intx',
         logoData: '',
@@ -385,6 +407,7 @@
       if (!db.nok)       db.nok       = [];
       if (!db.releases)  db.releases  = [];
       if (!db.audit)     db.audit     = [];
+      if (!db.emailLog)  db.emailLog  = [];
       // Ensure settings and ALL nested sub-objects exist
       if (!db.settings) db.settings = def.settings;
       if (!db.settings.company)       db.settings.company       = def.settings.company;
@@ -473,6 +496,12 @@
     }
     function logAudit(action, detail) {
       db.audit.push({ id: uuid(), action, userId: curUser().id, ts: Date.now(), detail });
+      save();
+    }
+
+    function logEmail(type, to, status, error) {
+      if (!db.emailLog) db.emailLog = [];
+      db.emailLog.push({ id: uuid(), ts: Date.now(), type, to, status, error: error || null });
       save();
     }
 
@@ -573,42 +602,81 @@
     function renderNav() {
       const nav = document.getElementById('nav');
       const role = curRole();
-      const impersonating = db.settings.impersonating;
+
+      let primaryItems = [];
+      let moreItems = [];
+      let settingsItem = 'settings';
+
+      if (role === 'admin') {
+        primaryItems = ['dash', 'contacts', 'entries'];
+        moreItems = [
+          { page: 'templates', label: 'Templates' },
+          { page: 'templatedb', label: 'Template DB' },
+          { page: 'recurring', label: 'Recurring' },
+          { page: 'notifs', label: 'Notifications' },
+          { page: 'nok', label: 'Next of Kin' },
+          { page: 'audit', label: 'Audit Log' }
+        ];
+      } else if (role === 'standard') {
+        primaryItems = ['dash', 'contacts', 'entries'];
+        moreItems = [
+          { page: 'templates', label: 'Templates' },
+          { page: 'templatedb', label: 'Template DB' },
+          { page: 'recurring', label: 'Recurring' },
+          { page: 'notifs', label: 'Notifications' },
+          { page: 'nok', label: 'Next of Kin' }
+        ];
+      } else if (role === 'contact') {
+        primaryItems = ['dash', 'entries'];
+        moreItems = [
+          { page: 'notifs', label: 'Notifications' }
+        ];
+      }
 
       let html = '';
-      if (role === 'admin') {
-        html = `<button class="nav-btn" onclick="nav('dash')">Dashboard</button>
-                <button class="nav-btn" onclick="nav('contacts')">Contacts</button>
-                <button class="nav-btn" onclick="nav('entries')">Entries</button>
-                <button class="nav-btn" onclick="nav('templates')">Templates</button>
-                <button class="nav-btn" onclick="nav('templatedb')">Template DB</button>
-                <button class="nav-btn" onclick="nav('recurring')">Recurring</button>
-                <button class="nav-btn" onclick="nav('notifs')">Notifications</button>
-                <button class="nav-btn" onclick="nav('nok')">Next of Kin</button>
-                <button class="nav-btn" onclick="nav('users')">User Mgmt</button>
-                <button class="nav-btn" onclick="nav('audit')">Audit Log</button>
-                <button class="nav-btn" onclick="nav('settings')">Settings</button>
-                <button class="nav-btn" onclick="doLogout()" style="margin-left:auto;color:var(--red)">Sign Out</button>`;
-      } else if (role === 'standard') {
-        html = `<button class="nav-btn" onclick="nav('dash')">Dashboard</button>
-                <button class="nav-btn" onclick="nav('contacts')">Contacts</button>
-                <button class="nav-btn" onclick="nav('entries')">Entries</button>
-                <button class="nav-btn" onclick="nav('templates')">Templates</button>
-                <button class="nav-btn" onclick="nav('templatedb')">Template DB</button>
-                <button class="nav-btn" onclick="nav('recurring')">Recurring</button>
-                <button class="nav-btn" onclick="nav('notifs')">Notifications</button>
-                <button class="nav-btn" onclick="nav('nok')">Next of Kin</button>
-                <button class="nav-btn" onclick="nav('settings')">Profile</button>
-                <button class="nav-btn" onclick="doLogout()" style="margin-left:auto;color:var(--red)">Sign Out</button>`;
-      } else if (role === 'contact') {
-        html = `<button class="nav-btn" onclick="nav('dash')">Dashboard</button>
-                <button class="nav-btn" onclick="nav('entries')">My Entries</button>
-                <button class="nav-btn" onclick="nav('notifs')">Notifications</button>
-                <button class="nav-btn" onclick="nav('settings')">Profile</button>
-                <button class="nav-btn" onclick="doLogout()" style="margin-left:auto;color:var(--red)">Sign Out</button>`;
+      const navLabels = { dash: 'Dashboard', contacts: 'Contacts', entries: 'Entries' };
+
+      // Primary nav items
+      primaryItems.forEach(page => {
+        html += `<button class="nav-btn" onclick="nav('${page}')">${navLabels[page]}</button>`;
+      });
+
+      // More dropdown (only if there are items)
+      if (moreItems.length > 0) {
+        html += `<div class="nav-more" style="position:relative;display:inline-block;">
+          <button class="nav-btn" onclick="toggleMoreDropdown()">More ▾</button>
+          <div id="moreDropdown" class="nav-dropdown" style="position:absolute;top:100%;left:0;background:var(--bg2);border:1px solid var(--border);border-radius:8px;min-width:150px;z-index:500;display:none;flex-direction:column;box-shadow:var(--shadow);">
+            ${moreItems.map(item => `<button class="nav-dropdown-item" onclick="nav('${item.page}')">${item.label}</button>`).join('')}
+          </div>
+        </div>`;
       }
+
+      // Settings gear icon (far right)
+      html += `<button class="nav-btn" onclick="nav('settings')" style="margin-left:auto;">⚙</button>`;
+
+      // Logout (far right)
+      html += `<button class="nav-btn" onclick="doLogout()" style="color:var(--red);">Sign Out</button>`;
+
       nav.innerHTML = html;
       nav.classList.remove('open');
+    }
+
+    function toggleMoreDropdown() {
+      const dd = document.getElementById('moreDropdown');
+      if (dd) {
+        dd.style.display = dd.style.display === 'none' ? 'flex' : 'none';
+        // Close on click outside
+        if (dd.style.display === 'flex') {
+          setTimeout(() => {
+            document.addEventListener('click', function closeDD(e) {
+              if (!dd.contains(e.target) && !e.target.closest('.nav-more')) {
+                dd.style.display = 'none';
+                document.removeEventListener('click', closeDD);
+              }
+            });
+          }, 0);
+        }
+      }
     }
 
     function toggleMobileNav() {
@@ -649,16 +717,18 @@
     function updateUserInfo() {
       const u = curUser();
       document.getElementById('userinfo').textContent = u.displayName;
-      document.getElementById('appname').textContent = db.settings.appName || 'Money Intx';
-      // Update topbar logo to use settings logoData if available, otherwise fallback to money.png
+
+      // Header branding: show logo OR app name, not both
       const logoImg = document.getElementById('topbar-logo');
-      if (logoImg) {
-        if (db.settings?.logoData) {
-          logoImg.src = db.settings.logoData;
-          logoImg.style.display = '';
-        } else {
-          logoImg.src = 'money.png';
-        }
+      const appNameEl = document.getElementById('appname');
+      if (db.settings?.logoData) {
+        logoImg.src = db.settings.logoData;
+        logoImg.style.display = '';
+        appNameEl.style.display = 'none';
+      } else {
+        logoImg.style.display = 'none';
+        appNameEl.style.display = '';
+        appNameEl.textContent = db.settings.appName || 'Money Intx';
       }
     }
 
@@ -813,6 +883,7 @@
         let totToy = 0, totYot = 0;
         myContacts.forEach(c => { const l = getLedger(c.id); totToy += l.toy; totYot += l.yot; });
         const net = totToy - totYot;
+        const hasSeenFirstEntryPrompt = db.settings['hasSeenFirstEntryPrompt_' + u.id];
 
         html += `<div class="page-header"><h2>Dashboard</h2></div>`;
         html += `<div class="grid3" style="margin-bottom:16px;">
@@ -843,6 +914,25 @@
           }).join('')}
           </tbody></table></div>`}
         </div>`;
+
+        // Show first entry CTA if no entries and hasn't been prompted yet
+        if (myEntries.length === 0) {
+          if (!hasSeenFirstEntryPrompt) {
+            // Auto-show modal first time
+            setTimeout(() => showFirstEntryModal(), 200);
+            db.settings['hasSeenFirstEntryPrompt_' + u.id] = true;
+            save();
+          } else {
+            // Show persistent CTA banner
+            html += `<div style="background:linear-gradient(135deg,rgba(108,99,255,.1),rgba(108,99,255,.05));border:1px solid var(--border);border-radius:var(--radius);padding:16px;margin-top:16px;text-align:center;">
+              <div style="font-size:14px;font-weight:600;margin-bottom:12px;">👉 Start by recording a money interaction</div>
+              <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;">
+                <button class="btn sm" onclick="openNewEntryModal('toy')">They Owe You</button>
+                <button class="bs sm" onclick="openNewEntryModal('yot')" style="border-color:var(--red);color:var(--red);">You Owe Them</button>
+              </div>
+            </div>`;
+          }
+        }
       }
 
       document.getElementById('content').innerHTML = html;
@@ -3814,6 +3904,33 @@
           <button class="btn sm" style="margin-top:14px;" onclick="saveNotifDefaults()">Save Notification Defaults</button>
         </div>`;
 
+        // ── EMAIL SYSTEM ──────────────────────────────────────────────────
+        const emailLog = db.emailLog || [];
+        const recentEmails = emailLog.slice(-10).reverse();
+        html += `<div class="card" style="margin-bottom:16px;">
+          <div class="section-title">📧 Email System</div>
+          <p style="color:var(--muted);font-size:13px;margin-bottom:14px;">Test email delivery and view recent email activity.</p>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;">
+            <button class="btn sm" onclick="sendTestEmail()">📬 Send Test Email</button>
+          </div>
+          <div id="testEmailResult"></div>
+          ${recentEmails.length > 0 ? `
+          <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border);">
+            <div style="font-size:13px;font-weight:600;margin-bottom:10px;">Recent Email Activity (Last 10)</div>
+            <div class="tbl-wrap">
+              <table style="font-size:13px;">
+                <tr><th>Time</th><th>Type</th><th>To</th><th>Status</th></tr>
+                ${recentEmails.map(e => `<tr>
+                  <td>${new Date(e.ts).toLocaleString()}</td>
+                  <td>${esc(e.type)}</td>
+                  <td>${esc(e.to)}</td>
+                  <td><span class="badge ${e.status === 'sent' ? 'badge-green' : 'badge-red'}">${esc(e.status)}</span></td>
+                </tr>`).join('')}
+              </table>
+            </div>
+          </div>` : '<p style="color:var(--muted);font-size:13px;">No email activity yet.</p>'}
+        </div>`;
+
         // ── ROLE & TEST TOOLS ─────────────────────────────────────────
         html += `<div class="card" style="margin-bottom:16px;">
           <div class="section-title">👥 User Management &amp; Test Tools</div>
@@ -3977,6 +4094,26 @@
       save();
       logAudit('update_invoice_display', { uid: u.id });
       toast('Invoice display settings saved');
+    }
+
+    async function sendTestEmail() {
+      const resultDiv = document.getElementById('testEmailResult');
+      resultDiv.innerHTML = '<p style="color:var(--muted);font-size:13px;">Sending test email…</p>';
+
+      const res = await fetch('/api/auth/reset-request', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: curUser().email })
+      }).then(r => r.json()).catch(e => ({ ok: false, error: e.message }));
+
+      logEmail('test', curUser().email, res.ok ? 'sent' : 'failed', res.error || null);
+
+      if (res.ok) {
+        resultDiv.innerHTML = `<div style="padding:10px 14px;background:rgba(74,222,128,.15);border-radius:8px;color:var(--green);font-size:13px;font-weight:600;">✓ Email sent successfully to ${esc(curUser().email)}</div>`;
+      } else {
+        resultDiv.innerHTML = `<div style="padding:10px 14px;background:rgba(248,113,113,.15);border-radius:8px;color:var(--red);font-size:13px;font-weight:600;">✗ Email failed: ${esc(res.error || 'Unknown error')}</div>`;
+      }
     }
 
     function saveAdminSettings() {
@@ -4210,6 +4347,19 @@
           });
           return res.json();
         } catch (e) { return { ok: false, error: 'Network error.' }; }
+      },
+
+      // POST /api/auth/reset-confirm
+      async resetConfirm({ token, password }) {
+        if (!_IS_SERVER) { toast('Password reset requires server deployment.'); return { ok: false }; }
+        try {
+          const res = await fetch('/api/auth/reset-confirm', {
+            method: 'POST', credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token, password })
+          });
+          return res.json();
+        } catch (e) { return { ok: false, error: 'Network error.' }; }
       }
     };
 
@@ -4387,10 +4537,13 @@
     }
 
     // ============ AUTH MODALS ============
+    let _resetPwMode = false; // Track if we're in forgot password mode
+
     function openLoginModal() {
+      _resetPwMode = false;
       const html = `
         <div class="modal-bg" id="authModalBg" onclick="if(event.target===this)closeAuthModal()">
-          <div class="modal auth-modal">
+          <div class="modal auth-modal" id="loginModalContent">
             <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px">
               <div class="modal-title" style="margin-bottom:0">Log In</div>
               <button class="gh" onclick="closeAuthModal()">✕</button>
@@ -4405,6 +4558,9 @@
             </div>
             <div id="li_err" class="err" style="margin-bottom:10px;display:none"></div>
             <button class="btn" style="width:100%" onclick="doLogin()">Log In</button>
+            <p style="text-align:center;font-size:12px;color:var(--muted);margin-top:12px;">
+              <button class="gh sm" style="color:var(--accent);font-weight:600;font-size:12px" onclick="showForgotPasswordPanel()">Forgot password?</button>
+            </p>
             <div class="auth-divider">or</div>
             <p style="text-align:center;font-size:13px;color:var(--muted)">
               Don't have an account?
@@ -4414,6 +4570,63 @@
         </div>`;
       document.body.insertAdjacentHTML('beforeend', html);
       setTimeout(() => document.getElementById('li_email')?.focus(), 80);
+    }
+
+    function showForgotPasswordPanel() {
+      _resetPwMode = true;
+      const content = document.getElementById('loginModalContent');
+      if (content) {
+        content.innerHTML = `
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px">
+            <div class="modal-title" style="margin-bottom:0">Reset Password</div>
+            <button class="gh" onclick="closeAuthModal()">✕</button>
+          </div>
+          <p style="color:var(--muted);font-size:13px;margin-bottom:14px;">Enter your email and we'll send you a password reset link.</p>
+          <div class="fg">
+            <label>Email Address</label>
+            <input id="fp_email" type="email" placeholder="you@example.com" autocomplete="email" onkeydown="if(event.key==='Enter')doForgotPassword()">
+          </div>
+          <div id="fp_err" class="err" style="margin-bottom:10px;display:none"></div>
+          <div id="fp_msg" style="color:var(--green);font-size:13px;margin-bottom:10px;display:none"></div>
+          <button class="btn" style="width:100%" onclick="doForgotPassword()" id="fpBtn">Send Reset Link</button>
+          <p style="text-align:center;font-size:12px;color:var(--muted);margin-top:12px;">
+            <button class="gh sm" style="color:var(--accent);font-weight:600" onclick="showLoginPanel()">Back to Log In</button>
+          </p>
+        `;
+        setTimeout(() => document.getElementById('fp_email')?.focus(), 80);
+      }
+    }
+
+    function showLoginPanel() {
+      _resetPwMode = false;
+      const content = document.getElementById('loginModalContent');
+      if (content) {
+        content.innerHTML = `
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px">
+            <div class="modal-title" style="margin-bottom:0">Log In</div>
+            <button class="gh" onclick="closeAuthModal()">✕</button>
+          </div>
+          <div class="fg">
+            <label>Email or Username</label>
+            <input id="li_email" type="text" placeholder="Email or username" autocomplete="username" onkeydown="if(event.key==='Enter')doLogin()">
+          </div>
+          <div class="fg">
+            <label>Password</label>
+            <input id="li_pw" type="password" placeholder="••••••••" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()">
+          </div>
+          <div id="li_err" class="err" style="margin-bottom:10px;display:none"></div>
+          <button class="btn" style="width:100%" onclick="doLogin()">Log In</button>
+          <p style="text-align:center;font-size:12px;color:var(--muted);margin-top:12px;">
+            <button class="gh sm" style="color:var(--accent);font-weight:600;font-size:12px" onclick="showForgotPasswordPanel()">Forgot password?</button>
+          </p>
+          <div class="auth-divider">or</div>
+          <p style="text-align:center;font-size:13px;color:var(--muted)">
+            Don't have an account?
+            <button class="gh sm" style="color:var(--accent);font-weight:700" onclick="closeAuthModal();openSignupModal()">Sign Up Free</button>
+          </p>
+        `;
+        setTimeout(() => document.getElementById('li_email')?.focus(), 80);
+      }
     }
 
     function openSignupModal() {
@@ -4451,6 +4664,188 @@
 
     function closeAuthModal() {
       document.getElementById('authModalBg')?.remove();
+    }
+
+    let _dismissedUsernamePrompt = false; // Session-only flag
+
+    function showFirstEntryModal() {
+      const html = `
+        <div class="modal-bg" id="firstEntryModalBg" onclick="if(event.target===this){db.settings['hasSeenFirstEntryPrompt_'+curUser().id]=true;save();document.getElementById('firstEntryModalBg').remove()}">
+          <div class="modal" style="max-width:380px;" onclick="event.stopPropagation()">
+            <div class="modal-title" style="margin-bottom:20px;">Start Tracking</div>
+            <p style="color:var(--muted);font-size:13px;margin-bottom:20px;">Record your first money interaction. Is this someone who owes you, or do you owe them?</p>
+            <div style="display:flex;flex-direction:column;gap:10px;">
+              <button class="btn" style="width:100%;padding:14px;" onclick="document.getElementById('firstEntryModalBg').remove();openNewEntryModal('toy')">
+                <div style="font-weight:700;">💚 They Owe You</div>
+                <div style="font-size:12px;color:rgba(255,255,255,0.8);margin-top:2px;">Someone owes you money</div>
+              </button>
+              <button class="bs" style="width:100%;padding:14px;border-color:var(--red);color:var(--red);" onclick="document.getElementById('firstEntryModalBg').remove();openNewEntryModal('yot')">
+                <div style="font-weight:700;">❤️ You Owe Them</div>
+                <div style="font-size:12px;color:rgba(255,255,255,0.8);margin-top:2px;">You owe someone money</div>
+              </button>
+            </div>
+            <div style="text-align:center;margin-top:14px;">
+              <button class="gh sm" onclick="db.settings['hasSeenFirstEntryPrompt_'+curUser().id]=true;save();document.getElementById('firstEntryModalBg').remove()" style="color:var(--muted);font-size:12px;">Close</button>
+            </div>
+          </div>
+        </div>
+      `;
+      document.body.insertAdjacentHTML('beforeend', html);
+    }
+
+    function openNewEntryModal(direction) {
+      // direction = 'toy' (they owe you) or 'yot' (you owe them)
+      // Open entry modal and pre-select direction
+      _entryTpl = null;
+      _entryFormCid = null;
+      const directionMap = { 'toy': 'they_owe_you', 'yot': 'you_owe_them' };
+      _entryDirection = directionMap[direction] || 'they_owe_you';
+
+      const dirLabel = _entryDirection === 'they_owe_you' ? '📥 They Owe You' : '📤 You Owe Them';
+      const dirColor = _entryDirection === 'they_owe_you' ? 'var(--green)' : 'var(--red)';
+      const dirBg    = _entryDirection === 'they_owe_you' ? 'rgba(74,222,128,.12)' : 'rgba(248,113,113,.12)';
+
+      const d = document.createElement('div');
+      d.innerHTML = `<div class="modal-bg" id="entryModalBg" onclick="if(event.target===this)closeEntryModal()">
+        <div class="modal" style="max-width:580px;" onclick="event.stopPropagation()">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
+            <div>
+              <div class="modal-title" style="margin:0 0 5px;">Add Entry</div>
+              <span style="font-size:12px;font-weight:700;padding:3px 10px;border-radius:6px;background:${dirBg};color:${dirColor};">${dirLabel}</span>
+            </div>
+            <button class="gh sm" onclick="closeEntryModal()">✕</button>
+          </div>
+          <div id="entryFormBody">${entryFormBody(null, null, null, _entryDirection)}</div>
+          <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;border-top:1px solid var(--border);padding-top:14px;">
+            <button class="bs" onclick="closeEntryModal()">Cancel</button>
+            <button class="btn" onclick="saveNewEntry()">Save Entry</button>
+          </div>
+        </div></div>`;
+      document.body.appendChild(d.firstChild);
+    }
+
+    function checkAndShowUsernamePrompt() {
+      const u = curUser();
+      if (!u.username || !u.username.trim() || _dismissedUsernamePrompt) return;
+
+      const html = `
+        <div class="modal-bg" id="usernameModalBg" onclick="if(event.target===this)dismissUsernamePrompt()">
+          <div class="modal" style="max-width:380px;">
+            <div class="modal-title" style="margin-bottom:20px;">Choose your username</div>
+            <p style="color:var(--muted);font-size:13px;margin-bottom:14px;">Used for connections &amp; sharing</p>
+            <div class="fg">
+              <input id="um_username" type="text" placeholder="your_username" autocomplete="off" onkeydown="if(event.key==='Enter')setUsername()">
+              <span style="font-size:11px;color:var(--muted);">Alphanumeric and underscores only, 3-20 characters</span>
+            </div>
+            <div id="um_err" class="err" style="margin-bottom:10px;display:none"></div>
+            <div style="display:flex;gap:10px;">
+              <button class="btn" style="flex:1" onclick="setUsername()">Set Username</button>
+              <button class="bs" style="flex:1" onclick="dismissUsernamePrompt()">Skip for now</button>
+            </div>
+          </div>
+        </div>
+      `;
+      document.body.insertAdjacentHTML('beforeend', html);
+      setTimeout(() => document.getElementById('um_username')?.focus(), 80);
+    }
+
+    function setUsername() {
+      const username = (document.getElementById('um_username')?.value || '').trim().toLowerCase();
+      const errEl = document.getElementById('um_err');
+      errEl.style.display = 'none';
+
+      if (!username) {
+        errEl.textContent = 'Username is required.';
+        errEl.style.display = 'block';
+        return;
+      }
+
+      if (!/^[a-z0-9_]{3,20}$/.test(username)) {
+        errEl.textContent = 'Alphanumeric and underscores only, 3-20 characters.';
+        errEl.style.display = 'block';
+        return;
+      }
+
+      if (db.users.filter(u => u.id !== curUser().id).find(u => u.username === username)) {
+        errEl.textContent = 'This username is already taken.';
+        errEl.style.display = 'block';
+        return;
+      }
+
+      curUser().username = username;
+      save();
+      document.getElementById('usernameModalBg')?.remove();
+      toast('✓ Username set!');
+    }
+
+    function dismissUsernamePrompt() {
+      _dismissedUsernamePrompt = true;
+      document.getElementById('usernameModalBg')?.remove();
+
+      // Show persistent banner
+      const banner = document.createElement('div');
+      banner.id = 'username-banner';
+      banner.style.cssText = `
+        position: fixed; top: 56px; left: 0; right: 0;
+        background: rgba(108, 99, 255, 0.1); border-bottom: 1px solid var(--border);
+        padding: 8px 16px; color: var(--text); font-size: 13px;
+        display: flex; align-items: center; justify-content: space-between;
+        z-index: 90; gap: 10px;
+      `;
+      banner.innerHTML = `
+        <span>👤 <strong>Set your username</strong> to connect with others.</span>
+        <button class="gh sm" onclick="document.getElementById('username-banner').remove(); checkAndShowUsernamePrompt();" style="color:var(--accent);font-weight:600;">Set now →</button>
+      `;
+      document.getElementById('shell')?.insertBefore(banner, document.getElementById('topbar')?.nextSibling || null);
+    }
+
+    let _fpRateLimit = null;
+    async function doForgotPassword() {
+      const email = document.getElementById('fp_email')?.value || '';
+      const btn = document.getElementById('fpBtn');
+      const errEl = document.getElementById('fp_err');
+      const msgEl = document.getElementById('fp_msg');
+      errEl.style.display = 'none';
+      msgEl.style.display = 'none';
+
+      if (!email.trim()) {
+        errEl.textContent = 'Please enter your email address.';
+        errEl.style.display = 'block';
+        return;
+      }
+
+      if (_fpRateLimit) {
+        errEl.textContent = 'Please wait before requesting another reset link.';
+        errEl.style.display = 'block';
+        return;
+      }
+
+      if (btn) { btn.disabled = true; btn.textContent = 'Sending…'; }
+      const res = await API.resetRequest({ email });
+      if (btn) { btn.disabled = false; btn.textContent = 'Send Reset Link'; }
+
+      if (!res.ok) {
+        errEl.textContent = res.error || 'Failed to send reset link.';
+        errEl.style.display = 'block';
+        return;
+      }
+
+      msgEl.textContent = res.message || 'Check your email for a password reset link.';
+      msgEl.style.display = 'block';
+
+      // Rate limit: disable button for 60 seconds
+      _fpRateLimit = true;
+      if (btn) btn.disabled = true;
+      let countdown = 60;
+      const timer = setInterval(() => {
+        countdown--;
+        if (btn) btn.textContent = `Try again in ${countdown}s`;
+        if (countdown <= 0) {
+          clearInterval(timer);
+          _fpRateLimit = false;
+          if (btn) { btn.disabled = false; btn.textContent = 'Send Reset Link'; }
+        }
+      }, 1000);
     }
 
     async function doLogin() {
@@ -4508,10 +4903,104 @@
       renderImpersonateBanner();
       renderNav();
       nav('dash');
+      // Show username prompt if user hasn't set one yet
+      setTimeout(checkAndShowUsernamePrompt, 300);
+    }
+
+    function showResetPasswordPage() {
+      const params = new URLSearchParams(window.location.search);
+      const token = params.get('token');
+      if (!token) { renderLandingPage(); return; }
+
+      document.getElementById('shell').classList.add('hidden');
+      const lp = document.getElementById('landing');
+      lp.classList.add('active');
+      lp.innerHTML = `
+        <div class="lp-topnav">
+          <div class="lp-topnav-brand">
+            <strong>${esc(db.settings?.appName || 'Money Intx')}</strong>
+          </div>
+        </div>
+        <div style="flex:1;display:flex;align-items:center;justify-content:center;padding:40px 16px;">
+          <div class="modal auth-modal" style="max-width:400px;">
+            <div class="modal-title" style="margin-bottom:20px;">Set New Password</div>
+            <p style="color:var(--muted);font-size:13px;margin-bottom:14px;">Enter a new password for your account.</p>
+            <div class="fg">
+              <label>New Password</label>
+              <input id="rp_pw" type="password" placeholder="••••••••" autocomplete="new-password" onkeydown="if(event.key==='Enter')doResetPassword('${esc(token)}')">
+            </div>
+            <div class="fg">
+              <label>Confirm Password</label>
+              <input id="rp_pwconf" type="password" placeholder="••••••••" autocomplete="new-password" onkeydown="if(event.key==='Enter')doResetPassword('${esc(token)}')">
+            </div>
+            <div id="rp_err" class="err" style="margin-bottom:10px;display:none"></div>
+            <button class="btn" style="width:100%" onclick="doResetPassword('${esc(token)}')">Update Password</button>
+            <p style="text-align:center;font-size:12px;color:var(--muted);margin-top:14px;">
+              <button class="gh sm" style="color:var(--accent);font-weight:600" onclick="window.location.href='/'">Back to Login</button>
+            </p>
+          </div>
+        </div>
+      `;
+      setTimeout(() => document.getElementById('rp_pw')?.focus(), 80);
+    }
+
+    async function doResetPassword(token) {
+      const pw = document.getElementById('rp_pw')?.value || '';
+      const pwconf = document.getElementById('rp_pwconf')?.value || '';
+      const btn = document.querySelector('.modal .btn');
+      const errEl = document.getElementById('rp_err');
+      errEl.style.display = 'none';
+
+      if (!pw || !pwconf) {
+        errEl.textContent = 'Please enter both passwords.';
+        errEl.style.display = 'block';
+        return;
+      }
+
+      if (pw !== pwconf) {
+        errEl.textContent = 'Passwords do not match.';
+        errEl.style.display = 'block';
+        return;
+      }
+
+      if (pw.length < 6) {
+        errEl.textContent = 'Password must be at least 6 characters.';
+        errEl.style.display = 'block';
+        return;
+      }
+
+      if (btn) { btn.disabled = true; btn.textContent = 'Updating…'; }
+      const res = await API.resetConfirm({ token, password: pw });
+      if (btn) { btn.disabled = false; btn.textContent = 'Update Password'; }
+
+      if (!res.ok) {
+        errEl.textContent = res.error || 'Failed to reset password.';
+        errEl.style.display = 'block';
+        return;
+      }
+
+      // Success
+      const msgDiv = document.createElement('div');
+      msgDiv.style.cssText = 'text-align:center;color:var(--green);font-size:14px;margin-bottom:10px;font-weight:600;';
+      msgDiv.textContent = '✓ Password updated. You can now log in.';
+      errEl.parentElement.insertBefore(msgDiv, errEl);
+
+      // Redirect to login after 2s
+      setTimeout(() => {
+        window.location.href = '/';
+      }, 2000);
     }
 
     // ============ INIT ============
     window.addEventListener('load', async () => {
+      // Check if this is a password reset page
+      const params = new URLSearchParams(window.location.search);
+      if (params.has('token')) {
+        await load();
+        showResetPasswordPage();
+        return;
+      }
+
       // Try server session first; fall back to localStorage
       if (_IS_SERVER) {
         const session = await API.getSession();
@@ -4521,6 +5010,7 @@
           return;
         }
         // No valid server session — show landing
+        await load();
         renderLandingPage();
         return;
       }
