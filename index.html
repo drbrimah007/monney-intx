@@ -2483,11 +2483,12 @@
       }
       try {
         for (const addr of toAddresses) {
-          await fetch('/api/email/send-reminder', {
+          await fetch('/api/email', {
             method: 'POST',
             credentials: 'include',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
+              action: 'send-reminder',
               recipientEmail: addr,
               fromName: u.displayName || u.email || 'Money Intx',
               fromEmail: u.email || '',
@@ -2544,11 +2545,12 @@
       document.body.appendChild(d.firstChild);
 
       try {
-        const res = await fetch('/api/share/create', {
+        const res = await fetch('/api/share', {
           method: 'POST',
           credentials: 'include',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
+            action:        'create',
             entryId:       eid,
             contactName:   contact?.name || '',
             fromName:      u.displayName || u.email || appName,
@@ -4452,14 +4454,14 @@
         } catch (e) { return { ok: false, error: 'Network error.' }; }
       },
 
-      // POST /api/email/send-invoice
+      // POST /api/email (action=send-invoice)
       async sendInvoiceEmail({ recipientEmail, fromName, invoiceNumber, amount }) {
         if (!_IS_SERVER) { toast('Email sending requires server deployment.'); return { ok: false }; }
         try {
-          const res = await fetch('/api/email/send-invoice', {
+          const res = await fetch('/api/email', {
             method: 'POST', credentials: 'include',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ recipientEmail, fromName, invoiceNumber, amount })
+            body: JSON.stringify({ action: 'send-invoice', recipientEmail, fromName, invoiceNumber, amount })
           });
           const json = await res.json();
           if (json.ok) toast(`Invoice emailed to ${recipientEmail}`);
@@ -4467,14 +4469,14 @@
         } catch (e) { return { ok: false, error: 'Network error.' }; }
       },
 
-      // POST /api/email/send-reminder
+      // POST /api/email (action=send-reminder)
       async sendReminderEmail({ recipientEmail, fromName, message, invoiceNumber }) {
         if (!_IS_SERVER) { toast('Email sending requires server deployment.'); return { ok: false }; }
         try {
-          const res = await fetch('/api/email/send-reminder', {
+          const res = await fetch('/api/email', {
             method: 'POST', credentials: 'include',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ recipientEmail, fromName, message, invoiceNumber })
+            body: JSON.stringify({ action: 'send-reminder', recipientEmail, fromName, message, invoiceNumber })
           });
           const json = await res.json();
           if (json.ok) toast('Reminder sent.');

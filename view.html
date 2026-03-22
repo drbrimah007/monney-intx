@@ -528,7 +528,7 @@
       showError(); return;
     }
     try {
-      const res = await fetch('/api/share/view?t=' + encodeURIComponent(_token));
+      const res = await fetch('/api/share?t=' + encodeURIComponent(_token));
       const data = await res.json();
       if (!res.ok || !data.ok) { showError(); return; }
       _entry = data.entry;
@@ -606,10 +606,10 @@
     btn.disabled = true;
     btn.textContent = 'Acknowledging…';
     try {
-      const res = await fetch('/api/share/acknowledge', {
+      const res = await fetch('/api/share', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token: _token })
+        body: JSON.stringify({ action: 'acknowledge', token: _token })
       });
       const data = await res.json();
       if (data.ok) {
