@@ -5182,6 +5182,9 @@
         return;
       }
 
+      // ?register=1 or ?login=1 — auto-open modal after landing page renders
+      const _autoModal = params.get('register') ? 'signup' : params.get('login') ? 'login' : null;
+
       // Try server session first; fall back to localStorage
       if (_IS_SERVER) {
         const session = await API.getSession();
@@ -5190,9 +5193,11 @@
           initApp();
           return;
         }
-        // No valid server session — show landing
+        // No valid server session — show landing, then open modal if requested
         await load();
         renderLandingPage();
+        if (_autoModal === 'signup') setTimeout(openSignupModal, 120);
+        else if (_autoModal === 'login') setTimeout(openLoginModal, 120);
         return;
       }
       // Local file mode
@@ -5201,6 +5206,8 @@
         initApp();
       } else {
         renderLandingPage();
+        if (_autoModal === 'signup') setTimeout(openSignupModal, 120);
+        else if (_autoModal === 'login') setTimeout(openLoginModal, 120);
       }
     });
   </script>

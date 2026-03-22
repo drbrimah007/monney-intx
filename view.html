@@ -555,10 +555,10 @@
     document.title = 'Money Interaction Notice — ' + siteName;
 
     // Update login link to go to actual site
-    document.getElementById('loginLink').href = _siteUrl;
-    document.getElementById('brandLink').href = _siteUrl;
+    document.getElementById('loginLink').href  = _siteUrl + '?login=1';
+    document.getElementById('brandLink').href  = _siteUrl;
     document.getElementById('signupLink').href = _siteUrl + '?register=1';
-    document.getElementById('loginBtn').href  = _siteUrl;
+    document.getElementById('loginBtn').href   = _siteUrl + '?login=1';
 
     // Status pill
     const pill = document.getElementById('statusPill');
