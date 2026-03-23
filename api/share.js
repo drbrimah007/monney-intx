@@ -29,6 +29,8 @@ async function ensureTable() {
   await sql`ALTER TABLE share_tokens ADD COLUMN IF NOT EXISTS linked_at TIMESTAMPTZ`;
   await sql`ALTER TABLE share_tokens ADD COLUMN IF NOT EXISTS recipient_closed BOOLEAN NOT NULL DEFAULT false`;
   await sql`ALTER TABLE share_tokens ADD COLUMN IF NOT EXISTS recipient_closed_at TIMESTAMPTZ`;
+  await sql`ALTER TABLE share_tokens ADD COLUMN IF NOT EXISTS viewed BOOLEAN NOT NULL DEFAULT false`;
+  await sql`ALTER TABLE share_tokens ADD COLUMN IF NOT EXISTS viewed_at TIMESTAMPTZ`;
 }
 
 module.exports = async function handler(req, res) {
@@ -69,13 +71,52 @@ module.exports = async function handler(req, res) {
     try {
       await ensureTable();
       const rows = await sql`
-        SELECT entry_data, acknowledged, acknowledged_at, recipient_closed, recipient_closed_at, created_at
+        SELECT user_id, entry_id, entry_data, acknowledged, acknowledged_at,
+               recipient_closed, recipient_closed_at, viewed, viewed_at, created_at
         FROM share_tokens WHERE token = ${token} LIMIT 1
       `;
       if (rows.length === 0) {
         return res.status(404).json({ ok: false, error: 'Link not found or expired.' });
       }
       const row = rows[0];
+
+      // First view — mark viewed and push in-app notification to owner
+      if (!row.viewed) {
+        await sql`
+          UPDATE share_tokens SET viewed = true, viewed_at = now()
+          WHERE token = ${token}
+        `;
+        try {
+          const ownerId = row.user_id;
+          const entryId = row.entry_id;
+          const entryData = row.entry_data;
+          const [blobRow] = await sql`SELECT data FROM user_data WHERE user_id = ${ownerId} LIMIT 1`;
+          if (blobRow) {
+            const ownerData = blobRow.data || {};
+            const entry   = (ownerData.entries  || []).find(e => e.id === entryId);
+            const contact = entry ? (ownerData.contacts || []).find(c => c.id === entry.cId) : null;
+            const name    = contact?.name || entryData?.contactName || 'Someone';
+            if (!ownerData.notifs) ownerData.notifs = [];
+            ownerData.notifs.push({
+              id:        'n' + Math.random().toString(36).substr(2, 9),
+              userId:    ownerId,
+              cId:       entry?.cId || null,
+              eid:       entryId,
+              msg:       `${name} viewed a record you shared with them.`,
+              channel:   'in-app',
+              sent:      true,
+              who:       'them',
+              sentTo:    '',
+              read:      false,
+              createdAt: Date.now()
+            });
+            await sql`UPDATE user_data SET data = ${ownerData}, updated_at = now() WHERE user_id = ${ownerId}`;
+          }
+        } catch (innerErr) {
+          console.error('[share/view] notif push failed:', innerErr.message);
+        }
+      }
+
       return res.json({
         ok: true,
         entry:              row.entry_data,
@@ -83,6 +124,8 @@ module.exports = async function handler(req, res) {
         acknowledgedAt:     row.acknowledged_at,
         recipientClosed:    row.recipient_closed,
         recipientClosedAt:  row.recipient_closed_at,
+        viewed:             true,
+        viewedAt:           row.viewed_at,
         sharedAt:           row.created_at
       });
     } catch (e) {
