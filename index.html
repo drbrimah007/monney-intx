@@ -3340,19 +3340,15 @@
       const p = paginate(listed, 'templates');
 
       let html = `<div class="page-header"><h2>Templates</h2>
-        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-          <button class="bs sm" onclick="nav('templatedb')" style="font-size:12px;">🌐 Template DB</button>
-          <button class="btn sm" onclick="openTemplateBuilder()">+ New Template</button>
-        </div>
-      </div>
-      <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap;">
-        <label style="display:inline-flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;padding:6px 10px;background:var(--bg3);border:1px solid var(--border);border-radius:6px;">
-          <input type="checkbox" ${showArchived?'checked':''} onchange="window._tmplShowArch=this.checked;PG.templates=1;renderTemplates()"> Show Archived
-        </label>
+        <button class="btn sm" onclick="openTemplateBuilder()">+ New Template</button>
       </div>
       <div style="display:flex;gap:8px;align-items:center;margin-bottom:14px;flex-wrap:wrap;">
-        <input type="search" placeholder="Search templates…" value="${esc(window._search_templates||'')}" oninput="window._search_templates=this.value;PG.templates=1;renderTemplates()" style="flex:1;min-width:180px;max-width:340px;">
-        <button class="bs sm${sortDesc?' on':''}" onclick="window._sort_templates=!${sortDesc};renderTemplates()">${sortDesc?'↓ Latest first':'↑ Oldest first'}</button>
+        <button class="bs sm" onclick="nav('templatedb')" style="font-size:12px;flex-shrink:0;">🌐 Template DB</button>
+        <input type="search" placeholder="Search templates…" value="${esc(window._search_templates||'')}" oninput="window._search_templates=this.value;PG.templates=1;renderTemplates()" style="flex:1;min-width:120px;">
+        <button class="bs sm${sortDesc?' on':''}" onclick="window._sort_templates=!${sortDesc};renderTemplates()" style="flex-shrink:0;">${sortDesc?'↓ Latest first':'↑ Oldest first'}</button>
+        <label style="display:inline-flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;flex-shrink:0;">
+          <input type="checkbox" ${showArchived?'checked':''} onchange="window._tmplShowArch=this.checked;PG.templates=1;renderTemplates()"> Archived
+        </label>
       </div>`;
       if (p.items.length === 0) {
         html += `<div class="card"><p style="color:var(--muted);text-align:center;padding:24px;">No templates yet. Create one to define reusable entry structures.</p></div>`;
