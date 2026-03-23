@@ -2126,7 +2126,7 @@
       }
       html += `<div class="grid2"><div class="fg"><label>Date</label><input type="date" id="nedate" value="${dateVal}"></div>
         <div class="fg"><label>Status</label><select id="nests">${statusOpts(e?.status||'posted')}</select></div></div>`;
-      html += `<div class="fg"><label>Note</label><textarea id="nenote" rows="2">${esc(e?.note||'')}</textarea></div>`;
+      html += `<div class="fg"><textarea id="ne_notify_msg" rows="2" style="width:100%;box-sizing:border-box;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg2);color:var(--text);font-size:14px;resize:vertical;" placeholder="For your kind attention.">${esc(e?.notifyMsg||'For your kind attention.')}</textarea></div>`;
       // ── Template-driven fields ────────────────────────────────────────
       if (tpl && tpl.fields && tpl.fields.length > 0) {
         html += `<div id="tplFieldsWrap" style="border-top:1px solid var(--border);margin-top:6px;padding-top:14px;">
@@ -2223,7 +2223,7 @@
               <button type="button" id="ne_nwho_both" style="flex:1;padding:9px 4px;font-size:13px;background:var(--bg3);color:var(--text);border:none;border-left:1px solid var(--border);cursor:pointer;" onclick="_setFormNwho('ne','both')">Both</button>
             </div>
           </div>
-          <textarea id="ne_notify_msg" rows="2" style="width:100%;box-sizing:border-box;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg2);color:var(--text);font-size:14px;resize:vertical;">For your kind attention</textarea>
+          <textarea id="nenote" rows="2" style="width:100%;box-sizing:border-box;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg2);color:var(--text);font-size:14px;resize:vertical;" placeholder="notes">${esc(e?.note||'')}</textarea>
           <div id="ne_notify_email_wrap" style="display:none;margin-top:8px;">
             <div style="background:#fff8e1;border:1px solid #ffe082;border-radius:8px;padding:10px 14px;">
               <div style="font-size:13px;color:#795548;margin-bottom:8px;">⚠️ Selected contact has no email on file.</div>
