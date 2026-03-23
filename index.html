@@ -958,7 +958,9 @@
           const rName  = (e.fromName  || '').toLowerCase().trim();
           const matches = (cEmail && rEmail && cEmail === rEmail) || (cName && rName && cName === rName);
           if (!matches) return;
-          const amt = Math.abs(parseFloat(e.amount) || 0);
+          const rawAmt = Math.abs(parseFloat(e.amount) || 0);
+          const offset = _sharedOffsets[r.token] || 0;
+          const amt    = Math.max(0, rawAmt - offset);
           const t = e.txType || '';
           // txType is from SENDER's perspective — flip for recipient's ledger
           if (t === 'they_owe_you' || t === 'invoice' || t === 'bill' || t === 'lend') {
@@ -1485,26 +1487,68 @@
         }[t] || 'Shared');
         const _recipDirColor = t => (t==='they_owe_you'||t==='invoice'||t==='bill'||t==='lend') ? 'var(--red)' : 'var(--green)';
 
+        const hiddenCount  = records.filter(r => _sharedHidden.has(r.token)).length;
+        const visibleRecs  = records.filter(r => !_sharedHidden.has(r.token));
+
         html += `<div class="tbl-wrap"><table><thead><tr>
-          <th>From</th><th>Amount</th><th>Direction</th><th>Date</th><th>Status</th><th></th>
+          <th>From</th><th>Amount</th><th>Direction</th><th>Date</th><th>Status</th><th style="width:36px;"></th>
         </tr></thead><tbody>`;
 
-        records.forEach(r => {
-          const e = r.entry;
-          const amt = e.amount != null ? `<strong>$${parseFloat(e.amount).toFixed(2)}</strong>` : '—';
-          const dt  = e.date ? new Date(e.date).toLocaleDateString() : '—';
-          const statusColors = { posted:'#888', accepted:'var(--green)', rejected:'var(--red)', settled:'var(--accent)', disputed:'orange' };
-          const sBadge = `<span style="font-size:11px;font-weight:700;color:${statusColors[e.status]||'#888'};text-transform:uppercase;">${e.status||'posted'}</span>`;
+        visibleRecs.forEach(r => {
+          const e       = r.entry;
+          const rawAmt  = parseFloat(e.amount) || 0;
+          const offset  = _sharedOffsets[r.token] || 0;
+          const netAmt  = Math.max(0, rawAmt - offset);
+          const isClosed = (e.status === 'closed' || r.recipientClosed);
+          const isExpired = isClosed;
+
+          // Amount display: show net with strikethrough original if depreciated
+          const amtHtml = offset > 0
+            ? `<span style="text-decoration:line-through;color:var(--muted);font-size:12px;">$${rawAmt.toFixed(2)}</span> <strong>$${netAmt.toFixed(2)}</strong>`
+            : `<strong>$${rawAmt.toFixed(2)}</strong>`;
+
+          const dt = e.date ? new Date(e.date).toLocaleDateString() : '—';
+
+          // Status badge
+          const statusMap = { posted:'#888', accepted:'var(--green)', rejected:'var(--red)',
+                              settled:'var(--accent)', disputed:'orange', closed:'var(--muted)',
+                              paid:'var(--green)', voided:'var(--muted)' };
+          let statusLabel = e.status || 'posted';
+          let statusColor = statusMap[statusLabel] || '#888';
+          if (isExpired) { statusLabel = 'expired'; statusColor = 'var(--muted)'; }
+          if (offset > 0 && !isExpired) { statusLabel = 'partial'; statusColor = 'var(--accent)'; }
+          const sBadge = `<span style="font-size:11px;font-weight:700;color:${statusColor};text-transform:uppercase;">${statusLabel}</span>`;
+
           const siteUrl = e.siteUrl || 'https://moneyinteractions.com';
-          html += `<tr>
+          const rowStyle = isExpired ? 'opacity:.55;' : '';
+
+          html += `<tr style="${rowStyle}">
             <td><strong>${esc(e.fromName||'—')}</strong></td>
-            <td>${amt}</td>
-            <td><span style="font-weight:700;color:${_recipDirColor(e.txType)}">${esc(_recipDirLabel(e.txType))}</span></td>
+            <td>${amtHtml}</td>
+            <td><span style="font-weight:700;color:${isExpired?'var(--muted)':_recipDirColor(e.txType)}">${esc(_recipDirLabel(e.txType))}</span></td>
             <td>${dt}</td>
             <td>${sBadge}</td>
-            <td><a href="${esc(siteUrl)}/view?t=${esc(r.token)}" target="_blank" style="font-size:12px;color:var(--accent);font-weight:600;">View →</a></td>
+            <td>
+              <div class="action-menu">
+                <button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button>
+                <div class="action-dropdown">
+                  <a href="${esc(siteUrl)}/view?t=${esc(r.token)}" target="_blank" style="display:block;padding:8px 14px;font-size:13px;color:var(--accent);text-decoration:none;font-weight:600;">👁 View</a>
+                  <button onclick="_sharedDepreciateModal('${esc(r.token)}','${esc(e.fromName||'')}',${rawAmt})">📉 Depreciate</button>
+                  ${!isExpired ? `<button onclick="_sharedExpire('${esc(r.token)}')">⏰ Expire</button>` : ''}
+                  <button onclick="_sharedHideToggle('${esc(r.token)}')">🙈 Hide</button>
+                </div>
+              </div>
+            </td>
           </tr>`;
         });
+
+        if (hiddenCount > 0) {
+          html += `<tr><td colspan="6" style="text-align:center;padding:10px;font-size:12px;color:var(--muted);">
+            ${hiddenCount} hidden record${hiddenCount!==1?'s':''} —
+            <button style="background:none;border:none;color:var(--accent);font-size:12px;cursor:pointer;font-weight:600;padding:0;"
+              onclick="_cachedSharedRecords.forEach(r=>_sharedHidden.delete(r.token));_saveSharedPrefs();_loadSharedWithMe();">Show all</button>
+          </td></tr>`;
+        }
 
         html += `</tbody></table></div></div>`;
         el.innerHTML = html;
@@ -1513,10 +1557,16 @@
         // txType is from SENDER's perspective:
         //   sender "they_owe_you"/"invoice"/"lend" → we (recipient) OWE the sender
         //   sender "you_owe_them"/"borrow"/"gift"  → sender owes US
+        // Hidden records still count; expired/closed and depreciation offsets are excluded
         let sharedToy = 0, sharedYot = 0;
         records.forEach(r => {
-          const amt = parseFloat(r.entry?.amount) || 0;
-          const t   = r.entry?.txType || '';
+          const e  = r.entry;
+          const st = (e?.status || '').toLowerCase();
+          if (st === 'closed' || st === 'voided' || r.recipientClosed) return; // expired — skip
+          const rawAmt = parseFloat(e?.amount) || 0;
+          const offset = _sharedOffsets[r.token] || 0;
+          const amt    = Math.max(0, rawAmt - offset);
+          const t      = e?.txType || '';
           if (t === 'they_owe_you' || t === 'invoice' || t === 'lend') sharedYot += amt;
           else if (t === 'you_owe_them' || t === 'borrow' || t === 'gift') sharedToy += amt;
         });
@@ -6158,8 +6208,69 @@
       } catch(_) { sessionStorage.removeItem('pendingShareToken'); }
     }
 
-    let _pendingShareEntry  = null; // holds entry data during consent flow
+    let _pendingShareEntry   = null; // holds entry data during consent flow
     let _cachedSharedRecords = []; // shared-with-me records, used by getLedger for contact balances
+    // Shared-with-me record management — persisted in localStorage
+    let _sharedHidden  = new Set(JSON.parse(localStorage.getItem('mxi_sh_hidden') || '[]'));
+    let _sharedOffsets = JSON.parse(localStorage.getItem('mxi_sh_off') || '{}'); // {token: amount}
+
+    function _saveSharedPrefs() {
+      localStorage.setItem('mxi_sh_hidden',  JSON.stringify([..._sharedHidden]));
+      localStorage.setItem('mxi_sh_off',     JSON.stringify(_sharedOffsets));
+    }
+
+    function _sharedHideToggle(token) {
+      if (_sharedHidden.has(token)) _sharedHidden.delete(token);
+      else _sharedHidden.add(token);
+      _saveSharedPrefs();
+      _loadSharedWithMe();
+    }
+
+    async function _sharedExpire(token) {
+      try {
+        await fetch('/api/share', {
+          method: 'POST', credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'recipient-close', token })
+        });
+      } catch(_) {}
+      _loadSharedWithMe();
+      if (_curPage === 'contacts') renderContacts();
+    }
+
+    function _sharedDepreciateModal(token, fromName, currentAmt) {
+      const offset = _sharedOffsets[token] || 0;
+      const d = document.createElement('div');
+      d.id = 'shDepBg';
+      d.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:2000;display:flex;align-items:center;justify-content:center;padding:16px;';
+      d.innerHTML = `
+        <div style="background:var(--card);border-radius:14px;max-width:380px;width:100%;padding:24px;box-shadow:0 20px 60px rgba(0,0,0,.25);">
+          <h3 style="margin:0 0 6px;">📉 Depreciate Record</h3>
+          <p style="font-size:13px;color:var(--muted);margin:0 0 16px;">Enter the amount already settled or credited against this $${parseFloat(currentAmt).toFixed(2)} record from <strong>${esc(fromName)}</strong>. This adjusts the balance impact on your account only — it does not notify the sender.</p>
+          <div style="margin-bottom:14px;">
+            <label style="font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;">Amount credited / settled</label>
+            <input id="shDepAmt" type="number" min="0" max="${currentAmt}" step="0.01" value="${offset||''}"
+              placeholder="0.00" style="width:100%;margin-top:6px;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:15px;background:var(--bg);color:var(--text);">
+          </div>
+          <div style="display:flex;gap:10px;">
+            <button class="btn" style="flex:1;" onclick="
+              const v = parseFloat(document.getElementById('shDepAmt').value);
+              if (!isNaN(v) && v >= 0) {
+                if (v === 0) delete _sharedOffsets['${token}'];
+                else _sharedOffsets['${token}'] = Math.min(v, ${currentAmt});
+                _saveSharedPrefs();
+                document.getElementById('shDepBg').remove();
+                _loadSharedWithMe();
+                if (window._curPage === 'contacts') renderContacts();
+              }
+            ">Apply</button>
+            <button class="bs" style="flex:1;" onclick="document.getElementById('shDepBg').remove()">Cancel</button>
+          </div>
+          ${offset ? `<button style="width:100%;margin-top:10px;background:none;border:none;color:var(--red);font-size:13px;cursor:pointer;padding:6px;" onclick="delete _sharedOffsets['${token}'];_saveSharedPrefs();document.getElementById('shDepBg').remove();_loadSharedWithMe();if(window._curPage==='contacts')renderContacts();">✕ Remove depreciation</button>` : ''}
+        </div>`;
+      document.body.appendChild(d);
+      setTimeout(() => document.getElementById('shDepAmt')?.focus(), 80);
+    }
 
     function _showShareConsentModal(token, e) {
       _pendingShareEntry = e; // store for auto-contact creation on accept
