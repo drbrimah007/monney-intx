@@ -935,6 +935,28 @@
       return { settled, remaining, status, total };
     }
 
+    // ── Amount display helpers — show Paid / Balance Remaining breakdown ──────
+    // Returns an HTML string for table cells: "$500  Paid $300 · Bal $200"
+    function _fmtAmtCell(eid) {
+      const _st = _getInvoiceSettlement(eid);
+      if (_st.settled <= 0) return fmt(_st.total || (db.entries.find(x=>x.id===eid)?.amount||0));
+      const remColor = _st.remaining <= 0 ? 'var(--green)' : 'var(--amber)';
+      return `${fmt(_st.total)}<br><span style="font-size:11px;color:var(--muted);">Paid&nbsp;${fmt(_st.settled)}&nbsp;·&nbsp;Bal&nbsp;<strong style="color:${remColor}">${fmt(_st.remaining)}</strong></span>`;
+    }
+    // Returns plain text for modal RECORD headers and message bodies
+    function _fmtAmtLine(eid) {
+      const _st = _getInvoiceSettlement(eid);
+      const e   = db.entries.find(x=>x.id===eid);
+      if (_st.settled <= 0) return fmt(e?.amount || 0);
+      return `${fmt(_st.total)} (Paid ${fmt(_st.settled)} · Bal ${fmt(_st.remaining)})`;
+    }
+    // Returns the display amount (remaining if partial, original if not)
+    function _displayAmt(eid) {
+      const _st = _getInvoiceSettlement(eid);
+      if (_st.settled > 0 && _st.remaining != null) return _st.remaining;
+      return parseFloat(db.entries.find(x=>x.id===eid)?.amount||0);
+    }
+
     // Recompute invoice status after any linked settlement changes
     function _syncInvoiceStatus(eid) {
       const e = db.entries.find(x => x.id === eid); if (!e) return;
@@ -958,7 +980,8 @@
           entryId: eid,
           status: e.status,
           amount: e.amount,
-          settledAmt: st.settled
+          settledAmt: st.settled,
+          remaining:  st.remaining
         })
       }).catch(() => {}); // non-fatal
     }
@@ -1889,7 +1912,7 @@
               <button class="gh sm" style="text-align:left;padding:2px 4px;font-weight:600;" onclick="openEntryInvoice('${e.id}')" title="View document">${typeLabel}</button>
               ${docBadge}
             </td>
-            <td>${fmt(e.amount)}</td>
+            <td>${_fmtAmtCell(e.id)}</td>
             <td>${new Date(e.date).toLocaleDateString()}</td>
             <td>${statusBadge(e.status)}</td>
             <td><div class="action-menu"><button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button><div class="action-dropdown">
@@ -2487,7 +2510,7 @@
         html += `<tr>
           <td>${cLink(e.cId, c?.name || '—')}</td>
           <td class="hide-mobile">${(()=>{ const lbl = e.invoiceNumber || (e.entryNum ? '#'+String(e.entryNum).padStart(4,'0') : null); return lbl ? `<button class="gh sm" style="font-size:12px;font-weight:700;color:var(--accent);padding:2px 6px;" onclick="openEntryInvoice('${e.id}')" title="View record">${esc(lbl)}</button>` : '<span style="color:var(--muted);">—</span>'; })()}</td>
-          <td>${(()=>{ const _st = _getInvoiceSettlement(e.id); return _st.settled > 0 ? `${fmt(e.amount)}<br><span style="font-size:11px;color:var(--muted);">Paid&nbsp;${fmt(_st.settled)}&nbsp;·&nbsp;Bal&nbsp;<strong style="color:${_st.remaining<=0?'var(--green)':'var(--amber)'}">${fmt(_st.remaining)}</strong></span>` : fmt(e.amount); })()}</td>
+          <td>${_fmtAmtCell(e.id)}</td>
           <td class="hide-mobile"><button class="gh sm" style="font-size:13px;padding:2px 6px;font-weight:700;color:${txTypeColor(e.txType)};" onclick="openEntryInvoice('${e.id}')" title="View record">${esc(TXL[e.txType]||e.txType)}</button></td>
           <td>${new Date(e.date).toLocaleDateString()}</td>
           <td>${statusBadge(e.status)}</td>
@@ -3298,7 +3321,7 @@
           </div>
           <div style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:14px;">
             <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px;">Record</div>
-            <div style="font-weight:700;">${esc(c?.name||'—')} — ${fmt(e.amount)}</div>
+            <div style="font-weight:700;">${esc(c?.name||'—')} — ${_fmtAmtLine(eid)}</div>
           </div>
           <p style="font-size:13px;color:var(--muted);margin-bottom:14px;">
             Closing this record will mark it as <strong>Closed</strong> and notify ${esc(c?.name||'your contact')} that you have closed it. They can also close it from their side.
@@ -3617,11 +3640,11 @@
         if (_shareData.ok && _shareData.shareUrl) _viewUrl = _shareData.shareUrl;
       } catch(_) { /* keep fallback */ }
 
-      // Use remaining balance for partially settled entries, not original amount
-      const _emailSt = _getInvoiceSettlement(eid);
-      const _emailAmt = (_emailSt.settled > 0 && _emailSt.remaining != null)
-        ? _emailSt.remaining
-        : (e.amount || null);
+      // Compute settlement breakdown for email
+      const _emailSt    = _getInvoiceSettlement(eid);
+      const _emailAmt   = (_emailSt.settled > 0 && _emailSt.remaining != null) ? _emailSt.remaining : (e.amount || null);
+      const _emailTotal = _emailSt.total > 0 ? _emailSt.total : (e.amount || null);
+      const _emailPaid  = _emailSt.settled > 0 ? _emailSt.settled : null;
 
       try {
         for (const addr of toAddresses) {
@@ -3637,6 +3660,8 @@
               message,
               invoiceNumber: e.invoiceNumber || null,
               amount: _emailAmt,
+              totalAmt: _emailTotal,
+              paidAmt: _emailPaid,
               entryStatus: e.status || null,
               txType: e.txType || null,
               viewUrl: _viewUrl,
@@ -3817,7 +3842,10 @@
         window._shareModalUrl = shareUrl;
         // Recipient-perspective labels (message goes TO the contact)
         const recipientTxLabel = { they_owe_you:'You Owe', they_paid_you:'You Have Settled', you_owe_them:'You Are Owed', you_paid_them:'You Have Been Settled' }[e.txType] || (TXL_EXT[e.txType]||e.txType);
-        const defaultMsg = `Hi ${contact?.name||''},\n\nThis is to inform you that:\n\n${recipientTxLabel}: ${fmt(e.amount)}\n\nView full details here:\n${shareUrl}\n\nYour kind attention is requested.`;
+        const _smSt = _getInvoiceSettlement(eid);
+        const _smAmt = (_smSt.settled > 0 && _smSt.remaining != null) ? _smSt.remaining : (e.amount || 0);
+        const _smNote = (_smSt.settled > 0 && _smSt.remaining != null) ? ' (Balance Remaining)' : '';
+        const defaultMsg = `Hi ${contact?.name||''},\n\nThis is to inform you that:\n\n${recipientTxLabel}: ${fmt(_smAmt)}${_smNote}\n\nView full details here:\n${shareUrl}\n\nYour kind attention is requested.`;
 
         const wrap = document.getElementById('shareLinkWrap');
         if (!wrap) return;
@@ -5219,7 +5247,7 @@
         <div class="tbl-wrap" style="margin-bottom:20px;"><table><thead><tr><th>Contact</th><th>Type</th><th>Amount</th><th>Date</th><th>Status</th></tr></thead><tbody>`;
       entries.slice(0, 20).forEach(e => {
         const c = db.contacts.find(x => x.id === e.cId);
-        html += `<tr><td>${esc(c?.name || '—')}</td><td>${esc(TXL[e.txType] || e.txType)}</td><td>${fmt(e.amount)}</td><td>${new Date(e.date).toLocaleDateString()}</td><td>${statusBadge(e.status)}</td></tr>`;
+        html += `<tr><td>${esc(c?.name || '—')}</td><td>${esc(TXL[e.txType] || e.txType)}</td><td>${_fmtAmtCell(e.id)}</td><td>${new Date(e.date).toLocaleDateString()}</td><td>${statusBadge(e.status)}</td></tr>`;
       });
       if (entries.length > 20) html += `<tr><td colspan="5" style="color:var(--muted);text-align:center;font-size:12px;">…and ${entries.length - 20} more</td></tr>`;
       html += `</tbody></table></div>`;

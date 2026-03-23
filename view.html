@@ -492,6 +492,15 @@
           <p>This is a record for clarity only. <strong id="disclaimerName">Money IntX</strong> does not hold or process money.</p>
         </div>
 
+        <!-- Settlement banner (shown when owner has recorded a payment) -->
+        <div id="settlementBanner" style="display:none;margin-bottom:14px;">
+          <div style="background:#fef9c3;border:1px solid #fde68a;border-radius:10px;padding:16px 18px;">
+            <div style="font-size:13px;font-weight:800;color:#92400e;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px;">💰 Settlement Recorded</div>
+            <div style="font-size:13px;color:#78350f;margin-bottom:12px;">A payment of <strong id="settleBannerPaid"></strong> has been recorded against this entry. Balance remaining: <strong id="settleBannerBal"></strong>.</div>
+            <button onclick="doConfirmSettlement()" id="settleConfirmBtn" style="background:#d97706;color:#fff;border:none;border-radius:7px;padding:10px 20px;font-size:13px;font-weight:700;cursor:pointer;width:100%;">✅ Confirm Settlement</button>
+          </div>
+        </div>
+
         <!-- Closure banner (shown when owner has closed the record) -->
         <div class="closure-banner" id="closureBanner">
           <div class="closure-banner-title">🔒 This record has been closed</div>
@@ -548,6 +557,8 @@
   let _entry = null;
   let _acknowledged = false;
   let _recipientClosed = false;
+  let _settlementPending = false;
+  let _settlementConfirmed = false;
   let _siteUrl = '/';
 
   // Recipient-facing direction labels
@@ -613,6 +624,8 @@
       _entry = data.entry;
       _acknowledged = data.acknowledged;
       _recipientClosed = data.recipientClosed || false;
+      _settlementPending   = data.settlementPending   || false;
+      _settlementConfirmed = data.settlementConfirmed || false;
       renderEntry(_entry, data.sharedAt);
     } catch (e) {
       showError();
@@ -732,6 +745,23 @@
       banner.classList.remove('show');
     }
 
+    // Settlement Made — Confirm banner
+    const settleBanner = document.getElementById('settlementBanner');
+    if (settleBanner) {
+      if (_settlementPending && !_settlementConfirmed && e.settledAmt) {
+        const _sPaid = fmt(e.settledAmt);
+        const _sRem  = (e.remaining != null) ? fmt(e.remaining) : (e.settledAmt != null ? fmt(Math.max(0, parseFloat(e.amount||0) - parseFloat(e.settledAmt||0))) : '—');
+        document.getElementById('settleBannerPaid').textContent = _sPaid;
+        document.getElementById('settleBannerBal').textContent  = _sRem;
+        settleBanner.style.display = '';
+      } else if (_settlementConfirmed) {
+        settleBanner.style.display = '';
+        settleBanner.innerHTML = '<div style="background:#d1fae5;border:1px solid #6ee7b7;border-radius:10px;padding:14px 18px;text-align:center;font-size:14px;color:#065f46;font-weight:600;">✅ Settlement confirmed</div>';
+      } else {
+        settleBanner.style.display = 'none';
+      }
+    }
+
     // Show card
     document.getElementById('loadingState').style.display = 'none';
     document.getElementById('mainCard').style.display = '';
@@ -791,6 +821,32 @@
     } catch (e) {
       btn.disabled = false;
       btn.textContent = 'Close from my side';
+    }
+  }
+
+  async function doConfirmSettlement() {
+    const btn = document.getElementById('settleConfirmBtn');
+    if (!btn || btn.disabled) return;
+    btn.disabled = true;
+    btn.textContent = 'Confirming…';
+    try {
+      const res = await fetch('/api/share', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'confirm-settlement', token: _token })
+      });
+      const data = await res.json();
+      if (data.ok) {
+        _settlementConfirmed = true;
+        const banner = document.getElementById('settlementBanner');
+        if (banner) banner.innerHTML = '<div style="background:#d1fae5;border:1px solid #6ee7b7;border-radius:10px;padding:14px 18px;text-align:center;font-size:14px;color:#065f46;font-weight:600;">✅ Settlement confirmed</div>';
+      } else {
+        btn.disabled = false;
+        btn.textContent = '✅ Confirm Settlement';
+      }
+    } catch (e) {
+      btn.disabled = false;
+      btn.textContent = '✅ Confirm Settlement';
     }
   }
 

@@ -120,14 +120,16 @@ module.exports = async function handler(req, res) {
 
       return res.json({
         ok: true,
-        entry:              row.entry_data,
-        acknowledged:       row.acknowledged,
-        acknowledgedAt:     row.acknowledged_at,
-        recipientClosed:    row.recipient_closed,
-        recipientClosedAt:  row.recipient_closed_at,
-        viewed:             true,
-        viewedAt:           row.viewed_at,
-        sharedAt:           row.created_at
+        entry:                  row.entry_data,
+        acknowledged:           row.acknowledged,
+        acknowledgedAt:         row.acknowledged_at,
+        recipientClosed:        row.recipient_closed,
+        recipientClosedAt:      row.recipient_closed_at,
+        settlementPending:      row.entry_data?.settlementPending || false,
+        settlementConfirmed:    row.entry_data?.settlementConfirmed || false,
+        viewed:                 true,
+        viewedAt:               row.viewed_at,
+        sharedAt:               row.created_at
       });
     } catch (e) {
       console.error('[share/view]', e.message);
@@ -391,7 +393,7 @@ module.exports = async function handler(req, res) {
     if (action === 'sync-status') {
       const payload = requireAuth(req, res);
       if (!payload) return;
-      const { entryId, status, amount, settledAt, settledAmt } = req.body;
+      const { entryId, status, amount, settledAt, settledAmt, remaining } = req.body;
       if (!entryId || !status) return res.status(400).json({ ok: false, error: 'entryId and status required' });
       try {
         await ensureTable();
@@ -401,15 +403,38 @@ module.exports = async function handler(req, res) {
         `;
         for (const row of rows) {
           const updated = { ...row.entry_data, status };
-          if (amount   !== undefined) updated.amount    = amount;
-          if (settledAt !== undefined) updated.settledAt = settledAt;
+          if (amount     !== undefined) updated.amount    = amount;
+          if (settledAt  !== undefined) updated.settledAt = settledAt;
           if (settledAmt !== undefined) updated.settledAmt = settledAmt;
+          if (remaining  !== undefined) updated.remaining  = remaining;
+          // Mark that a new settlement is pending recipient confirmation
+          if (settledAmt !== undefined && settledAmt > 0) {
+            updated.settlementPending = true;
+            updated.settlementConfirmed = updated.settlementConfirmed || false;
+          }
           await sql`UPDATE share_tokens SET entry_data = ${updated} WHERE token = ${row.token}`;
         }
         return res.json({ ok: true, synced: rows.length });
       } catch (e) {
         console.error('[share/sync-status]', e.message);
         return res.status(500).json({ ok: false, error: 'Failed to sync status.' });
+      }
+    }
+
+    // ── confirm-settlement: recipient acknowledges a settlement ──────────────
+    if (action === 'confirm-settlement') {
+      const { token: cToken } = req.body;
+      if (!cToken) return res.status(400).json({ ok: false, error: 'token required' });
+      try {
+        await ensureTable();
+        const rows = await sql`SELECT token, entry_data FROM share_tokens WHERE token = ${cToken}`;
+        if (!rows.length) return res.status(404).json({ ok: false, error: 'Token not found' });
+        const updated = { ...rows[0].entry_data, settlementConfirmed: true, settlementPending: false };
+        await sql`UPDATE share_tokens SET entry_data = ${updated} WHERE token = ${cToken}`;
+        return res.json({ ok: true });
+      } catch (e) {
+        console.error('[share/confirm-settlement]', e.message);
+        return res.status(500).json({ ok: false, error: 'Failed to confirm settlement.' });
       }
     }
 
