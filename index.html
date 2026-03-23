@@ -4357,12 +4357,12 @@
       } else {
         html += `<div class="tbl-wrap"><table><thead><tr>
           <th>Contact</th>
-          <th class="hide-mobile">Amount</th>
-          <th>Message</th>
+          <th>Amount</th>
+          <th class="hide-mobile">Message</th>
           <th class="hide-mobile">Sent To</th>
           <th class="hide-mobile">Date</th>
           <th>Event</th>
-          <th></th>
+          <th style="width:36px;"></th>
         </tr></thead><tbody>`;
         p.items.forEach(n => {
           const c  = db.contacts.find(x => x.id === n.cId);
@@ -4374,12 +4374,12 @@
           const dateStr = n.createdAt ? new Date(n.createdAt).toLocaleDateString() : '—';
           html += `<tr>
             <td>${c ? cLink(c.id, c.name) : '<span style="color:var(--muted)">—</span>'}</td>
-            <td class="hide-mobile" style="font-size:13px;font-weight:600;">${esc(amtStr)}</td>
-            <td style="max-width:200px;"><span style="display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;" title="${esc(n.msg)}">${esc(n.msg)}</span></td>
+            <td style="font-size:13px;font-weight:600;white-space:nowrap;">${esc(amtStr)}</td>
+            <td class="hide-mobile" style="max-width:200px;"><span style="display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;" title="${esc(n.msg)}">${esc(n.msg)}</span></td>
             <td class="hide-mobile" style="font-size:12px;">${esc(sentTo)}</td>
             <td class="hide-mobile" style="font-size:12px;color:var(--muted);">${dateStr}</td>
             <td>${eventBadge(n.type)}</td>
-            <td><button class="gh sm" onclick="delNotif('${n.id}')">Delete</button></td>
+            <td><button onclick="delNotif('${n.id}')" style="background:none;border:none;color:#ef4444;font-size:16px;cursor:pointer;padding:4px 6px;line-height:1;" title="Delete">✕</button></td>
           </tr>`;
         });
         html += `</tbody></table></div>`;
