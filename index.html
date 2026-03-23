@@ -1019,8 +1019,8 @@
         else if (dir === 'yot')        yot += a;
         else if (dir === 'yot_credit') yot = Math.max(0, yot - a);
       });
-      // Shared-with-me records appear in the Entries list for visibility only —
-      // they do NOT affect the ledger balance. Only own entries count toward balance.
+      // Confirmed shared records (isShared:true, noLedger not set) ARE included —
+      // they were confirmed by the user and count toward the contact's balance.
       return { toy, yot, net: toy - yot };
     }
 
@@ -7342,8 +7342,6 @@
     // Idempotent — will not re-insert if shareToken already present
     function _insertSharedEntry(r) {
       if (!r || !r.token) return;
-      // Idempotency check
-      if (db.entries.find(e => e.shareToken === r.token)) return;
       const entry = r.entry;
       if (!entry) return;
       const u = curUser();
@@ -7353,14 +7351,40 @@
       const dispName  = entry._resolvedFromName || entry.fromName || '';
       const nameLower = dispName.toLowerCase().trim();
       const emailFb   = (entry.fromEmail || entry.fromName || '').toLowerCase().trim();
-      const contact = db.contacts.find(c =>
+      let contact = db.contacts.find(c =>
         c.userId === u.id && (
           (c.name  || '').toLowerCase().trim() === nameLower ||
           (emailFb && (c.email || '').toLowerCase().trim() === emailFb)
         )
       );
 
+      // Auto-create contact if none found — confirming a shared record establishes
+      // a relationship; without a cId the entry never appears in getLedger totals
+      if (!contact && dispName) {
+        contact = {
+          id: uuid(), userId: u.id,
+          name: dispName,
+          email: entry.fromEmail || '',
+          notes: 'Auto-created from confirmed shared record',
+          tags: [], startToy: 0, startYot: 0,
+          createdAt: Date.now()
+        };
+        db.contacts.push(contact);
+      }
+
       const siteUrl = entry.siteUrl || 'https://moneyinteractions.com';
+
+      // Idempotency: if entry already exists (e.g. inserted by migration before confirm),
+      // UPDATE it — remove noLedger and assign cId — instead of bailing silently.
+      // This handles the case where migration inserted the entry with noLedger:true
+      // before our fix, and the user is now clicking "Confirm & Track".
+      const existing = db.entries.find(e => e.shareToken === r.token);
+      if (existing) {
+        delete existing.noLedger;
+        if (!existing.cId && contact) existing.cId = contact.id;
+        save();
+        return;
+      }
 
       const newEntry = {
         id:           uuid(),
