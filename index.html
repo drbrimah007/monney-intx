@@ -787,7 +787,7 @@
       });
       // Backfill sequential entryNum on entries that predate this feature
       if (db.settings.entryCounter === undefined) {
-        const sorted = [...db.entries].sort((a,b) => (a.createdAt||a.date||0) - (b.createdAt||b.date||0));
+        const sorted = [...db.entries].sort((a,b) => (a.createdAt||new Date(a.date||0).getTime()||0) - (b.createdAt||new Date(b.date||0).getTime()||0));
         let n = 0;
         sorted.forEach(e => { if (!e.entryNum) e.entryNum = ++n; });
         db.settings.entryCounter = n;
@@ -1362,14 +1362,14 @@
         </div>`;
 
         // Recent entries
-        const recentEntries = [...allEntries].sort((a,b)=>(b.createdAt||b.date||0)-(a.createdAt||a.date||0)).slice(0,15);
+        const recentEntries = [...allEntries].sort((a,b)=>(b.createdAt||new Date(b.date||0).getTime()||0)-(a.createdAt||new Date(a.date||0).getTime()||0)).slice(0,15);
         html += `<div class="card">
           <div class="section-title">Recent Entries (All Users)</div>
           ${recentEntries.length === 0 ? `<p style="color:var(--muted);font-size:14px;padding:12px 0;">No entries yet.</p>` : `
-          <div class="tbl-wrap"><table><thead><tr><th>Contact</th><th class="hide-mobile">Amount</th><th class="hide-mobile">Type</th><th>Date</th><th>Status</th><th style="width:80px;">Action</th></tr></thead><tbody>
+          <div class="tbl-wrap"><table><thead><tr><th>Contact</th><th>Amount</th><th class="hide-mobile">Type</th><th>Date</th><th>Status</th><th style="width:80px;">Action</th></tr></thead><tbody>
           ${recentEntries.map(e => {
             const c = db.contacts.find(x => x.id === e.cId);
-            return `<tr><td>${cLink(e.cId, c?.name||'—')}</td><td class="hide-mobile">${fmt(e.amount)}</td><td class="hide-mobile"><span style="font-weight:700;color:${txTypeColor(e.txType)}">${esc(TXL[e.txType]||e.txType)}</span></td><td>${new Date(e.date).toLocaleDateString()}</td><td>${statusBadge(e.status)}</td><td><div class="action-menu"><button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button><div class="action-dropdown"><button onclick="openEntryInvoice('${e.id}')">📄 View</button><button onclick="editEntry('${e.id}')">✏️ Edit</button>${isInvoiceMode(e) && e.status !== 'settled' && e.status !== 'voided' ? `<button onclick="recordSettlement('${e.id}')">💰 Settle</button>` : ''}<button onclick="openNotifyModal('${e.id}')">🔔 Notify</button><button onclick="openShareModal('${e.id}')">🔗 Share</button><button onclick="toggleArchiveEntry('${e.id}')">${e.archived?'📤 Unarchive':'📥 Archive'}</button>${e.status !== 'voided' ? `<button onclick="voidEntry('${e.id}')" style="color:var(--amber);">🚫 Void</button>` : ''}<button onclick="delEntry('${e.id}')" style="color:var(--red);">🗑 Delete</button></div></div></td></tr>`;
+            return `<tr><td>${cLink(e.cId, c?.name||'—')}</td><td>${fmt(e.amount)}</td><td class="hide-mobile"><span style="font-weight:700;color:${txTypeColor(e.txType)}">${esc(TXL[e.txType]||e.txType)}</span></td><td>${new Date(e.date).toLocaleDateString()}</td><td>${statusBadge(e.status)}</td><td><div class="action-menu"><button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button><div class="action-dropdown"><button onclick="openEntryInvoice('${e.id}')">📄 View</button><button onclick="editEntry('${e.id}')">✏️ Edit</button>${isInvoiceMode(e) && e.status !== 'settled' && e.status !== 'voided' ? `<button onclick="recordSettlement('${e.id}')">💰 Settle</button>` : ''}<button onclick="openNotifyModal('${e.id}')">🔔 Notify</button><button onclick="openShareModal('${e.id}')">🔗 Share</button><button onclick="toggleArchiveEntry('${e.id}')">${e.archived?'📤 Unarchive':'📥 Archive'}</button>${e.status !== 'voided' ? `<button onclick="voidEntry('${e.id}')" style="color:var(--amber);">🚫 Void</button>` : ''}<button onclick="delEntry('${e.id}')" style="color:var(--red);">🗑 Delete</button></div></div></td></tr>`;
           }).join('')}
           </tbody></table></div>`}
         </div>`;
@@ -1401,14 +1401,14 @@
             <button class="bs sm" onclick="nav('nok')">🔐 Next of Kin</button>
           </div>
         </div>`;
-        const recentEntries = [...myEntries].sort((a,b)=>(b.createdAt||b.date||0)-(a.createdAt||a.date||0)).slice(0,15);
+        const recentEntries = [...myEntries].sort((a,b)=>(b.createdAt||new Date(b.date||0).getTime()||0)-(a.createdAt||new Date(a.date||0).getTime()||0)).slice(0,15);
         html += `<div class="card">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;"><h3 style="margin:0;">Recent Entries</h3><button class="gh sm" onclick="nav('entries')">View all →</button></div>
           ${recentEntries.length === 0 ? `<p style="color:var(--muted);font-size:14px;padding:12px 0;">No entries yet. <button class="gh sm" onclick="nav('contacts')">Add a contact</button> to get started.</p>` : `
-          <div class="tbl-wrap"><table><thead><tr><th>Contact</th><th class="hide-mobile">Amount</th><th class="hide-mobile">Type</th><th>Date</th><th>Status</th><th style="width:80px;">Action</th></tr></thead><tbody>
+          <div class="tbl-wrap"><table><thead><tr><th>Contact</th><th>Amount</th><th class="hide-mobile">Type</th><th>Date</th><th>Status</th><th style="width:80px;">Action</th></tr></thead><tbody>
           ${recentEntries.map(e => {
             const c = db.contacts.find(x => x.id === e.cId);
-            return `<tr><td>${cLink(e.cId, c?.name||'—')}</td><td class="hide-mobile">${fmt(e.amount)}</td><td class="hide-mobile"><span style="font-weight:700;color:${txTypeColor(e.txType)}">${esc(TXL[e.txType]||e.txType)}</span></td><td>${new Date(e.date).toLocaleDateString()}</td><td>${statusBadge(e.status)}</td><td><div class="action-menu"><button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button><div class="action-dropdown"><button onclick="openEntryInvoice('${e.id}')">📄 View</button><button onclick="editEntry('${e.id}')">✏️ Edit</button>${isInvoiceMode(e) && e.status !== 'settled' && e.status !== 'voided' ? `<button onclick="recordSettlement('${e.id}')">💰 Settle</button>` : ''}<button onclick="openNotifyModal('${e.id}')">🔔 Notify</button><button onclick="openShareModal('${e.id}')">🔗 Share</button><button onclick="toggleArchiveEntry('${e.id}')">${e.archived?'📤 Unarchive':'📥 Archive'}</button>${e.status !== 'voided' ? `<button onclick="voidEntry('${e.id}')" style="color:var(--amber);">🚫 Void</button>` : ''}<button onclick="delEntry('${e.id}')" style="color:var(--red);">🗑 Delete</button></div></div></td></tr>`;
+            return `<tr><td>${cLink(e.cId, c?.name||'—')}</td><td>${fmt(e.amount)}</td><td class="hide-mobile"><span style="font-weight:700;color:${txTypeColor(e.txType)}">${esc(TXL[e.txType]||e.txType)}</span></td><td>${new Date(e.date).toLocaleDateString()}</td><td>${statusBadge(e.status)}</td><td><div class="action-menu"><button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button><div class="action-dropdown"><button onclick="openEntryInvoice('${e.id}')">📄 View</button><button onclick="editEntry('${e.id}')">✏️ Edit</button>${isInvoiceMode(e) && e.status !== 'settled' && e.status !== 'voided' ? `<button onclick="recordSettlement('${e.id}')">💰 Settle</button>` : ''}<button onclick="openNotifyModal('${e.id}')">🔔 Notify</button><button onclick="openShareModal('${e.id}')">🔗 Share</button><button onclick="toggleArchiveEntry('${e.id}')">${e.archived?'📤 Unarchive':'📥 Archive'}</button>${e.status !== 'voided' ? `<button onclick="voidEntry('${e.id}')" style="color:var(--amber);">🚫 Void</button>` : ''}<button onclick="delEntry('${e.id}')" style="color:var(--red);">🗑 Delete</button></div></div></td></tr>`;
           }).join('')}
           </tbody></table></div>`}
         </div>`;
@@ -1549,7 +1549,10 @@
           let statusLabel = e.status || 'posted';
           let statusColor = statusMap[statusLabel] || '#888';
           if (isExpired) { statusLabel = 'expired'; statusColor = 'var(--muted)'; }
-          if (offset > 0 && !isExpired) { statusLabel = 'partial'; statusColor = 'var(--accent)'; }
+          if (offset > 0 && !isExpired) {
+            if (netAmt === 0) { statusLabel = 'settled'; statusColor = 'var(--green)'; }
+            else              { statusLabel = 'partial'; statusColor = 'var(--accent)'; }
+          }
           const sBadge = `<span style="font-size:11px;font-weight:700;color:${statusColor};text-transform:uppercase;">${statusLabel}</span>`;
 
           const siteUrl = e.siteUrl || 'https://moneyinteractions.com';
@@ -2340,7 +2343,7 @@
         return (c?.name||'').toLowerCase().includes(q) || docNum.toLowerCase().includes(q) ||
                (TXL[e.txType]||'').toLowerCase().includes(q) || (ENTRY_STATUS[e.status]||'').toLowerCase().includes(q);
       });
-      listed = [...listed].sort((a,b) => sortDesc ? (b.createdAt||b.date||0)-(a.createdAt||a.date||0) : (a.createdAt||a.date||0)-(b.createdAt||b.date||0));
+      listed = [...listed].sort((a,b) => sortDesc ? (b.createdAt||new Date(b.date||0).getTime()||0)-(a.createdAt||new Date(a.date||0).getTime()||0) : (a.createdAt||new Date(a.date||0).getTime()||0)-(b.createdAt||new Date(b.date||0).getTime()||0));
       PG['entries'] = PG['entries'] || 1;
       if (q) PG['entries'] = 1;
       const p = paginate(listed, 'entries');
@@ -2352,13 +2355,13 @@
           <input type="search" id="entries_search_input" placeholder="Search entries…" value="${esc(window._search_entries||'')}" style="flex:1;min-width:180px;max-width:340px;">
           <button class="bs sm${sortDesc?' on':''}" onclick="window._sort_entries=!${sortDesc};renderEntries()" title="Sort order">${sortDesc?'↓ Latest first':'↑ Oldest first'}</button>
         </div>
-        <div class="tbl-wrap"><table><thead><tr><th>Contact</th><th class="hide-mobile">Doc #</th><th class="hide-mobile">Amount</th><th class="hide-mobile">Type</th><th>Date</th><th>Status</th><th style="width:80px;">Action</th></tr></thead><tbody>`;
+        <div class="tbl-wrap"><table><thead><tr><th>Contact</th><th class="hide-mobile">Doc #</th><th>Amount</th><th class="hide-mobile">Type</th><th>Date</th><th>Status</th><th style="width:80px;">Action</th></tr></thead><tbody>`;
       p.items.forEach(e => {
         const c = db.contacts.find(x => x.id === e.cId);
         html += `<tr>
           <td>${cLink(e.cId, c?.name || '—')}</td>
           <td class="hide-mobile">${(()=>{ const lbl = e.invoiceNumber || (e.entryNum ? '#'+String(e.entryNum).padStart(4,'0') : null); return lbl ? `<button class="gh sm" style="font-size:12px;font-weight:700;color:var(--accent);padding:2px 6px;" onclick="openEntryInvoice('${e.id}')" title="View record">${esc(lbl)}</button>` : '<span style="color:var(--muted);">—</span>'; })()}</td>
-          <td class="hide-mobile">${fmt(e.amount)}</td>
+          <td>${fmt(e.amount)}</td>
           <td class="hide-mobile"><button class="gh sm" style="font-size:13px;padding:2px 6px;font-weight:700;color:${txTypeColor(e.txType)};" onclick="openEntryInvoice('${e.id}')" title="View record">${esc(TXL[e.txType]||e.txType)}</button></td>
           <td>${new Date(e.date).toLocaleDateString()}</td>
           <td>${statusBadge(e.status)}</td>
@@ -4464,7 +4467,7 @@
       const p = paginate(filtered, 'recurring');
 
       let html = `<div class="page-header"><h2>Recurring Transactions</h2><button class="btn sm" onclick="openNewRecurring()">+ Add Recurring</button></div><div class="card">
-        <div class="tbl-wrap"><table><thead><tr><th>Contact</th><th>Name</th><th class="hide-mobile">Amount</th><th class="hide-mobile">Frequency</th><th>Status</th><th style="width:80px;">Action</th></tr></thead><tbody>`;
+        <div class="tbl-wrap"><table><thead><tr><th>Contact</th><th>Name</th><th>Amount</th><th class="hide-mobile">Frequency</th><th>Status</th><th style="width:80px;">Action</th></tr></thead><tbody>`;
       p.items.forEach(r => {
         const c = db.contacts.find(x => x.id === r.cId);
         html += `<tr>
