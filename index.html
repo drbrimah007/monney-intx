@@ -1370,7 +1370,7 @@
           <div class="tbl-wrap"><table><thead><tr><th>Contact</th><th>Amount</th><th class="hide-mobile">Type</th><th>Date</th><th>Status</th><th style="width:80px;">Action</th></tr></thead><tbody>
           ${recentEntries.map(e => {
             const c = db.contacts.find(x => x.id === e.cId);
-            return `<tr><td>${cLink(e.cId, c?.name||'—')}</td><td>${fmt(e.amount)}</td><td class="hide-mobile"><span style="font-weight:700;color:${txTypeColor(e.txType)}">${esc(TXL[e.txType]||e.txType)}</span></td><td>${new Date(e.date).toLocaleDateString()}</td><td>${statusBadge(e.status)}</td><td><div class="action-menu"><button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button><div class="action-dropdown"><button onclick="openEntryInvoice('${e.id}')">📄 View</button><button onclick="editEntry('${e.id}')">✏️ Edit</button>${isInvoiceMode(e) && e.status !== 'settled' && e.status !== 'voided' ? `<button onclick="recordSettlement('${e.id}')">💰 Settle</button>` : ''}<button onclick="openNotifyModal('${e.id}')">🔔 Notify</button><button onclick="openShareModal('${e.id}')">🔗 Share</button><button onclick="toggleArchiveEntry('${e.id}')">${e.archived?'📤 Unarchive':'📥 Archive'}</button>${e.status !== 'voided' ? `<button onclick="voidEntry('${e.id}')" style="color:var(--amber);">🚫 Void</button>` : ''}<button onclick="delEntry('${e.id}')" style="color:var(--red);">🗑 Delete</button></div></div></td></tr>`;
+            return `<tr><td>${cLink(e.cId, c?.name||'—')}</td><td>${fmt(e.amount)}</td><td class="hide-mobile"><span style="font-weight:700;color:${txTypeColor(e.txType)}">${esc(TXL[e.txType]||e.txType)}</span></td><td>${new Date(e.date).toLocaleDateString()}</td><td>${statusBadge(e.status)}</td><td><div class="action-menu"><button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button><div class="action-dropdown"><button onclick="openEntryInvoice('${e.id}')">📄 View</button><button onclick="editEntry('${e.id}')">✏️ Edit</button>${(isInvoiceMode(e) || e.txType === 'they_owe_you' || e.txType === 'you_owe_them') && e.status !== 'settled' && e.status !== 'voided' ? `<button onclick="recordSettlement('${e.id}')">💰 Settle</button>` : ''}<button onclick="openNotifyModal('${e.id}')">🔔 Notify</button><button onclick="openShareModal('${e.id}')">🔗 Share</button><button onclick="toggleArchiveEntry('${e.id}')">${e.archived?'📤 Unarchive':'📥 Archive'}</button>${e.status !== 'voided' ? `<button onclick="voidEntry('${e.id}')" style="color:var(--amber);">🚫 Void</button>` : ''}<button onclick="delEntry('${e.id}')" style="color:var(--red);">🗑 Delete</button></div></div></td></tr>`;
           }).join('')}
           </tbody></table></div>`}
         </div>`;
@@ -1409,7 +1409,7 @@
           <div class="tbl-wrap"><table><thead><tr><th>Contact</th><th>Amount</th><th class="hide-mobile">Type</th><th>Date</th><th>Status</th><th style="width:80px;">Action</th></tr></thead><tbody>
           ${recentEntries.map(e => {
             const c = db.contacts.find(x => x.id === e.cId);
-            return `<tr><td>${cLink(e.cId, c?.name||'—')}</td><td>${fmt(e.amount)}</td><td class="hide-mobile"><span style="font-weight:700;color:${txTypeColor(e.txType)}">${esc(TXL[e.txType]||e.txType)}</span></td><td>${new Date(e.date).toLocaleDateString()}</td><td>${statusBadge(e.status)}</td><td><div class="action-menu"><button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button><div class="action-dropdown"><button onclick="openEntryInvoice('${e.id}')">📄 View</button><button onclick="editEntry('${e.id}')">✏️ Edit</button>${isInvoiceMode(e) && e.status !== 'settled' && e.status !== 'voided' ? `<button onclick="recordSettlement('${e.id}')">💰 Settle</button>` : ''}<button onclick="openNotifyModal('${e.id}')">🔔 Notify</button><button onclick="openShareModal('${e.id}')">🔗 Share</button><button onclick="toggleArchiveEntry('${e.id}')">${e.archived?'📤 Unarchive':'📥 Archive'}</button>${e.status !== 'voided' ? `<button onclick="voidEntry('${e.id}')" style="color:var(--amber);">🚫 Void</button>` : ''}<button onclick="delEntry('${e.id}')" style="color:var(--red);">🗑 Delete</button></div></div></td></tr>`;
+            return `<tr><td>${cLink(e.cId, c?.name||'—')}</td><td>${fmt(e.amount)}</td><td class="hide-mobile"><span style="font-weight:700;color:${txTypeColor(e.txType)}">${esc(TXL[e.txType]||e.txType)}</span></td><td>${new Date(e.date).toLocaleDateString()}</td><td>${statusBadge(e.status)}</td><td><div class="action-menu"><button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button><div class="action-dropdown"><button onclick="openEntryInvoice('${e.id}')">📄 View</button><button onclick="editEntry('${e.id}')">✏️ Edit</button>${(isInvoiceMode(e) || e.txType === 'they_owe_you' || e.txType === 'you_owe_them') && e.status !== 'settled' && e.status !== 'voided' ? `<button onclick="recordSettlement('${e.id}')">💰 Settle</button>` : ''}<button onclick="openNotifyModal('${e.id}')">🔔 Notify</button><button onclick="openShareModal('${e.id}')">🔗 Share</button><button onclick="toggleArchiveEntry('${e.id}')">${e.archived?'📤 Unarchive':'📥 Archive'}</button>${e.status !== 'voided' ? `<button onclick="voidEntry('${e.id}')" style="color:var(--amber);">🚫 Void</button>` : ''}<button onclick="delEntry('${e.id}')" style="color:var(--red);">🗑 Delete</button></div></div></td></tr>`;
           }).join('')}
           </tbody></table></div>`}
         </div>`;
@@ -1609,8 +1609,16 @@
         });
         const toyEl = document.getElementById('stat_shared_toy');
         const yotEl = document.getElementById('stat_shared_yot');
-        if (toyEl) toyEl.textContent = fmt(sharedToy);
-        if (yotEl) yotEl.textContent = fmt(sharedYot);
+        if (toyEl || yotEl) {
+          // Recalculate totals via getLedger, which now includes _cachedSharedRecords.
+          // Do NOT just overwrite with sharedToy/sharedYot — those exclude own entries.
+          const _u2 = curUser();
+          const _myC2 = db.contacts.filter(c => c.userId === _u2.id && !c.archived);
+          let _tot2Toy = 0, _tot2Yot = 0;
+          _myC2.forEach(c => { const l = getLedger(c.id); _tot2Toy += l.toy; _tot2Yot += l.yot; });
+          if (toyEl) toyEl.textContent = fmt(_tot2Toy);
+          if (yotEl) yotEl.textContent = fmt(_tot2Yot);
+        }
 
         // Scroll to it if this is a fresh link
         if (justLinked) setTimeout(() => el.scrollIntoView({ behavior: 'smooth', block: 'start' }), 150);
@@ -1860,7 +1868,7 @@
               <button onclick="closeCPModal();editEntry('${e.id}')">✏️ Edit</button>
               <button onclick="closeCPModal();openNotifyModal('${e.id}')">🔔 Notify</button>
               <button onclick="closeCPModal();openShareModal('${e.id}')">🔗 Share</button>
-              ${isInvoiceMode(e) && e.status !== 'settled' && e.status !== 'voided' ? `<button onclick="closeCPModal();recordSettlement('${e.id}')">💰 Settle</button>` : ''}
+              ${(isInvoiceMode(e) || e.txType === 'they_owe_you' || e.txType === 'you_owe_them') && e.status !== 'settled' && e.status !== 'voided' ? `<button onclick="closeCPModal();recordSettlement('${e.id}')">💰 Settle</button>` : ''}
               <button onclick="closeCPModal();toggleArchiveEntry('${e.id}')">${e.archived?'📤 Unarchive':'📥 Archive'}</button>
               ${e.status !== 'voided' ? `<button onclick="closeCPModal();voidEntry('${e.id}')" style="color:var(--amber);">🚫 Void</button>` : ''}
               <button onclick="closeCPModal();${e.status==='closed'?'reopenEntry':'openCloseModal'}('${e.id}')">${e.status==='closed'?'🔓 Reopen':'🔒 Close Record'}</button>
@@ -2235,7 +2243,29 @@
         </div>`;
 
       // Settlement breakdown (mirrors invoice doc behaviour)
-      const _txSt = _getInvoiceSettlement(e.id);
+      let _txSt = _getInvoiceSettlement(e.id);
+      // Fallback: if linkedInvoiceId lookup returns 0 but status shows settlement,
+      // try matching by note text or by cId + creditType + entryNum ref
+      if (_txSt.settled === 0 && (e.status === 'partially_settled' || e.status === 'settled')) {
+        const docRef = e.invoiceNumber || (e.entryNum ? '#'+String(e.entryNum).padStart(4,'0') : null);
+        const altSettled = db.entries
+          .filter(s => s.cId === e.cId && s.status !== 'voided' &&
+                       (s.txType === 'they_paid_you' || s.txType === 'you_paid_them') &&
+                       (s.linkedInvoiceId === e.id || (docRef && s.note && s.note.includes(docRef))))
+          .reduce((sum, s) => sum + (parseFloat(s.amount) || 0), 0);
+        if (altSettled > 0) {
+          const total = parseFloat(e.amount) || 0;
+          _txSt = { total, settled: altSettled, remaining: Math.max(0, total - altSettled), status: e.status };
+          // Back-fill linkedInvoiceId so future calls work correctly
+          db.entries.forEach(s => {
+            if (s.cId === e.cId && s.status !== 'voided' &&
+                (s.txType === 'they_paid_you' || s.txType === 'you_paid_them') &&
+                !s.linkedInvoiceId && docRef && s.note && s.note.includes(docRef)) {
+              s.linkedInvoiceId = e.id;
+            }
+          });
+        }
+      }
       if (_txSt.settled > 0) {
         doc += `<div style="display:flex;justify-content:flex-end;margin-bottom:24px;">
           <div style="border:2px solid #111;border-radius:8px;padding:16px 24px;min-width:260px;">
@@ -2428,14 +2458,14 @@
         html += `<tr>
           <td>${cLink(e.cId, c?.name || '—')}</td>
           <td class="hide-mobile">${(()=>{ const lbl = e.invoiceNumber || (e.entryNum ? '#'+String(e.entryNum).padStart(4,'0') : null); return lbl ? `<button class="gh sm" style="font-size:12px;font-weight:700;color:var(--accent);padding:2px 6px;" onclick="openEntryInvoice('${e.id}')" title="View record">${esc(lbl)}</button>` : '<span style="color:var(--muted);">—</span>'; })()}</td>
-          <td>${fmt(e.amount)}</td>
+          <td>${(()=>{ const _st = _getInvoiceSettlement(e.id); return _st.settled > 0 ? `${fmt(e.amount)}<br><span style="font-size:11px;color:var(--muted);">Paid&nbsp;${fmt(_st.settled)}&nbsp;·&nbsp;Bal&nbsp;<strong style="color:${_st.remaining<=0?'var(--green)':'var(--amber)'}">${fmt(_st.remaining)}</strong></span>` : fmt(e.amount); })()}</td>
           <td class="hide-mobile"><button class="gh sm" style="font-size:13px;padding:2px 6px;font-weight:700;color:${txTypeColor(e.txType)};" onclick="openEntryInvoice('${e.id}')" title="View record">${esc(TXL[e.txType]||e.txType)}</button></td>
           <td>${new Date(e.date).toLocaleDateString()}</td>
           <td>${statusBadge(e.status)}</td>
           <td><div class="action-menu"><button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button><div class="action-dropdown">
             <button onclick="openEntryInvoice('${e.id}')">📄 View</button>
             <button onclick="editEntry('${e.id}')">✏️ Edit</button>
-            ${isInvoiceMode(e) && e.status !== 'settled' && e.status !== 'voided' ? `<button onclick="recordSettlement('${e.id}')">💰 Settle</button>` : ''}
+            ${(isInvoiceMode(e) || e.txType === 'they_owe_you' || e.txType === 'you_owe_them') && e.status !== 'settled' && e.status !== 'voided' ? `<button onclick="recordSettlement('${e.id}')">💰 Settle</button>` : ''}
             <button onclick="openNotifyModal('${e.id}')">🔔 Notify</button>
             <button onclick="openShareModal('${e.id}')">🔗 Share</button>
             <button onclick="toggleArchiveEntry('${e.id}')">${e.archived ? '📤 Unarchive' : '📥 Archive'}</button>
@@ -3367,7 +3397,26 @@
       window._notifyWhoVal = 'them'; // reset to default on each open
       const e = db.entries.find(x => x.id === eid);
       if (!e) return;
-      const c = db.contacts.find(x => x.id === e.cId);
+      let c = db.contacts.find(x => x.id === e.cId);
+      // If the contact linked to this entry has no email, try to find a contact
+      // with the same name that does have one (handles auto-added vs manually edited contacts)
+      if (!c?.email && c?.name) {
+        const _nameLow = c.name.toLowerCase().trim();
+        const _betterC = db.contacts.find(x => x.id !== c.id &&
+          (x.name||'').toLowerCase().trim() === _nameLow && x.email);
+        if (_betterC) c = _betterC;
+      }
+      // Last resort: check _cachedSharedRecords for the sender's email matched by name
+      if (!c?.email) {
+        const _nameLow = (c?.name||'').toLowerCase().trim();
+        for (const r of _cachedSharedRecords) {
+          const rName = (r.entry?.fromName||'').toLowerCase().trim();
+          if (_nameLow && rName === _nameLow && r.entry?.fromEmail) {
+            c = { ...(c || {}), name: c?.name || r.entry.fromName, email: r.entry.fromEmail };
+            break;
+          }
+        }
+      }
       const u = curUser();
       const siteUrl = db.settings?.siteUrl || window.location.origin;
       const appName = db.settings?.appName || 'Money IntX';
@@ -3468,7 +3517,23 @@
     async function _sendNotificationForEntry(eid, message, who) {
       const e = db.entries.find(x => x.id === eid);
       if (!e) return;
-      const contact = db.contacts.find(x => x.id === e.cId);
+      let contact = db.contacts.find(x => x.id === e.cId);
+      // Fallback: find same-name contact with email if the linked one has none
+      if (!contact?.email && contact?.name) {
+        const _nL = contact.name.toLowerCase().trim();
+        const _bc = db.contacts.find(x => x.id !== contact.id &&
+          (x.name||'').toLowerCase().trim() === _nL && x.email);
+        if (_bc) contact = _bc;
+      }
+      if (!contact?.email) {
+        const _nL = (contact?.name||'').toLowerCase().trim();
+        for (const r of _cachedSharedRecords) {
+          if ((r.entry?.fromName||'').toLowerCase().trim() === _nL && r.entry?.fromEmail) {
+            contact = { ...(contact||{}), name: contact?.name||r.entry.fromName, email: r.entry.fromEmail };
+            break;
+          }
+        }
+      }
       const u = curUser();
       // Determine recipient email(s) first so we can store them with the record
       const recipientEmail = contact?.email || '';
