@@ -486,6 +486,25 @@ module.exports = async function handler(req, res) {
       }
     }
 
+    // ── mark-paid: recipient marks a shared record as settled/paid ───────────
+    if (action === 'mark-paid') {
+      const payload = requireAuth(req, res);
+      if (!payload) return;
+      const { token: mpToken } = req.body;
+      if (!mpToken) return res.status(400).json({ ok: false, error: 'token required' });
+      try {
+        await ensureTable();
+        const [row] = await sql`SELECT entry_data FROM share_tokens WHERE token = ${mpToken} AND linked_user_id = ${payload.id} LIMIT 1`;
+        if (!row) return res.status(404).json({ ok: false, error: 'Not found.' });
+        const updated = { ...(row.entry_data || {}), status: 'settled', settledByRecipient: true, settledAt: new Date().toISOString() };
+        await sql`UPDATE share_tokens SET entry_data = ${updated} WHERE token = ${mpToken}`;
+        return res.json({ ok: true });
+      } catch (e) {
+        console.error('[share/mark-paid]', e.message);
+        return res.status(500).json({ ok: false, error: 'Failed to mark paid.' });
+      }
+    }
+
     // ── dismiss-shared: recipient dismisses (Dismiss) a shared record ────────
     if (action === 'dismiss-shared') {
       const payload = requireAuth(req, res);
