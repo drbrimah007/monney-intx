@@ -639,6 +639,9 @@
     // ── save(): write to localStorage AND push to server ─────────────────
     let _syncTimer = null;
     function save() {
+      // During impersonation, skip server sync — we only have the user's data merged
+      // in-memory and must not push it to the admin's server blob.
+      if (_impersonatingDataUserId) { return; }
       localStorage.setItem('mxi_v2', JSON.stringify(db));
       // Debounce server sync: wait 800 ms after last change before pushing
       if (_IS_SERVER) {
@@ -665,6 +668,8 @@
     // saveNow: write localStorage + push to server immediately (no debounce).
     // Use for critical operations: entry save, contact add/edit, template actions.
     async function saveNow() {
+      // During impersonation, skip server sync to avoid pushing merged data to admin's blob.
+      if (_impersonatingDataUserId) { return; }
       localStorage.setItem('mxi_v2', JSON.stringify(db));
       if (_IS_SERVER) {
         clearTimeout(_syncTimer); // cancel any pending debounced sync
@@ -1082,16 +1087,59 @@
       }
     }
 
-    function startImpersonate(userId, mode) {
+    // Track which userId's data has been injected into db for impersonation
+    let _impersonatingDataUserId = null;
+
+    async function startImpersonate(userId, mode) {
       if (!isAdmin()) return;
+
+      // Remove any previously injected impersonation data
+      _stripImpersonateData(_impersonatingDataUserId);
+
       db.settings.impersonating = { userId, mode };
+
+      // If on server, fetch the real user blob and inject into db in-memory
+      // so the admin sees the user's actual entries/contacts/templates.
+      if (_IS_SERVER && mode === 'user') {
+        try {
+          const tok = localStorage.getItem('mxi_token');
+          const headers = { 'Content-Type': 'application/json' };
+          if (tok) headers['Authorization'] = 'Bearer ' + tok;
+          const r = await fetch('/api/admin/user-data?userId=' + encodeURIComponent(userId), {
+            credentials: 'include', headers
+          });
+          if (r.ok) {
+            const { data } = await r.json();
+            // Merge their entries/contacts/templates into db in-memory only (NOT saved)
+            (data.entries   || []).forEach(e => { if (!db.entries.find(x=>x.id===e.id))   db.entries.push(e); });
+            (data.contacts  || []).forEach(c => { if (!db.contacts.find(x=>x.id===c.id))  db.contacts.push(c); });
+            (data.templates || []).forEach(t => { if (!db.templates.find(x=>x.id===t.id)) db.templates.push(t); });
+            (data.recurring || []).forEach(r => { if (!db.recurring.find(x=>x.id===r.id)) db.recurring.push(r); });
+            _impersonatingDataUserId = userId;
+          }
+        } catch(_) { /* non-critical — fall back to empty view */ }
+      }
+
+      // Save only the admin's own settings flag — do NOT push merged data to server
       save();
       renderImpersonateBanner();
       renderNav();
       nav('dash');
     }
 
+    function _stripImpersonateData(userId) {
+      if (!userId) return;
+      // Remove entries/contacts/templates that were injected for impersonation
+      const adminId = db.settings.sessionUserId;
+      db.entries   = db.entries.filter(e => e.userId === adminId || e.userId === 'admin_001');
+      db.contacts  = db.contacts.filter(c => c.userId === adminId || c.userId === 'admin_001');
+      db.templates = db.templates.filter(t => t.userId === adminId || t.userId === 'admin_001');
+      db.recurring = db.recurring.filter(r => r.userId === adminId || r.userId === 'admin_001');
+      _impersonatingDataUserId = null;
+    }
+
     function stopImpersonate() {
+      _stripImpersonateData(_impersonatingDataUserId);
       db.settings.impersonating = null;
       save();
       renderImpersonateBanner();
@@ -4850,9 +4898,10 @@
       document.body.appendChild(d.firstChild);
     }
 
-    function impersonateUser(uid) {
-      startImpersonate(uid, 'user');
-      toast('Entered test mode');
+    async function impersonateUser(uid) {
+      toast('Loading user data…', 2000);
+      await startImpersonate(uid, 'user');
+      toast('Viewing as user — data loaded from server', 3000);
     }
 
     function changeUserStatus(uid) {
