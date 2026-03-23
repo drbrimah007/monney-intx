@@ -2215,6 +2215,14 @@
           <span class="toggle-switch" id="ne_notify_sw"></span>
         </button>
         <div id="ne_notify_wrap" style="display:none;margin-top:10px;">
+          <div style="margin-bottom:10px;">
+            <div style="font-size:11px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.06em;margin-bottom:7px;">Send to</div>
+            <div style="display:flex;border:1px solid var(--border);border-radius:8px;overflow:hidden;">
+              <button type="button" id="ne_nwho_them" style="flex:1;padding:9px 4px;font-size:13px;background:var(--accent);color:#fff;border:none;cursor:pointer;font-weight:600;" onclick="_setFormNwho('ne','them')">Contact</button>
+              <button type="button" id="ne_nwho_you"  style="flex:1;padding:9px 4px;font-size:13px;background:var(--bg3);color:var(--text);border:none;border-left:1px solid var(--border);cursor:pointer;" onclick="_setFormNwho('ne','you')">You</button>
+              <button type="button" id="ne_nwho_both" style="flex:1;padding:9px 4px;font-size:13px;background:var(--bg3);color:var(--text);border:none;border-left:1px solid var(--border);cursor:pointer;" onclick="_setFormNwho('ne','both')">Both</button>
+            </div>
+          </div>
           <textarea id="ne_notify_msg" rows="2" style="width:100%;box-sizing:border-box;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg2);color:var(--text);font-size:14px;resize:vertical;">For your kind attention</textarea>
           <div id="ne_notify_email_wrap" style="display:none;margin-top:8px;">
             <div style="background:#fff8e1;border:1px solid #ffe082;border-radius:8px;padding:10px 14px;">
@@ -2628,7 +2636,8 @@
         // Save inline email to contact if provided
         const inlineEmail = document.getElementById('ne_notify_contact_email')?.value.trim() || '';
         if (inlineEmail && contact && !contact.email) { contact.email = inlineEmail; save(); }
-        _sendNotificationForEntry(newEid, notifyMsg, 'them');
+        const notifyWho = window._formNwho_ne || 'them';
+        _sendNotificationForEntry(newEid, notifyMsg, notifyWho);
       }
       closeEntryModal();
       toast(`Entry saved${invoiceNumber ? ' — ' + invoiceNumber : ''}`);
@@ -3146,48 +3155,77 @@
       if (sw) sw.classList.toggle('on', turningOn);
       wrap.style.display = turningOn ? 'block' : 'none';
       if (turningOn) {
-        // Show email prompt if the selected contact has no email
+        // Reset who selector to 'them' and update email prompt
+        _setFormNwho(prefix, window['_formNwho_' + prefix] || 'them');
+      }
+    }
+
+    // Who-to-notify selector for inline form notify sections
+    function _setFormNwho(prefix, val) {
+      window['_formNwho_' + prefix] = val;
+      ['them','you','both'].forEach(v => {
+        const b = document.getElementById(prefix + '_nwho_' + v);
+        if (!b) return;
+        const active = v === val;
+        b.style.background = active ? 'var(--accent)' : 'var(--bg3)';
+        b.style.color      = active ? '#fff'          : 'var(--text)';
+        b.style.fontWeight = active ? '600'           : '400';
+      });
+      // Show/hide email prompt: only relevant when contact is in the audience
+      const emailWrap = document.getElementById(prefix + '_notify_email_wrap');
+      if (!emailWrap) return;
+      if (val === 'you') {
+        emailWrap.style.display = 'none';
+      } else {
         const conId = prefix === 'ne' ? 'necon' : 'rcon';
         const cid = document.getElementById(conId)?.value || '';
         const c = cid ? db.contacts.find(x => x.id === cid) : null;
-        const emailWrap = document.getElementById(prefix + '_notify_email_wrap');
-        if (emailWrap) emailWrap.style.display = (!c?.email) ? 'block' : 'none';
+        emailWrap.style.display = (!c?.email) ? 'block' : 'none';
       }
     }
+
     // Keep _toggleRNotify as alias for backward compat
     function _toggleRNotify() { _toggleNotify('r'); }
 
     // Send a notification for a recurring record (no entryId yet)
-    async function _sendRecurringNotif(rid, message) {
+    async function _sendRecurringNotif(rid, message, who) {
+      who = who || 'them';
       const r = db.recurring.find(x => x.id === rid);
       if (!r) return;
       const contact = db.contacts.find(x => x.id === r.cId);
       const u = curUser();
-      const recipientEmail = contact?.email || '';
-      if (!recipientEmail) {
-        toast('⚠️ No email on record — notification saved but not emailed.', 4000);
-        return;
-      }
       const appName  = db.settings?.appName  || 'Money Intx';
       const siteUrl  = db.settings?.siteUrl  || window.location.origin;
       const tagline  = db.settings?.tagline  || 'Making Money Matters Memorable';
       const logoData = db.settings?.logoData || '';
+      // Build list of addresses based on who
+      const toAddresses = [];
+      if (who === 'them' || who === 'both') {
+        if (contact?.email) toAddresses.push(contact.email);
+        else { toast('⚠️ No email on record for contact — not emailed.', 4000); }
+      }
+      if (who === 'you' || who === 'both') {
+        if (u.email) toAddresses.push(u.email);
+      }
+      if (toAddresses.length === 0) return;
       try {
-        await fetch('/api/email', {
-          method: 'POST', credentials: 'include',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            action: 'send-reminder',
-            recipientEmail,
-            fromName: u.displayName || u.email || appName,
-            fromEmail: u.email || '',
-            message,
-            amount: r.amount || null,
-            txType: r.txType || null,
-            viewUrl: siteUrl,
-            siteUrl, appName, tagline, logoData
-          })
-        });
+        for (const addr of toAddresses) {
+          await fetch('/api/email', {
+            method: 'POST', credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              action: 'send-reminder',
+              recipientEmail: addr,
+              fromName: u.displayName || u.email || appName,
+              fromEmail: u.email || '',
+              message,
+              amount: r.amount || null,
+              txType: r.txType || null,
+              viewUrl: siteUrl,
+              siteUrl, appName, tagline, logoData
+            })
+          });
+        }
         toast('✅ Notification sent');
       } catch(err) {
         console.error('recurring notify error:', err);
@@ -4130,6 +4168,14 @@
             <span class="toggle-switch" id="r_notify_sw"></span>
           </button>
           <div id="r_notify_wrap" style="display:none;margin-top:10px;">
+            <div style="margin-bottom:10px;">
+              <div style="font-size:11px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.06em;margin-bottom:7px;">Send to</div>
+              <div style="display:flex;border:1px solid var(--border);border-radius:8px;overflow:hidden;">
+                <button type="button" id="r_nwho_them" style="flex:1;padding:9px 4px;font-size:13px;background:var(--accent);color:#fff;border:none;cursor:pointer;font-weight:600;" onclick="_setFormNwho('r','them')">Contact</button>
+                <button type="button" id="r_nwho_you"  style="flex:1;padding:9px 4px;font-size:13px;background:var(--bg3);color:var(--text);border:none;border-left:1px solid var(--border);cursor:pointer;" onclick="_setFormNwho('r','you')">You</button>
+                <button type="button" id="r_nwho_both" style="flex:1;padding:9px 4px;font-size:13px;background:var(--bg3);color:var(--text);border:none;border-left:1px solid var(--border);cursor:pointer;" onclick="_setFormNwho('r','both')">Both</button>
+              </div>
+            </div>
             <textarea id="r_notify_msg" rows="2" style="width:100%;box-sizing:border-box;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg2);color:var(--text);font-size:14px;resize:vertical;">A recurring transaction has been set up for your account</textarea>
             <div id="r_notify_email_wrap" style="display:none;margin-top:8px;">
               <div style="background:#fff8e1;border:1px solid #ffe082;border-radius:8px;padding:10px 14px;">
@@ -4200,7 +4246,8 @@
         const rc = db.contacts.find(x => x.id === cid);
         const inlineEmail = document.getElementById('r_notify_contact_email')?.value.trim() || '';
         if (inlineEmail && rc && !rc.email) { rc.email = inlineEmail; save(); }
-        _sendRecurringNotif(newRid, rNotifyMsg);
+        const rNotifyWho = window._formNwho_r || 'them';
+        _sendRecurringNotif(newRid, rNotifyMsg, rNotifyWho);
       }
       document.getElementById('recModalBg')?.remove();
       toast('Recurring created');
