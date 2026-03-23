@@ -3451,6 +3451,11 @@
       const appName = db.settings?.appName || 'Money IntX';
       const tagline = db.settings?.tagline || 'Making Money Matters Memorable';
 
+      // Compute remaining balance for partially settled entries
+      const _nmSt   = _getInvoiceSettlement(eid);
+      const _nmAmt  = (_nmSt.settled > 0 && _nmSt.remaining != null) ? _nmSt.remaining : (e.amount || 0);
+      const _nmNote = (_nmSt.settled > 0 && _nmSt.remaining != null) ? ' · Balance Remaining' : '';
+
       const d = document.createElement('div');
       d.innerHTML = `<div class="modal-bg" id="notifyModalBg" onclick="if(event.target===this)this.remove()">
         <div class="modal" style="max-width:500px;" onclick="event.stopPropagation()">
@@ -3460,7 +3465,7 @@
           </div>
           <div style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:14px;">
             <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px;">Record</div>
-            <div style="font-weight:700;">${esc(c?.name||'—')} — ${fmt(e.amount)}</div>
+            <div style="font-weight:700;">${esc(c?.name||'—')} — ${fmt(_nmAmt)}${_nmNote ? `<span style="font-size:12px;color:var(--muted);font-weight:400;margin-left:6px;">${esc(_nmNote)}</span>` : ''}</div>
           </div>
           <div class="fg"><label>Message</label><textarea id="notify_msg" rows="3" style="width:100%;">For your attention.</textarea></div>
           <div class="fg">
@@ -3509,7 +3514,8 @@
         if (!data.ok) throw new Error(data.error || 'Failed');
         window._notifyShareUrl = data.shareUrl;
         const recipientTxLabel = { they_owe_you:'You Owe', they_paid_you:'You Have Settled', you_owe_them:'You Are Owed', you_paid_them:'You Have Been Settled' }[e.txType] || (TXL_EXT[e.txType]||e.txType);
-        const shareMsg = `Hi ${c?.name||''},\n\nThis is to inform you that:\n\n${recipientTxLabel}: ${fmt(e.amount)}\n\nView full details here:\n${data.shareUrl}\n\nYour kind attention is requested.`;
+        const _smAmtLine = _nmNote ? `${recipientTxLabel}: ${fmt(_nmAmt)} (Balance Remaining)` : `${recipientTxLabel}: ${fmt(_nmAmt)}`;
+        const shareMsg = `Hi ${c?.name||''},\n\nThis is to inform you that:\n\n${_smAmtLine}\n\nView full details here:\n${data.shareUrl}\n\nYour kind attention is requested.`;
         const wrap = document.getElementById('notifyShareWrap');
         if (!wrap) return;
         wrap.innerHTML = `
