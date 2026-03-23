@@ -1019,39 +1019,8 @@
         else if (dir === 'yot')        yot += a;
         else if (dir === 'yot_credit') yot = Math.max(0, yot - a);
       });
-      // Fold in shared-with-me records from this contact (matched by email or name)
-      if (_cachedSharedRecords.length > 0) {
-        const cEmail = (c.email || '').toLowerCase().trim();
-        const cName  = (c.name  || '').toLowerCase().trim();
-        _cachedSharedRecords.forEach(r => {
-          const e = r.entry;
-          if (!e) return;
-          if (!r.confirmed) return;                  // only count confirmed (Confirm & Track) records
-          if (_sharedNoLedger.has(r.token)) return; // skip entries removed from ledger
-          if (r.recipientClosed) return;             // skip expired records
-          if (e.dismissed) return;                   // skip dismissed/deprecated records
-          const st = (e.status || '').toLowerCase();
-          if (st === 'voided' || st === 'void') return; // skip voided
-          const rEmail = (e.fromEmail || '').toLowerCase().trim();
-          const rName  = (e.fromName  || '').toLowerCase().trim();
-          const matches = (cEmail && rEmail && cEmail === rEmail) || (cName && rName && cName === rName);
-          if (!matches) return;
-          const rawAmt = Math.abs(parseFloat(e.amount) || 0);
-          const offset = _sharedOffsets[r.token] || 0;
-          const amt    = Math.max(0, rawAmt - offset);
-          const t = e.txType || '';
-          // txType is from SENDER's perspective — flip for recipient's ledger
-          if (t === 'they_owe_you' || t === 'invoice' || t === 'bill' || t === 'lend') {
-            // sender is owed → we owe the sender
-            if (st === 'paid' || st === 'settled' || st === 'closed') yot = Math.max(0, yot - amt);
-            else yot += amt;
-          } else if (t === 'you_owe_them' || t === 'borrow') {
-            // sender owes us
-            if (st === 'paid' || st === 'settled' || st === 'closed') toy = Math.max(0, toy - amt);
-            else toy += amt;
-          }
-        });
-      }
+      // Shared-with-me records appear in the Entries list for visibility only —
+      // they do NOT affect the ledger balance. Only own entries count toward balance.
       return { toy, yot, net: toy - yot };
     }
 
@@ -1803,28 +1772,11 @@
         // ── Update balance stat cards with shared-with-me amounts ──────────
         // txType is from SENDER's perspective:
         //   sender "they_owe_you"/"invoice"/"lend" → we (recipient) OWE the sender
-        //   sender "you_owe_them"/"borrow"/"gift"  → sender owes US
-        // Hidden records still count; expired/closed and depreciation offsets are excluded
-        let sharedToy = 0, sharedYot = 0;
-        records.forEach(r => {
-          const e  = r.entry;
-          const st = (e?.status || '').toLowerCase();
-          if (!r.confirmed) return;                                              // only confirmed records in balance
-          if (st === 'closed' || st === 'voided' || r.recipientClosed) return; // expired — skip
-          if (e?.dismissed) return;                                              // dismissed — skip
-          if (_sharedNoLedger.has(r.token)) return;                             // removed from ledger — skip
-          const rawAmt = parseFloat(e?.amount) || 0;
-          const offset = _sharedOffsets[r.token] || 0;
-          const amt    = Math.max(0, rawAmt - offset);
-          const t      = e?.txType || '';
-          if (t === 'they_owe_you' || t === 'invoice' || t === 'lend') sharedYot += amt;
-          else if (t === 'you_owe_them' || t === 'borrow' || t === 'gift') sharedToy += amt;
-        });
+        // Shared-with-me records are informational only — they do NOT affect balance.
+        // Dashboard stat cards use getLedger() which only counts own entries.
         const toyEl = document.getElementById('stat_shared_toy');
         const yotEl = document.getElementById('stat_shared_yot');
         if (toyEl || yotEl) {
-          // Recalculate totals via getLedger, which now includes _cachedSharedRecords.
-          // Do NOT just overwrite with sharedToy/sharedYot — those exclude own entries.
           const _u2 = curUser();
           const _myC2 = db.contacts.filter(c => c.userId === _u2.id && !c.archived);
           let _tot2Toy = 0, _tot2Yot = 0;
