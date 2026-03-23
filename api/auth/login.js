@@ -37,7 +37,16 @@ module.exports = async function handler(req, res) {
       user: { id: user.id, displayName: user.display_name, email: user.email, role: user.role }
     });
   } catch (e) {
-    console.error('[login]', e.message);
-    return res.status(500).json({ ok: false, error: 'Server error. Please try again.' });
+    console.error('[login] error:', e.message, e.code || '');
+    // Surface DB connectivity issues clearly (won't expose secrets)
+    const isDbError = e.message && (
+      e.message.includes('database') || e.message.includes('connect') ||
+      e.message.includes('timeout')  || e.message.includes('ECONNREFUSED') ||
+      e.message.includes('DATABASE_URL')
+    );
+    const msg = isDbError
+      ? 'Database unavailable. If this persists, check the Neon dashboard.'
+      : 'Server error. Please try again.';
+    return res.status(500).json({ ok: false, error: msg });
   }
 };
