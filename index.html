@@ -340,7 +340,7 @@
       audit: [],
       emailLog: [],
       settings: {
-        appName: 'Money Intx',
+        appName: 'Money IntX',
         logoData: '',
         company: { name: '', address: '', email: '', phone: '', website: '', aboutText: '', contactText: '' },
         publicShow: {
@@ -762,7 +762,7 @@
       });
       // Ensure each user has invoiceShow + logoData
       db.users.forEach(u => {
-        if (!u.invoiceShow) u.invoiceShow = { displayName: false, businessName: false, email: false, phone: false, address: false, logo: false };
+        if (!u.invoiceShow) u.invoiceShow = { displayName: false, businessName: false, email: false, phone: false, address: false, logo: true };
         if (u.logoData === undefined) u.logoData = '';
       });
       // Ensure each entry has a valid status
@@ -1181,7 +1181,7 @@
       const logoImg = document.getElementById('topbar-logo');
       const appNameEl = document.getElementById('appname');
       const logoData = db.settings?.logoData || '';
-      const appName  = db.settings?.appName  || 'Money Intx';
+      const appName  = db.settings?.appName  || 'Money IntX';
       appNameEl.textContent = appName;
       document.title = appName;
       if (logoData) {
@@ -1294,7 +1294,7 @@
           <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;">
             ${logoHtml}
             <div style="flex:1;min-width:200px;">
-              <div style="font-size:18px;font-weight:700;">${esc(s.appName||'Money Intx')}</div>
+              <div style="font-size:18px;font-weight:700;">${esc(s.appName||'Money IntX')}</div>
               ${s.company.name ? `<div style="font-size:13px;color:var(--muted);">${esc(s.company.name)}</div>` : `<div style="font-size:13px;color:var(--muted);">No company name set</div>`}
               ${s.company.email ? `<div style="font-size:12px;color:var(--muted);">${esc(s.company.email)}</div>` : ''}
             </div>
@@ -1333,7 +1333,7 @@
         </div>`;
 
         // Recent entries
-        const recentEntries = allEntries.sort((a,b)=>b.date-a.date).slice(0,15);
+        const recentEntries = [...allEntries].sort((a,b)=>(b.createdAt||b.date||0)-(a.createdAt||a.date||0)).slice(0,15);
         html += `<div class="card">
           <div class="section-title">Recent Entries (All Users)</div>
           ${recentEntries.length === 0 ? `<p style="color:var(--muted);font-size:14px;padding:12px 0;">No entries yet.</p>` : `
@@ -1372,7 +1372,7 @@
             <button class="bs sm" onclick="nav('nok')">🔐 Next of Kin</button>
           </div>
         </div>`;
-        const recentEntries = myEntries.sort((a,b)=>b.date-a.date).slice(0,15);
+        const recentEntries = [...myEntries].sort((a,b)=>(b.createdAt||b.date||0)-(a.createdAt||a.date||0)).slice(0,15);
         html += `<div class="card">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;"><h3 style="margin:0;">Recent Entries</h3><button class="gh sm" onclick="nav('entries')">View all →</button></div>
           ${recentEntries.length === 0 ? `<p style="color:var(--muted);font-size:14px;padding:12px 0;">No entries yet. <button class="gh sm" onclick="nav('contacts')">Add a contact</button> to get started.</p>` : `
@@ -1853,7 +1853,7 @@
       // "From" = the actual user, not the platform/app name
       const fromUser    = curUser();
       const invShow     = fromUser.invoiceShow || {};
-      const appName     = db.settings.appName || 'Money Intx';
+      const appName     = db.settings.appName || 'Money IntX';
       // Company name only if explicitly set, not same as app name, AND user has enabled it
       const companyName = (invShow.businessName && co.name && co.name !== appName) ? co.name : '';
       // Primary identity: show display name only if user enabled it
@@ -1865,8 +1865,8 @@
       // Live settlement state (always recalculated from linked records)
       const invSt = _getInvoiceSettlement(e.id);
 
-      // Logo: user's own logo if enabled; platform logo goes to footer only
-      const userLogoSrc = (invShow.logo && fromUser.logoData) ? fromUser.logoData : '';
+      // Logo: user's own logo if enabled; fall back to platform logo if user has none
+      const userLogoSrc = invShow.logo ? (fromUser.logoData || db.settings.logoData || '') : '';
       const logoHtml = userLogoSrc
         ? `<img src="${userLogoSrc}" style="height:56px;max-width:160px;object-fit:contain;margin-bottom:8px;display:block;">`
         : '';
@@ -2051,7 +2051,7 @@
         (e.txType==='you_owe_them')  ? '#dc2626' :
         (e.txType==='they_paid_you'||e.txType==='you_paid_them') ? '#0d9488' : '#6c63ff';
 
-      const appName2    = db.settings.appName || 'Money Intx';
+      const appName2    = db.settings.appName || 'Money IntX';
       const companyName2 = (co.name && co.name !== appName2) ? co.name : '';
       const fromName    = fromUser.displayName || companyName2 || 'Unknown';
       const logoSrc2    = db.settings.logoData || '';
@@ -2221,7 +2221,7 @@
         return (c?.name||'').toLowerCase().includes(q) || docNum.toLowerCase().includes(q) ||
                (TXL[e.txType]||'').toLowerCase().includes(q) || (ENTRY_STATUS[e.status]||'').toLowerCase().includes(q);
       });
-      listed = [...listed].sort((a,b) => sortDesc ? (b.date||b.createdAt||0)-(a.date||a.createdAt||0) : (a.date||a.createdAt||0)-(b.date||b.createdAt||0));
+      listed = [...listed].sort((a,b) => sortDesc ? (b.createdAt||b.date||0)-(a.createdAt||a.date||0) : (a.createdAt||a.date||0)-(b.createdAt||b.date||0));
       PG['entries'] = PG['entries'] || 1;
       if (q) PG['entries'] = 1;
       const p = paginate(listed, 'entries');
@@ -2850,11 +2850,11 @@
           body: JSON.stringify({
             action: 'create', entryId: newEid,
             contactName: contact.name || '',
-            fromName:  u.displayName || u.email || (db.settings?.appName || 'Money Intx'),
+            fromName:  u.displayName || u.email || (db.settings?.appName || 'Money IntX'),
             fromEmail: u.email || '',
             txType, amount, date, note, invoiceNumber,
             status: safeStatus(status),
-            appName: db.settings?.appName || 'Money Intx',
+            appName: db.settings?.appName || 'Money IntX',
             siteUrl, tagline: db.settings?.tagline || 'Making Money Matters Memorable'
           })
         }).catch(() => {});
@@ -3104,7 +3104,7 @@
         // Send notification email to contact if they have an email
         try {
           const u = curUser();
-          const appName = db.settings?.appName || 'Money Intx';
+          const appName = db.settings?.appName || 'Money IntX';
           const siteUrl = db.settings?.siteUrl || window.location.origin;
           // Find the share token for this entry so we can include the link
           const stRes = await fetch('/api/share', {
@@ -3181,7 +3181,7 @@
       const c = db.contacts.find(x => x.id === e.cId);
       const u = curUser();
       const siteUrl = db.settings?.siteUrl || window.location.origin;
-      const appName = db.settings?.appName || 'Money Intx';
+      const appName = db.settings?.appName || 'Money IntX';
       const tagline = db.settings?.tagline || 'Making Money Matters Memorable';
 
       const d = document.createElement('div');
@@ -3312,14 +3312,14 @@
           body: JSON.stringify({
             action: 'create', entryId: eid,
             contactName: contact?.name || '',
-            fromName: u.displayName || u.email || (db.settings?.appName || 'Money Intx'),
+            fromName: u.displayName || u.email || (db.settings?.appName || 'Money IntX'),
             fromEmail: u.email || '',
             txType: e.txType, amount: e.amount, date: e.date,
             note: e.note || '', invoiceNumber: e.invoiceNumber || null,
             status: e.status || 'posted',
             settledAmt: _invSt?.settled || 0,
             remaining:  _invSt?.remaining ?? e.amount,
-            appName: db.settings?.appName || 'Money Intx',
+            appName: db.settings?.appName || 'Money IntX',
             siteUrl: _siteUrl,
             tagline: db.settings?.tagline || 'Making Money Matters Memorable'
           })
@@ -3337,7 +3337,7 @@
             body: JSON.stringify({
               action: 'send-reminder',
               recipientEmail: addr,
-              fromName: u.displayName || u.email || (db.settings?.appName || 'Money Intx'),
+              fromName: u.displayName || u.email || (db.settings?.appName || 'Money IntX'),
               fromEmail: u.email || '',
               message,
               invoiceNumber: e.invoiceNumber || null,
@@ -3345,7 +3345,7 @@
               txType: e.txType || null,
               viewUrl: _viewUrl,
               siteUrl: _siteUrl,
-              appName: db.settings?.appName || 'Money Intx',
+              appName: db.settings?.appName || 'Money IntX',
               tagline: db.settings?.tagline || 'Making Money Matters Memorable',
               logoData: db.settings?.logoData || ''
             })
@@ -3430,7 +3430,7 @@
       if (!r) return;
       const contact = db.contacts.find(x => x.id === r.cId);
       const u = curUser();
-      const appName  = db.settings?.appName  || 'Money Intx';
+      const appName  = db.settings?.appName  || 'Money IntX';
       const siteUrl  = db.settings?.siteUrl  || window.location.origin;
       const tagline  = db.settings?.tagline  || 'Making Money Matters Memorable';
       const logoData = db.settings?.logoData || '';
@@ -3476,7 +3476,7 @@
       const contact = db.contacts.find(x => x.id === e.cId);
       const u = curUser();
       const siteUrl = db.settings?.siteUrl || window.location.origin;
-      const appName = db.settings?.appName || 'Money Intx';
+      const appName = db.settings?.appName || 'Money IntX';
       const tagline = db.settings?.tagline || 'Making Money Matters Memorable';
 
       // Show modal with loading state first
@@ -5042,7 +5042,7 @@
           <div class="frow" style="align-items:flex-start;gap:20px;margin-bottom:16px;">
             <div>${logoPreview}</div>
             <div style="flex:1;">
-              <div class="fg"><label>App / Site Name</label><input type="text" id="sappname" value="${esc(s.appName||'Money Intx')}" placeholder="Money Intx"></div>
+              <div class="fg"><label>App / Site Name</label><input type="text" id="sappname" value="${esc(s.appName||'Money IntX')}" placeholder="Money Intx"></div>
               <div class="fg"><label>Tagline <span style="font-weight:400;color:var(--muted);">(shown in email footer)</span></label><input type="text" id="stagline" value="${esc(s.tagline||'Making Money Matters Memorable')}" placeholder="Making Money Matters Memorable"></div>
               <div class="fg"><label>Site URL <span style="font-weight:400;color:var(--muted);">(used in email links)</span></label><input type="url" id="ssiteurl" value="${esc(s.siteUrl||'https://moneyinteractions.com')}" placeholder="https://moneyinteractions.com"></div>
               <div class="fg">
@@ -5343,7 +5343,7 @@
     }
 
     function saveAdminSettings(silent) {
-      db.settings.appName = document.getElementById('sappname').value || 'Money Intx';
+      db.settings.appName = document.getElementById('sappname').value || 'Money IntX';
       db.settings.tagline = document.getElementById('stagline').value || 'Making Money Matters Memorable';
       db.settings.siteUrl = document.getElementById('ssiteurl').value || 'https://moneyinteractions.com';
       if (!silent) { save(); updateUserInfo(); logAudit('update_admin_branding', { appName: db.settings.appName }); toast('Branding saved'); }
@@ -5588,7 +5588,7 @@
       const lp = document.getElementById('landing');
       lp.classList.add('active');
 
-      const appName = (db && db.settings && db.settings.appName) ? db.settings.appName : 'Money Intx';
+      const appName = (db && db.settings && db.settings.appName) ? db.settings.appName : 'Money IntX';
       const logoSrc = (db && db.settings && db.settings.logoData) ? db.settings.logoData : 'money.png';
 
       lp.innerHTML = `
@@ -6283,7 +6283,7 @@
       lp.innerHTML = `
         <div class="lp-topnav">
           <div class="lp-topnav-brand">
-            <strong>${esc(db.settings?.appName || 'Money Intx')}</strong>
+            <strong>${esc(db.settings?.appName || 'Money IntX')}</strong>
           </div>
         </div>
         <div style="flex:1;display:flex;align-items:center;justify-content:center;padding:40px 16px;">

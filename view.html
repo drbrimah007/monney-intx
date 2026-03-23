@@ -426,7 +426,10 @@
 
 <!-- TOP BAR -->
 <header class="topbar">
-  <span></span>
+  <a class="topbar-brand" href="/" id="topbarBrand">
+    <img id="topbarLogo" src="" alt="" style="display:none;height:28px;max-width:110px;object-fit:contain;border-radius:4px;">
+    <span id="topbarName">Money IntX</span>
+  </a>
   <a class="topbar-login" href="/" id="loginLink">Log In</a>
 </header>
 
@@ -486,7 +489,7 @@
         <!-- Disclaimer -->
         <div class="disclaimer">
           <span class="disclaimer-icon">ℹ️</span>
-          <p>This is a record for clarity only. <strong id="disclaimerName">Money Intx</strong> does not hold or process money.</p>
+          <p>This is a record for clarity only. <strong id="disclaimerName">Money IntX</strong> does not hold or process money.</p>
         </div>
 
         <!-- Closure banner (shown when owner has closed the record) -->
@@ -519,7 +522,7 @@
 <!-- AUTH MODAL -->
 <div class="modal-overlay" id="authModal" onclick="if(event.target===this)closeAuthModal()">
   <div class="modal-sheet">
-    <div class="modal-title">Continue to Money Intx</div>
+    <div class="modal-title">Continue to Money IntX</div>
     <div class="modal-sub">Create an account or log in to track and respond to this record.</div>
     <div class="modal-options">
       <a class="btn-option btn-option-primary" href="/" id="signupLink">Create Account — it's free</a>
@@ -531,7 +534,7 @@
 
 <!-- FOOTER -->
 <footer class="footer">
-  <div id="footerBrand">Money Intx — Making Money Matters Memorable</div>
+  <div id="footerBrand">Money IntX — Making Money Matters Memorable</div>
   <div class="footer-links">
     <a href="/">Home</a>
     <a href="/?page=privacy">Privacy</a>
@@ -624,10 +627,20 @@
     _siteUrl = e.siteUrl || '/';
 
     // Update branding
-    const siteName = e.appName || 'Money Intx';
+    const siteName = e.appName || 'Money IntX';
     document.getElementById('disclaimerName').textContent = siteName;
     document.getElementById('footerBrand').textContent = siteName + ' — ' + (e.tagline || 'Making Money Matters Memorable');
     document.title = 'Money Interaction Notice — ' + siteName;
+
+    // Topbar brand: clickable name linking back to the sender's site
+    const brandEl = document.getElementById('topbarBrand');
+    const nameEl  = document.getElementById('topbarName');
+    const logoEl  = document.getElementById('topbarLogo');
+    if (brandEl) brandEl.href = _siteUrl || '/';
+    if (nameEl)  nameEl.textContent = siteName;
+    if (logoEl && e.logoData && /^https?:\/\//i.test(e.logoData)) {
+      logoEl.src = e.logoData; logoEl.style.display = '';
+    }
 
     // Outbound auth links — save token first so the main app can link this
     // record to the user's account immediately after they sign up or log in

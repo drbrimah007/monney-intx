@@ -262,7 +262,7 @@ module.exports = async function handler(req, res) {
           txType, amount, date, note: note || '',
           invoiceNumber: invoiceNumber || null,
           status: status || 'posted',
-          appName: appName || 'Money Intx',
+          appName: appName || 'Money IntX',
           siteUrl: siteUrl || 'https://moneyinteractions.com',
           tagline: tagline || 'Making Money Matters Memorable',
           sharedAt: Date.now()
