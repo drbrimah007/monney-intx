@@ -2290,27 +2290,70 @@
       }
     }
 
-    /* ── Record Settlement: creates linked credit entry + syncs invoice ─ */
-    async function recordSettlement(eid) {
+    /* ── Record Settlement: modal-based (replaces native prompt/alert) ─ */
+    function recordSettlement(eid) {
       const e = db.entries.find(x => x.id === eid); if (!e) return;
-      const invSt = _getInvoiceSettlement(eid);
+      const invSt      = _getInvoiceSettlement(eid);
       const remainingAmt = invSt.remaining > 0 ? invSt.remaining : (parseFloat(e.amount) || 0);
-      const docRef = e.invoiceNumber || ('#' + String(e.entryNum||'?').padStart(4,'0'));
-      const rawAmt = prompt(
-        `Record Settlement — ${docRef}\n` +
-        `Invoice Total:   ${fmt(invSt.total)}\n` +
-        `Already Settled: ${fmt(invSt.settled)}\n` +
-        `Remaining:       ${fmt(remainingAmt)}\n\n` +
-        `Enter amount to settle (blank = full remaining):`
-      );
-      if (rawAmt === null) return; // cancelled
-      const parsedAmt = rawAmt.trim() === '' ? remainingAmt : parseFloat(rawAmt);
-      if (isNaN(parsedAmt) || parsedAmt <= 0) return alert('Enter a valid positive amount');
+      const docRef     = e.invoiceNumber || ('#' + String(e.entryNum||'?').padStart(4,'0'));
+
+      // Remove any existing settlement modal
+      document.getElementById('settleBg')?.remove();
+
+      const d = document.createElement('div');
+      d.innerHTML = `<div class="modal-bg" id="settleBg" onclick="if(event.target===this)this.remove()">
+        <div class="modal" style="max-width:420px;" onclick="event.stopPropagation()">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
+            <div class="modal-title" style="margin:0;">Record Settlement</div>
+            <button class="gh sm" onclick="document.getElementById('settleBg').remove()">✕</button>
+          </div>
+          <div style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:12px 14px;margin-bottom:14px;font-size:13px;line-height:1.8;">
+            <div style="display:flex;justify-content:space-between;"><span style="color:var(--muted);">Record</span><strong>${esc(docRef)}</strong></div>
+            <div style="display:flex;justify-content:space-between;"><span style="color:var(--muted);">Total</span><span>${fmt(invSt.total)}</span></div>
+            ${invSt.settled > 0 ? `<div style="display:flex;justify-content:space-between;"><span style="color:var(--muted);">Already Paid</span><span style="color:var(--green);">${fmt(invSt.settled)}</span></div>` : ''}
+            <div style="display:flex;justify-content:space-between;border-top:1px solid var(--border);margin-top:6px;padding-top:6px;font-weight:700;"><span>Remaining</span><span>${fmt(remainingAmt)}</span></div>
+          </div>
+          <div class="fg">
+            <label>Amount to settle</label>
+            <input type="number" id="settleAmt" step="0.01" min="0.01"
+              placeholder="Leave blank for full remaining (${fmt(remainingAmt)})"
+              style="width:100%;box-sizing:border-box;">
+          </div>
+          <div id="settleErr" style="color:var(--red);font-size:12px;margin-top:4px;display:none;"></div>
+          <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;border-top:1px solid var(--border);padding-top:14px;">
+            <button class="bs sm" onclick="document.getElementById('settleBg').remove()">Cancel</button>
+            <button class="btn sm" id="settleSubmitBtn" onclick="_submitSettlement('${eid}',${remainingAmt})">✅ Record</button>
+          </div>
+        </div>
+      </div>`;
+      document.body.appendChild(d.firstChild);
+      // Focus and allow Enter to submit
+      const inp = document.getElementById('settleAmt');
+      if (inp) {
+        inp.focus();
+        inp.addEventListener('keydown', ev => { if (ev.key === 'Enter') document.getElementById('settleSubmitBtn')?.click(); });
+      }
+    }
+
+    async function _submitSettlement(eid, remainingAmt) {
+      const e = db.entries.find(x => x.id === eid); if (!e) return;
+      const rawVal   = (document.getElementById('settleAmt')?.value || '').trim();
+      const errEl    = document.getElementById('settleErr');
+      const btn      = document.getElementById('settleSubmitBtn');
+      const parsedAmt = rawVal === '' ? remainingAmt : parseFloat(rawVal);
+      if (isNaN(parsedAmt) || parsedAmt <= 0) {
+        if (errEl) { errEl.textContent = 'Enter a valid amount greater than zero.'; errEl.style.display = 'block'; }
+        return;
+      }
+      if (errEl) errEl.style.display = 'none';
+      if (btn) { btn.disabled = true; btn.textContent = '⏳ Saving…'; }
+
+      const docRef    = e.invoiceNumber || ('#' + String(e.entryNum||'?').padStart(4,'0'));
       const applyAmt  = Math.min(parsedAmt, remainingAmt);
-      const overAmt   = Math.round((parsedAmt - applyAmt) * 100) / 100; // excess beyond full balance
+      const overAmt   = Math.round((parsedAmt - applyAmt) * 100) / 100;
+      const creditType = (e.txType==='they_owe_you'||e.txType==='invoice'||e.txType==='bill') ? 'they_paid_you' : 'you_paid_them';
 
       // Create linked settlement entry for the applied amount
-      const creditType = (e.txType==='they_owe_you'||e.txType==='invoice'||e.txType==='bill') ? 'they_paid_you' : 'you_paid_them';
       db.settings.entryCounter = (db.settings.entryCounter||0) + 1;
       db.entries.push({
         id: uuid(), userId: curUser().id, cId: e.cId, txType: creditType,
@@ -2326,12 +2369,11 @@
       _syncInvoiceStatus(eid);
       _pushShareStatus(eid);
 
-      // If overpayment: create a second linked receipt for the excess
+      // If overpayment: create a second receipt for the excess
       if (overAmt > 0.004) {
         db.settings.entryCounter = (db.settings.entryCounter||0) + 1;
-        const overId = uuid();
         db.entries.push({
-          id: overId, userId: curUser().id, cId: e.cId, txType: creditType,
+          id: uuid(), userId: curUser().id, cId: e.cId, txType: creditType,
           amount: overAmt,
           note: `Overpayment Receipt — excess beyond full balance of ${docRef}`,
           date: Date.now(), status: 'posted', archived: false, shared: false,
@@ -2339,14 +2381,17 @@
           invoiceNumber: null, entryNum: db.settings.entryCounter, createdAt: Date.now(),
           isOverpayment: true, linkedInvoiceId: eid
         });
-        await saveNow();
-        logAudit('record_settlement_overpayment', { eid, applyAmt, overAmt });
-        document.getElementById('invoicePrintWrap')?.remove();
+      }
+
+      try { await saveNow(); } catch(saveErr) { console.warn('[settlement] saveNow failed:', saveErr); save(); }
+      logAudit(overAmt > 0.004 ? 'record_settlement_overpayment' : 'record_settlement', { eid, applyAmt, overAmt });
+
+      document.getElementById('settleBg')?.remove();
+      document.getElementById('invoicePrintWrap')?.remove();
+
+      if (overAmt > 0.004) {
         toast(`Settlement recorded. ${fmt(applyAmt)} applied to ${docRef}. Overpayment receipt of ${fmt(overAmt)} created.`);
       } else {
-        await saveNow();
-        logAudit('record_settlement', { eid, applyAmt, newStatus: e.status });
-        document.getElementById('invoicePrintWrap')?.remove();
         toast(`Settlement of ${fmt(applyAmt)} recorded`);
       }
       refreshCurPage();
