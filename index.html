@@ -1011,7 +1011,7 @@
       const c = db.contacts.find(x => x.id === cid);
       if (!c) return { toy: 0, yot: 0, net: 0 };
       let toy = c.startToy || 0, yot = c.startYot || 0;
-      db.entries.filter(e => e.cId === cid && e.status !== 'voided' && !e.noLedger).forEach(e => {
+      db.entries.filter(e => e.cId === cid && e.status !== 'voided' && !e.noLedger && !e.isShared).forEach(e => {
         const a = Math.abs(parseFloat(e.amount) || 0);
         const dir = TX_LEDGER[e.txType] || '';
         if      (dir === 'toy')        toy += a;
@@ -1450,13 +1450,13 @@
             <button class="bs sm" onclick="nav('nok')">🔐 Next of Kin</button>
           </div>
         </div>`;
-        // Merge own entries + confirmed shared records for Recent Entries display
-        // Shared records sorted by time they arrived (sharedAt); own by createdAt / date
-        const _sharedForRecent = (_cachedSharedRecords || [])
-          .filter(r => !r.recipientClosed && !r.entry?.dismissed)
-          .map(r => ({ _isShared: true, _r: r, _sortTs: r.sharedAt ? new Date(r.sharedAt).getTime() : 0 }));
-        const _ownForRecent = myEntries.map(e => ({ ...e, _isShared: false, _sortTs: e.createdAt || new Date(e.date||0).getTime() || 0 }));
-        const recentEntries = [..._ownForRecent, ..._sharedForRecent]
+        // Merge own entries (including isShared:true db.entries) + pending unconfirmed shared records
+        // Confirmed shared records are now in db.entries with isShared:true — no separate shared array needed
+        const _pendingForRecent = (_cachedSharedRecords || [])
+          .filter(r => !r.confirmed && !r.recipientClosed && !r.entry?.dismissed)
+          .map(r => ({ _isPending: true, _r: r, _sortTs: r.sharedAt ? new Date(r.sharedAt).getTime() : 0 }));
+        const _ownForRecent = myEntries.map(e => ({ ...e, _isPending: false, _sortTs: e.createdAt || new Date(e.date||0).getTime() || 0 }));
+        const recentEntries = [..._ownForRecent, ..._pendingForRecent]
           .sort((a,b) => b._sortTs - a._sortTs)
           .slice(0, 10);
 
@@ -1465,7 +1465,8 @@
           ${recentEntries.length === 0 ? `<p style="color:var(--muted);font-size:14px;padding:12px 0;">No entries yet. <button class="gh sm" onclick="nav('contacts')">Add a contact</button> to get started.</p>` : `
           <div class="tbl-wrap"><table><thead><tr><th>Contact</th><th>Amount</th><th class="hide-mobile">Type</th><th>Date</th><th>Status</th><th style="width:80px;">Action</th></tr></thead><tbody>
           ${recentEntries.map(item => {
-            if (item._isShared) {
+            if (item._isPending) {
+              // ── Pending (unconfirmed) shared record ─────────────────────
               const r = item._r;
               const e = r.entry;
               const rawAmt = parseFloat(e?.amount||0);
@@ -1473,14 +1474,14 @@
               const su = curUser();
               const sc = su ? db.contacts.find(c => c.userId===su.id && ((c.name||'').toLowerCase()===dn.toLowerCase() || (c.email||'').toLowerCase()===(e?.fromName||'').toLowerCase())) : null;
               const sLink = sc ? `<a href="#" onclick="cLink_open('${sc.id}');return false;" style="font-weight:700;color:var(--accent);text-decoration:none;">${esc(dn)}</a>` : `<strong>${esc(dn)}</strong>`;
-              const pill = !r.confirmed && !e?.dismissed ? `<span style="font-size:10px;background:rgba(251,191,36,.18);color:#d97706;border-radius:4px;padding:1px 5px;margin-left:3px;font-weight:700;">⏳ Pending</span>` : `<span style="font-size:10px;background:rgba(108,99,255,.12);color:var(--accent);border-radius:4px;padding:1px 5px;margin-left:3px;">🔗 Shared</span>`;
+              const pill = `<span style="font-size:10px;background:rgba(251,191,36,.18);color:#d97706;border-radius:4px;padding:1px 5px;margin-left:3px;font-weight:700;">⏳ Pending</span>`;
               const siteUrl = e?.siteUrl || 'https://moneyinteractions.com';
               const isSettled = e?.status === 'settled' || e?.status === 'paid';
               const _dashRecipLbl = {they_owe_you:'You Owe',you_owe_them:'They Owe Me',invoice:'Invoice Due',bill:'Bill Due',lend:'You Borrowed',borrow:'I Lent',they_paid_you:'I Settled Them',you_paid_them:'They Settled Me',gift:'Gift Received'};
               const _dashRecipClr = {they_owe_you:'var(--red)',invoice:'var(--red)',bill:'var(--red)',lend:'var(--red)',you_owe_them:'var(--green)',borrow:'var(--green)',they_paid_you:'#0d9488',you_paid_them:'#0d9488',gift:'var(--green)'};
               const dashTypeLabel = _dashRecipLbl[e?.txType] || (TXL[e?.txType] || 'Shared');
               const dashTypeColor = _dashRecipClr[e?.txType] || 'var(--accent)';
-              return `<tr style="background:${!r.confirmed&&!e?.dismissed?'rgba(251,191,36,.04)':'rgba(108,99,255,.03)'};">
+              return `<tr style="background:rgba(251,191,36,.04);">
                 <td>${sLink}${pill}</td>
                 <td><strong>${fmt(rawAmt)}</strong><div class="mobile-label" style="font-size:11px;font-weight:700;color:${dashTypeColor};margin-top:2px;">${esc(dashTypeLabel)}</div></td>
                 <td class="hide-mobile"><span style="font-weight:700;color:${dashTypeColor};">${esc(dashTypeLabel)}</span></td>
@@ -1488,15 +1489,39 @@
                 <td>${statusBadge(e?.status||'posted')}</td>
                 <td><div class="action-menu"><button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button><div class="action-dropdown">
                   <a href="${esc(siteUrl)}/view?t=${esc(r.token)}" target="_blank" style="display:block;padding:8px 14px;font-size:13px;color:var(--accent);text-decoration:none;font-weight:600;">👁 View</a>
-                  ${!r.confirmed && !e?.dismissed ? `<button onclick="doConfirmShared('${esc(r.token)}')">✅ Confirm &amp; Track</button>` : ''}
-                  ${!r.confirmed && !e?.dismissed ? `<button onclick="doDismissShared('${esc(r.token)}')">✕ Dismiss</button>` : ''}
+                  <button onclick="doConfirmShared('${esc(r.token)}')">✅ Confirm &amp; Track</button>
+                  <button onclick="doDismissShared('${esc(r.token)}')">✕ Dismiss</button>
                   ${!isSettled ? `<button onclick="_sharedMarkPaid('${esc(r.token)}')" style="color:var(--green);font-weight:700;">✅ Mark Settled</button>` : ''}
-                  ${(e?.txType === 'you_owe_them' || e?.txType === 'borrow') && !isSettled ? `<button onclick="openSharedRemindModal('${esc(r.token)}')" style="color:var(--accent);font-weight:700;">🔔 Remind</button>` : ''}
-                  <button onclick="_sharedExpire('${esc(r.token)}')">⏰ Expire</button>
                 </div></div></td>
               </tr>`;
             }
             const e = item;
+            if (e.isShared) {
+              // ── Confirmed isShared:true entry in db.entries ─────────────
+              const dn2 = e.fromName || '—';
+              const sc2 = db.contacts.find(c => c.userId===u.id && ((c.name||'').toLowerCase()===dn2.toLowerCase() || (c.email||'').toLowerCase()===(e.fromEmail||'').toLowerCase()));
+              const sLink2 = sc2 ? `<a href="#" onclick="cLink_open('${sc2.id}');return false;" style="font-weight:700;color:var(--accent);text-decoration:none;">${esc(dn2)}</a>` : `<strong>${esc(dn2)}</strong>`;
+              const sharedPill2 = `<span style="font-size:10px;background:rgba(108,99,255,.12);color:var(--accent);border-radius:4px;padding:1px 5px;margin-left:3px;">🔗 Shared</span>`;
+              const rawAmt2 = parseFloat(e.amount||0);
+              const dirLabel2 = TXL[e.txType] || e.txType;
+              const dirColor2 = txTypeColor(e.txType);
+              const isSettled2 = e.status === 'settled' || e.status === 'paid';
+              const viewUrl2 = `${e.fromSiteUrl||'https://moneyinteractions.com'}/view?t=${esc(e.shareToken)}`;
+              const isRemindable2 = (e.senderTxType === 'you_owe_them' || e.senderTxType === 'borrow') && !isSettled2;
+              return `<tr style="background:rgba(108,99,255,.03);">
+                <td>${sLink2}${sharedPill2}</td>
+                <td><strong>${fmt(rawAmt2)}</strong><div class="mobile-label" style="font-size:11px;font-weight:700;color:${dirColor2};margin-top:2px;">${esc(dirLabel2)}</div></td>
+                <td class="hide-mobile"><span style="font-weight:700;color:${dirColor2};">${esc(dirLabel2)}</span></td>
+                <td>${e.date ? new Date(e.date).toLocaleDateString() : '—'}</td>
+                <td>${statusBadge(e.status||'posted')}</td>
+                <td><div class="action-menu"><button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button><div class="action-dropdown">
+                  <a href="${viewUrl2}" target="_blank" style="display:block;padding:8px 14px;font-size:13px;color:var(--accent);text-decoration:none;font-weight:600;">👁 View</a>
+                  ${!isSettled2 ? `<button onclick="_sharedMarkPaid('${esc(e.shareToken)}')" style="color:var(--green);font-weight:700;">✅ Mark Settled</button>` : ''}
+                  ${isRemindable2 ? `<button onclick="openSharedRemindModal('${esc(e.shareToken)}')" style="color:var(--accent);font-weight:700;">🔔 Remind</button>` : ''}
+                  <button onclick="_sharedExpire('${esc(e.shareToken)}')">⏰ Expire</button>
+                </div></div></td>
+              </tr>`;
+            }
             const c = db.contacts.find(x => x.id === e.cId);
             return `<tr><td>${cLink(e.cId, c?.name||'—')}</td><td>${_fmtAmtCell(e.id,`<div class="mobile-label" style="font-size:11px;font-weight:700;color:${txTypeColor(e.txType)};margin-top:2px;">${esc(TXL[e.txType]||e.txType)}</div>`)}</td><td class="hide-mobile"><span style="font-weight:700;color:${txTypeColor(e.txType)}">${esc(TXL[e.txType]||e.txType)}</span></td><td>${new Date(e.date).toLocaleDateString()}</td><td>${statusBadge(e.status)}</td><td><div class="action-menu"><button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button><div class="action-dropdown"><button onclick="openEntryInvoice('${e.id}')">📄 View</button><button onclick="editEntry('${e.id}')">✏️ Edit</button>${(isInvoiceMode(e) || e.txType === 'they_owe_you' || e.txType === 'you_owe_them') && e.status !== 'settled' && e.status !== 'voided' ? `<button onclick="recordSettlement('${e.id}')">💰 Settle</button>` : ''}<button onclick="openNotifyModal('${e.id}')">🔔 Notify</button><button onclick="openShareModal('${e.id}')">🔗 Share</button><button onclick="toggleArchiveEntry('${e.id}')">${e.archived?'📤 Unarchive':'📥 Archive'}</button>${e.status !== 'voided' ? `<button onclick="voidEntry('${e.id}')" style="color:var(--amber);">🚫 Void</button>` : ''}<button onclick="delEntry('${e.id}')" style="color:var(--red);">🗑 Delete</button></div></div></td></tr>`;
           }).join('')}
@@ -1551,6 +1576,22 @@
         }
         const records = data.shared;
         _cachedSharedRecords = records; // cache for getLedger contact balance calculations
+
+        // ── Migration: Unified Record Layer ──────────────────────────────────
+        // For any already-confirmed shared records not yet in db.entries, insert them now.
+        // This is idempotent (_insertSharedEntry checks for existing shareToken).
+        if (!_impersonatingDataUserId) {
+          let migrated = false;
+          for (const mr of records) {
+            if (mr.confirmed && !mr.recipientClosed && !(mr.entry?.dismissed)) {
+              if (!db.entries.find(e => e.shareToken === mr.token)) {
+                _insertSharedEntry(mr);
+                migrated = true;
+              }
+            }
+          }
+          // save() already called per-insertion; nothing extra needed here
+        }
 
         // ── Auto-add senders as contacts (catch-up) ───────────────────────
         // Runs every time shared records load — ensures senders are always in contacts.
@@ -2012,10 +2053,14 @@
       // Match by contact name or by email (sender may have used email as fromName)
       const _cNameL  = (c.name  || '').toLowerCase().trim();
       const _cEmailL = (c.email || '').toLowerCase().trim();
+      // Only show UNCONFIRMED (pending) shared records in the CP shared overlay —
+      // confirmed records are now in db.entries with isShared:true and appear
+      // in userEntries automatically (via cId match).
       const sharedFromContact = (_cachedSharedRecords || []).filter(r => {
         const e = r.entry;
         if (!e) return false;
-        if (r.recipientClosed) return false;   // exclude expired
+        if (r.confirmed) return false;          // confirmed → now in db.entries
+        if (r.recipientClosed) return false;    // exclude expired
         if (e.dismissed) return false;          // exclude dismissed
         const fn = (e._resolvedFromName || e.fromName || '').toLowerCase().trim();
         return fn === _cNameL || (_cEmailL && fn === _cEmailL);
@@ -2120,32 +2165,54 @@
               html += '</div></div></td></tr>';
             } else {
               var e2 = item._data;
-              var ownLabel = TXL[e2.txType] || e2.txType;
-              var ownColor = txTypeColor(e2.txType);
-              var typeLabel = '<span style="font-weight:700;color:' + ownColor + '">' + esc(ownLabel) + '</span>';
-              var docNum = e2.invoiceNumber || (e2.entryNum ? '#' + String(e2.entryNum).padStart(4,'0') : null);
-              var docBadge = docNum ? '<button class="gh sm" style="font-size:10px;font-weight:700;color:#6c63ff;padding:1px 4px;margin-top:1px;display:block;text-align:left;" onclick="openEntryInvoice(\'' + e2.id + '\')" title="View record">' + esc(docNum) + '</button>' : '';
-              html += '<tr>';
-              html += '<td><button class="gh sm" style="text-align:left;padding:2px 4px;font-weight:600;" onclick="openEntryInvoice(\'' + e2.id + '\')" title="View document">' + typeLabel + '</button>' + docBadge + '</td>';
-              // Amount + type as second line (mobile only)
-              html += '<td>' + _fmtAmtCell(e2.id) + '</td>'; // Type always in col 1, no mobile-label needed
-              html += '<td>' + new Date(e2.date).toLocaleDateString() + '</td>';
-              html += '<td>' + statusBadge(e2.status) + '</td>';
-              html += '<td><div class="action-menu"><button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button><div class="action-dropdown">';
-              html += '<button onclick="openEntryInvoice(\'' + e2.id + '\')">📄 View</button>';
-              html += '<button onclick="closeCPModal();editEntry(\'' + e2.id + '\')">✏️ Edit</button>';
-              html += '<button onclick="closeCPModal();openNotifyModal(\'' + e2.id + '\')">🔔 Notify</button>';
-              html += '<button onclick="closeCPModal();openShareModal(\'' + e2.id + '\')">🔗 Share</button>';
-              if ((isInvoiceMode(e2) || e2.txType === 'they_owe_you' || e2.txType === 'you_owe_them') && e2.status !== 'settled' && e2.status !== 'voided') {
-                html += '<button onclick="closeCPModal();recordSettlement(\'' + e2.id + '\')">💰 Settle</button>';
+              if (e2.isShared) {
+                // ── isShared:true entry (confirmed shared record in db.entries) ─
+                var shLabel = TXL[e2.txType] || e2.txType; // txType already flipped for recipient
+                var shColor = txTypeColor(e2.txType);
+                var shPill  = '<span style="font-size:10px;background:rgba(108,99,255,.12);color:var(--accent);border-radius:4px;padding:1px 5px;margin-left:3px;">🔗 Shared</span>';
+                var shSettled = e2.status === 'settled' || e2.status === 'paid';
+                var shViewUrl = (e2.fromSiteUrl || 'https://moneyinteractions.com') + '/view?t=' + esc(e2.shareToken);
+                var shRemindable = (e2.senderTxType === 'you_owe_them' || e2.senderTxType === 'borrow') && !shSettled;
+                html += '<tr style="background:rgba(108,99,255,.04);">';
+                html += '<td><span style="font-weight:700;color:' + shColor + '">' + esc(shLabel) + '</span>' + shPill + '</td>';
+                html += '<td>' + _fmtAmtCell(e2.id) + '</td>';
+                html += '<td>' + new Date(e2.date).toLocaleDateString() + '</td>';
+                html += '<td>' + statusBadge(e2.status || 'posted') + '</td>';
+                html += '<td><div class="action-menu"><button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button><div class="action-dropdown">';
+                html += '<a href="' + shViewUrl + '" target="_blank" style="display:block;padding:8px 14px;font-size:13px;color:var(--accent);text-decoration:none;font-weight:600;">👁 View</a>';
+                if (!shSettled) html += '<button onclick="_sharedMarkPaid(\'' + esc(e2.shareToken) + '\')" style="color:var(--green);font-weight:700;">✅ Mark Settled</button>';
+                if (shRemindable) html += '<button onclick="openSharedRemindModal(\'' + esc(e2.shareToken) + '\')" style="color:var(--accent);font-weight:700;">🔔 Remind</button>';
+                html += '<button onclick="_sharedExpire(\'' + esc(e2.shareToken) + '\')">⏰ Expire</button>';
+                html += '</div></div></td></tr>';
+              } else {
+                // ── Regular own entry ─────────────────────────────────────
+                var ownLabel = TXL[e2.txType] || e2.txType;
+                var ownColor = txTypeColor(e2.txType);
+                var typeLabel = '<span style="font-weight:700;color:' + ownColor + '">' + esc(ownLabel) + '</span>';
+                var docNum = e2.invoiceNumber || (e2.entryNum ? '#' + String(e2.entryNum).padStart(4,'0') : null);
+                var docBadge = docNum ? '<button class="gh sm" style="font-size:10px;font-weight:700;color:#6c63ff;padding:1px 4px;margin-top:1px;display:block;text-align:left;" onclick="openEntryInvoice(\'' + e2.id + '\')" title="View record">' + esc(docNum) + '</button>' : '';
+                html += '<tr>';
+                html += '<td><button class="gh sm" style="text-align:left;padding:2px 4px;font-weight:600;" onclick="openEntryInvoice(\'' + e2.id + '\')" title="View document">' + typeLabel + '</button>' + docBadge + '</td>';
+                // Amount + type as second line (mobile only)
+                html += '<td>' + _fmtAmtCell(e2.id) + '</td>'; // Type always in col 1, no mobile-label needed
+                html += '<td>' + new Date(e2.date).toLocaleDateString() + '</td>';
+                html += '<td>' + statusBadge(e2.status) + '</td>';
+                html += '<td><div class="action-menu"><button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button><div class="action-dropdown">';
+                html += '<button onclick="openEntryInvoice(\'' + e2.id + '\')">📄 View</button>';
+                html += '<button onclick="closeCPModal();editEntry(\'' + e2.id + '\')">✏️ Edit</button>';
+                html += '<button onclick="closeCPModal();openNotifyModal(\'' + e2.id + '\')">🔔 Notify</button>';
+                html += '<button onclick="closeCPModal();openShareModal(\'' + e2.id + '\')">🔗 Share</button>';
+                if ((isInvoiceMode(e2) || e2.txType === 'they_owe_you' || e2.txType === 'you_owe_them') && e2.status !== 'settled' && e2.status !== 'voided') {
+                  html += '<button onclick="closeCPModal();recordSettlement(\'' + e2.id + '\')">💰 Settle</button>';
+                }
+                html += '<button onclick="closeCPModal();toggleArchiveEntry(\'' + e2.id + '\')">' + (e2.archived ? '📤 Unarchive' : '📥 Archive') + '</button>';
+                if (e2.status !== 'voided') {
+                  html += '<button onclick="closeCPModal();voidEntry(\'' + e2.id + '\')" style="color:var(--amber);">🚫 Void</button>';
+                }
+                html += '<button onclick="closeCPModal();' + (e2.status === 'closed' ? 'reopenEntry' : 'openCloseModal') + '(\'' + e2.id + '\')">' + (e2.status === 'closed' ? '🔓 Reopen' : '🔒 Close Record') + '</button>';
+                html += '<button onclick="(function(){var _cid=\'' + cid + '\';closeCPModal();delEntry(\'' + e2.id + '\');setTimeout(function(){openCP(_cid);},80);})()" style="color:var(--red);">🗑 Delete</button>';
+                html += '</div></div></td></tr>';
               }
-              html += '<button onclick="closeCPModal();toggleArchiveEntry(\'' + e2.id + '\')">' + (e2.archived ? '📤 Unarchive' : '📥 Archive') + '</button>';
-              if (e2.status !== 'voided') {
-                html += '<button onclick="closeCPModal();voidEntry(\'' + e2.id + '\')" style="color:var(--amber);">🚫 Void</button>';
-              }
-              html += '<button onclick="closeCPModal();' + (e2.status === 'closed' ? 'reopenEntry' : 'openCloseModal') + '(\'' + e2.id + '\')">' + (e2.status === 'closed' ? '🔓 Reopen' : '🔒 Close Record') + '</button>';
-              html += '<button onclick="(function(){var _cid=\'' + cid + '\';closeCPModal();delEntry(\'' + e2.id + '\');setTimeout(function(){openCP(_cid);},80);})()" style="color:var(--red);">🗑 Delete</button>';
-              html += '</div></div></td></tr>';
             }
           });
           html += '</tbody></table></div>';
@@ -2732,7 +2799,12 @@
       }[t] || 'Shared');
       const _recipDirColorE = t => (t==='they_owe_you'||t==='invoice'||t==='bill'||t==='lend') ? 'var(--red)' : 'var(--green)';
 
-      let confirmedShared = isStd ? _cachedSharedRecords.filter(r => !r.recipientClosed && !(r.entry?.dismissed)) : [];
+      // ── Pending (unconfirmed) shared-with-me records ─────────────────────
+      // Confirmed shared records are now in db.entries with isShared:true —
+      // this array only holds records not yet confirmed (showing ⏳ Pending pill).
+      let confirmedShared = isStd ? _cachedSharedRecords.filter(r =>
+        !r.confirmed && !r.recipientClosed && !(r.entry?.dismissed)
+      ) : [];
       if (q) confirmedShared = confirmedShared.filter(r => {
         const e = r.entry;
         const dn = (e?._resolvedFromName || e?.fromName || '').toLowerCase();
@@ -2746,24 +2818,29 @@
       });
 
       // ── Tab counts ───────────────────────────────────────────────────────
-      const mineCount   = listed.length;
-      const sharedCount = confirmedShared.length;
-      const allCount    = mineCount + sharedCount;
+      const ownListed    = listed.filter(e => !e.isShared);
+      const isSharedList = listed.filter(e => e.isShared);
+      const mineCount    = ownListed.length;
+      const sharedCount  = isSharedList.length + confirmedShared.length;
+      const allCount     = mineCount + sharedCount;
 
       PG['entries'] = PG['entries'] || 1;
       if (q) PG['entries'] = 1;
 
-      // Determine what to paginate based on tab
-      const tabListed = tab === 'shared' ? confirmedShared : (tab === 'mine' ? listed : [...listed, ...confirmedShared].sort((a,b) => {
-        // For own entries: use createdAt (ms) or date string; for shared: use sharedAt ISO string → ms
-        const aTs = a.token
-          ? (a.sharedAt ? new Date(a.sharedAt).getTime() : 0)
-          : (a.createdAt || new Date(a.date||0).getTime() || 0);
-        const bTs = b.token
-          ? (b.sharedAt ? new Date(b.sharedAt).getTime() : 0)
-          : (b.createdAt || new Date(b.date||0).getTime() || 0);
-        return sortDesc ? bTs - aTs : aTs - bTs;
-      }));
+      // ── Determine what to paginate based on tab ──────────────────────────
+      // 'mine'   → own entries only (no isShared)
+      // 'shared' → isShared db.entries + any pending unconfirmed rows
+      // 'all'    → everything merged by timestamp
+      function _entryTs(item) {
+        if (item.token) return item.sharedAt ? new Date(item.sharedAt).getTime() : 0; // pending shared
+        return item.createdAt || new Date(item.date||0).getTime() || 0;
+      }
+      const _sortFn = (a,b) => sortDesc ? _entryTs(b)-_entryTs(a) : _entryTs(a)-_entryTs(b);
+      const tabListed = tab === 'shared'
+        ? [...isSharedList, ...confirmedShared].sort(_sortFn)
+        : tab === 'mine'
+          ? ownListed
+          : [...ownListed, ...isSharedList, ...confirmedShared].sort(_sortFn);
       const p = paginate(tabListed, 'entries');
 
       // ── Header + tabs ────────────────────────────────────────────────────
@@ -2785,7 +2862,8 @@
 
       const _sm = window._selectMode || false;
       // Collect IDs of all own-entry rows visible on this page (for select-all)
-      const _selPageIds = p.items.filter(item => !item.token).map(item => item.id);
+      // Excludes pending shared rows (item.token) and isShared db.entries
+      const _selPageIds = p.items.filter(item => !item.token && !item.isShared).map(item => item.id);
       // Store page IDs in window so the onchange handler can reference without quote conflicts
       window._entryPageIds = _selPageIds;
 
@@ -2801,8 +2879,12 @@
         </tr></thead><tbody>`;
 
       p.items.forEach(item => {
-        // Determine if this is a shared record (from _cachedSharedRecords) or own entry
-        const isSharedRow = item.token !== undefined;
+        // Three row types:
+        // 1. isSharedRow   — pending unconfirmed record from _cachedSharedRecords (item.token)
+        // 2. isSharedEntry — confirmed shared record now in db.entries (item.isShared === true)
+        // 3. own entry     — regular own entry
+        const isSharedRow   = item.token !== undefined;
+        const isSharedEntry = !isSharedRow && item.isShared === true;
 
         if (isSharedRow) {
           // ── Shared-with-me row ──────────────────────────────────────────
@@ -2851,6 +2933,51 @@
                 ? `<button onclick="_sharedNoLedger.delete('${esc(r.token)}');_saveSharedPrefs();toast('📊 Restored to ledger');renderEntries();">📊 Restore to Ledger</button>`
                 : `<button onclick="_sharedNoLedger.add('${esc(r.token)}');_saveSharedPrefs();toast('⊘ Removed from ledger');renderEntries();">⊘ Rm Ledger</button>`}
               <button onclick="_sharedExpire('${esc(r.token)}')">⏰ Expire</button>
+            </div></div></td>
+          </tr>`;
+        } else if (isSharedEntry) {
+          // ── Confirmed shared entry (isShared:true in db.entries) ────────
+          // txType is already flipped to recipient's perspective
+          const e = item;
+          const rawAmt    = parseFloat(e.amount || 0);
+          const dt        = e.date ? new Date(e.date).toLocaleDateString() : '—';
+          const dirLabel  = TXL[e.txType] || e.txType;
+          const dirColor  = txTypeColor(e.txType);
+          const dispName  = e.fromName || '—';
+          const _senderCE = (() => {
+            const nl = dispName.toLowerCase().trim();
+            const ef = (e.fromEmail || '').toLowerCase().trim();
+            return db.contacts.find(c => c.userId === u.id && (
+              (c.name||'').toLowerCase().trim() === nl ||
+              (ef && (c.email||'').toLowerCase().trim() === ef)
+            )) || null;
+          })();
+          const nameHtmlSE = _senderCE
+            ? `<a href="#" onclick="cLink_open('${_senderCE.id}');return false;" style="color:var(--accent);text-decoration:none;font-weight:700;">${esc(dispName)}</a>`
+            : `<strong>${esc(dispName)}</strong>`;
+          const sharedPillSE = `<span style="font-size:10px;background:rgba(108,99,255,.12);color:var(--accent);border-radius:4px;padding:1px 5px;margin-left:3px;">🔗 Shared</span>`;
+          const isSettledSE  = e.status === 'settled' || e.status === 'paid';
+          const _noLedgPillSE = e.noLedger ? `<span title="Excluded from ledger balance" style="font-size:9px;background:rgba(245,158,11,.15);color:#b45309;border-radius:3px;padding:1px 4px;margin-left:3px;font-weight:700;">⊘ Ledger</span>` : '';
+          const viewUrl = `${e.fromSiteUrl||'https://moneyinteractions.com'}/view?t=${esc(e.shareToken)}`;
+          // Remind: shown when sender's original txType was you_owe_them or borrow
+          // (meaning from recipient's perspective: they_owe_you/lend — they owe recipient)
+          const isRemindableSE = (e.senderTxType === 'you_owe_them' || e.senderTxType === 'borrow') && !isSettledSE;
+          html += `<tr style="background:rgba(108,99,255,.04);"${_sm&&window._selectedEntries.has(e.id)?' class="row-selected"':''}>
+            ${_sm ? `<td class="sel-col"></td>` : ''}
+            <td>${nameHtmlSE} ${sharedPillSE}${_noLedgPillSE}</td>
+            <td class="hide-mobile"><span style="color:var(--muted);">—</span></td>
+            <td><strong>${fmt(rawAmt)}</strong><div class="mobile-label" style="font-size:11px;font-weight:700;color:${dirColor};margin-top:2px;">${esc(dirLabel)}</div></td>
+            <td class="hide-mobile"><span style="font-weight:700;color:${dirColor}">${esc(dirLabel)}</span></td>
+            <td>${dt}</td>
+            <td>${statusBadge(e.status || 'posted')}</td>
+            <td><div class="action-menu"><button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button><div class="action-dropdown">
+              <a href="${viewUrl}" target="_blank" style="display:block;padding:8px 14px;font-size:13px;color:var(--accent);text-decoration:none;font-weight:600;">👁 View</a>
+              ${!isSettledSE ? `<button onclick="_sharedMarkPaid('${esc(e.shareToken)}')" style="color:var(--green);font-weight:700;">✅ Mark Settled</button>` : ''}
+              ${isRemindableSE ? `<button onclick="openSharedRemindModal('${esc(e.shareToken)}')" style="color:var(--accent);font-weight:700;">🔔 Remind</button>` : ''}
+              ${e.noLedger
+                ? `<button onclick="(function(){var _se=db.entries.find(x=>x.id==='${e.id}');if(_se){delete _se.noLedger;save();toast('📊 Restored to ledger');renderEntries();}})()">📊 Restore to Ledger</button>`
+                : `<button onclick="(function(){var _se=db.entries.find(x=>x.id==='${e.id}');if(_se){_se.noLedger=true;save();toast('⊘ Removed from ledger');renderEntries();}})()">⊘ Rm Ledger</button>`}
+              <button onclick="_sharedExpire('${esc(e.shareToken)}')">⏰ Expire</button>
             </div></div></td>
           </tr>`;
         } else {
@@ -4192,17 +4319,21 @@
     //   sender txType 'you_owe_them' → "I (sender) owe them (you)" → they owe you → remind them
     //   sender txType 'borrow'       → "I (sender) borrowed"       → they owe you → remind them
     async function openSharedRemindModal(token) {
+      // Look up from _cachedSharedRecords first, fall back to db.entries (unified record layer)
       const r = (_cachedSharedRecords || []).find(x => x.token === token);
-      if (!r || !r.entry) return toast('Record not found');
-      const e = r.entry;
-      const senderName  = e._resolvedFromName || e.fromName || 'them';
-      const senderEmail = e.fromEmail || '';
-      const rawAmt      = parseFloat(e.amount || 0);
+      const dbEntry = db.entries.find(e => e.shareToken === token);
+      const hasData = (r && r.entry) || dbEntry;
+      if (!hasData) return toast('Record not found');
+      // Build a unified data object from whichever source has the data
+      const e = r?.entry || {};
+      const senderName  = e._resolvedFromName || e.fromName || dbEntry?.fromName || 'them';
+      const senderEmail = e.fromEmail || dbEntry?.fromEmail || '';
+      const rawAmt      = parseFloat(e.amount || dbEntry?.amount || 0);
       const amtFmt      = fmt(rawAmt);
-      const dateStr     = e.date ? new Date(e.date).toLocaleDateString() : '';
+      const dateStr     = (e.date || dbEntry?.date) ? new Date(e.date || dbEntry?.date).toLocaleDateString() : '';
       const u           = curUser();
       const myName      = u.displayName || u.email || (db.settings?.appName || 'Money IntX');
-      const siteUrl     = e.siteUrl || db.settings?.siteUrl || window.location.origin;
+      const siteUrl     = e.siteUrl || dbEntry?.fromSiteUrl || db.settings?.siteUrl || window.location.origin;
       const shareLink   = `${siteUrl}/view?t=${token}`;
       const appName     = db.settings?.appName || 'Money IntX';
       const tagline     = db.settings?.tagline || 'Making Money Matters Memorable';
@@ -4251,8 +4382,9 @@
       if (!toEmail) return alert('Sender email required to send reminder');
       const r = (_cachedSharedRecords || []).find(x => x.token === token);
       const e = r?.entry;
+      const dbEntry = db.entries.find(x => x.shareToken === token);
       const u = curUser();
-      const siteUrl  = e?.siteUrl || db.settings?.siteUrl || window.location.origin;
+      const siteUrl  = e?.siteUrl || dbEntry?.fromSiteUrl || db.settings?.siteUrl || window.location.origin;
       const appName  = db.settings?.appName || 'Money IntX';
       const tagline  = db.settings?.tagline || 'Making Money Matters Memorable';
       const shareLink = `${siteUrl}/view?t=${token}`;
@@ -7071,6 +7203,70 @@
       _loadSharedWithMe();
     }
 
+    // ── Unified Record Layer helpers ─────────────────────────────────────────
+    // Flip sender's txType to recipient's perspective for storage in db.entries
+    function _flipTxType(t) {
+      return {
+        they_owe_you: 'you_owe_them',
+        you_owe_them: 'they_owe_you',
+        invoice:      'invoice',
+        bill:         'bill',
+        lend:         'borrow',
+        borrow:       'lend',
+        they_paid_you:'you_paid_them',
+        you_paid_them:'they_paid_you',
+        gift:         'gift'
+      }[t] || t;
+    }
+
+    // Insert a confirmed shared record into db.entries with isShared:true
+    // Idempotent — will not re-insert if shareToken already present
+    function _insertSharedEntry(r) {
+      if (!r || !r.token) return;
+      // Idempotency check
+      if (db.entries.find(e => e.shareToken === r.token)) return;
+      const entry = r.entry;
+      if (!entry) return;
+      const u = curUser();
+      if (!u) return;
+
+      // Resolve contact ID from sender name/email
+      const dispName  = entry._resolvedFromName || entry.fromName || '';
+      const nameLower = dispName.toLowerCase().trim();
+      const emailFb   = (entry.fromEmail || entry.fromName || '').toLowerCase().trim();
+      const contact = db.contacts.find(c =>
+        c.userId === u.id && (
+          (c.name  || '').toLowerCase().trim() === nameLower ||
+          (emailFb && (c.email || '').toLowerCase().trim() === emailFb)
+        )
+      );
+
+      const siteUrl = entry.siteUrl || 'https://moneyinteractions.com';
+
+      const newEntry = {
+        id:           uuid(),
+        userId:       u.id,
+        cId:          contact ? contact.id : null,
+        amount:       entry.amount,
+        txType:       _flipTxType(entry.txType || 'they_owe_you'),
+        senderTxType: entry.txType || 'they_owe_you', // original sender perspective
+        date:         entry.date || new Date().toISOString().slice(0,10),
+        status:       entry.status || 'posted',
+        notes:        entry.note || '',
+        invoiceNumber:entry.invoiceNumber || '',
+        isShared:     true,          // KEY: unified record layer
+        shareToken:   r.token,       // link back to share_tokens
+        fromName:     dispName,
+        fromEmail:    entry.fromEmail || '',
+        fromSiteUrl:  siteUrl,
+        noLedger:     true,          // shared records NEVER affect balance
+        sharedAt:     r.sharedAt || null,
+        createdAt:    r.sharedAt ? new Date(r.sharedAt).getTime() : Date.now()
+      };
+      db.entries.push(newEntry);
+      save();
+    }
+
     async function _sharedExpire(token) {
       try {
         await fetch('/api/share', {
@@ -7079,6 +7275,9 @@
           body: JSON.stringify({ action: 'recipient-close', token })
         });
       } catch(_) {}
+      // ── Sync unified record layer: remove isShared entry from db.entries ─
+      const _expIdx = db.entries.findIndex(e => e.shareToken === token);
+      if (_expIdx !== -1) { db.entries.splice(_expIdx, 1); save(); }
       _loadSharedWithMe();
       if (_curPage === 'contacts') renderContacts();
     }
@@ -7096,6 +7295,9 @@
           // Update in-memory cache so UI reflects immediately
           const r = (_cachedSharedRecords || []).find(x => x.token === token);
           if (r && r.entry) r.entry.status = 'settled';
+          // ── Sync unified record layer: update status on db.entries entry ─
+          const _se = db.entries.find(e => e.shareToken === token);
+          if (_se) { _se.status = 'settled'; save(); }
           toast('Marked as paid');
           _loadSharedWithMe();
           if (_curPage === 'entries') renderEntries();
@@ -7260,7 +7462,10 @@
         if (!data.ok) return toast('Could not confirm record.');
         // Update local cache
         const r = _cachedSharedRecords.find(x => x.token === token);
-        if (r) r.confirmed = true;
+        if (r) {
+          r.confirmed = true;
+          _insertSharedEntry(r); // ── Unified Record Layer: insert into db.entries
+        }
         toast('✅ Record confirmed — now tracked in Entries.');
         _loadSharedWithMe();
         if (_curPage === 'entries') renderEntries();
@@ -7280,6 +7485,9 @@
         // Update local cache
         const r = _cachedSharedRecords.find(x => x.token === token);
         if (r && r.entry) r.entry.dismissed = true;
+        // ── Sync unified record layer: remove isShared entry from db.entries ─
+        const _dimIdx = db.entries.findIndex(e => e.shareToken === token);
+        if (_dimIdx !== -1) { db.entries.splice(_dimIdx, 1); save(); }
         toast('Record dismissed — stays in Shared With You only.');
         _loadSharedWithMe();
       } catch (_) { toast('Network error — please try again.'); }
