@@ -3101,7 +3101,8 @@
               viewUrl: _viewUrl,
               siteUrl: _siteUrl,
               appName: db.settings?.appName || 'Money Intx',
-              tagline: db.settings?.tagline || 'Making Money Matters Memorable'
+              tagline: db.settings?.tagline || 'Making Money Matters Memorable',
+              logoData: db.settings?.logoData || ''
             })
           });
         }
@@ -3167,9 +3168,10 @@
         toast('⚠️ No email on record — notification saved but not emailed.', 4000);
         return;
       }
-      const appName = db.settings?.appName || 'Money Intx';
-      const siteUrl = db.settings?.siteUrl || window.location.origin;
-      const tagline = db.settings?.tagline || 'Making Money Matters Memorable';
+      const appName  = db.settings?.appName  || 'Money Intx';
+      const siteUrl  = db.settings?.siteUrl  || window.location.origin;
+      const tagline  = db.settings?.tagline  || 'Making Money Matters Memorable';
+      const logoData = db.settings?.logoData || '';
       try {
         await fetch('/api/email', {
           method: 'POST', credentials: 'include',
@@ -3183,7 +3185,7 @@
             amount: r.amount || null,
             txType: r.txType || null,
             viewUrl: siteUrl,
-            siteUrl, appName, tagline
+            siteUrl, appName, tagline, logoData
           })
         });
         toast('✅ Notification sent');
