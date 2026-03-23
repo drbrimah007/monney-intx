@@ -371,6 +371,32 @@ module.exports = async function handler(req, res) {
       }
     }
 
+    // ── sync-status: push settlement status update to share_tokens snapshot ─
+    if (action === 'sync-status') {
+      const payload = requireAuth(req, res);
+      if (!payload) return;
+      const { entryId, status, amount, settledAt, settledAmt } = req.body;
+      if (!entryId || !status) return res.status(400).json({ ok: false, error: 'entryId and status required' });
+      try {
+        await ensureTable();
+        const rows = await sql`
+          SELECT token, entry_data FROM share_tokens
+          WHERE entry_id = ${entryId} AND user_id = ${payload.id}
+        `;
+        for (const row of rows) {
+          const updated = { ...row.entry_data, status };
+          if (amount   !== undefined) updated.amount    = amount;
+          if (settledAt !== undefined) updated.settledAt = settledAt;
+          if (settledAmt !== undefined) updated.settledAmt = settledAmt;
+          await sql`UPDATE share_tokens SET entry_data = ${updated} WHERE token = ${row.token}`;
+        }
+        return res.json({ ok: true, synced: rows.length });
+      } catch (e) {
+        console.error('[share/sync-status]', e.message);
+        return res.status(500).json({ ok: false, error: 'Failed to sync status.' });
+      }
+    }
+
     return res.status(400).json({ ok: false, error: 'Invalid action.' });
   }
 

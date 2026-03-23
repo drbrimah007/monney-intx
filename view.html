@@ -576,11 +576,12 @@
     return map[(status||'').toLowerCase()] || (status ? status.charAt(0).toUpperCase() + status.slice(1) : 'Due');
   }
 
+  // Perspective: the RECIPIENT viewing the page (the contact who received the share link)
   function amountDirection(txType) {
-    if (txType === 'they_owe_you' || txType === 'invoice' || txType === 'bill') return 'You are owed';
-    if (txType === 'you_owe_them') return 'You owe';
-    if (txType === 'they_paid_you') return 'Payment received';
-    if (txType === 'you_paid_them') return 'You paid';
+    if (txType === 'they_owe_you' || txType === 'invoice' || txType === 'bill') return 'You owe';
+    if (txType === 'you_owe_them') return 'You are owed';
+    if (txType === 'they_paid_you') return 'Payment made';
+    if (txType === 'you_paid_them') return 'Payment received';
     return 'Amount';
   }
 

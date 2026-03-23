@@ -784,6 +784,26 @@
       e.status = st.status;
     }
 
+    // Push settlement status update to share_tokens snapshot (fire-and-forget)
+    function _pushShareStatus(eid) {
+      if (!_IS_SERVER) return;
+      const e = db.entries.find(x => x.id === eid); if (!e) return;
+      const st = _getInvoiceSettlement(eid);
+      const tok = localStorage.getItem('mxi_token');
+      if (!tok) return;
+      fetch('/api/share', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + tok },
+        body: JSON.stringify({
+          action: 'sync-status',
+          entryId: eid,
+          status: e.status,
+          amount: e.amount,
+          settledAmt: st.settled
+        })
+      }).catch(() => {}); // non-fatal
+    }
+
     function getLedger(cid) {
       const c = db.contacts.find(x => x.id === cid);
       if (!c) return { toy: 0, yot: 0, net: 0 };
@@ -1953,6 +1973,7 @@
 
       // Recompute invoice status from all linked settlements
       _syncInvoiceStatus(eid);
+      _pushShareStatus(eid);
 
       // If overpayment: create a second linked receipt for the excess
       if (overAmt > 0.004) {
@@ -2798,7 +2819,7 @@
       if (e) {
         e.status = 'voided';
         // If this was a settlement credit, resync the linked invoice
-        if (e.linkedInvoiceId) _syncInvoiceStatus(e.linkedInvoiceId);
+        if (e.linkedInvoiceId) { _syncInvoiceStatus(e.linkedInvoiceId); _pushShareStatus(e.linkedInvoiceId); }
         save();
         logAudit('void_entry', { eid });
         refreshCurPage();
@@ -2935,7 +2956,7 @@
       const linkedInv = e?.linkedInvoiceId;
       db.entries = db.entries.filter(x => x.id !== eid);
       // If deleted entry was a settlement, resync the linked invoice
-      if (linkedInv) _syncInvoiceStatus(linkedInv);
+      if (linkedInv) { _syncInvoiceStatus(linkedInv); _pushShareStatus(linkedInv); }
       save();
       logAudit('delete_entry', { eid });
       toast('Entry deleted');
@@ -3467,7 +3488,7 @@
       content.innerHTML = html;
     }
 
-    function loadPublicTemplate(tid, tname) {
+    async function loadPublicTemplate(tid, tname) {
       // Find in server cache first, fall back to local db
       const src = (window._tdbCache||[]).find(x => x.id === tid) || db.templates.find(x => x.id === tid);
       if (!src) return;
@@ -3483,9 +3504,10 @@
       copy.invoiceNextNum = copy.invoiceStartNum || 1; // reset number counter
       // Regenerate field IDs to avoid collisions
       copy.fields = (copy.fields||[]).map(f => ({ ...f, id: uuid() }));
-      // Assign new calculator targetFieldIds mapping (best effort: fields retain same labels)
       db.templates.push(copy);
-      save();
+      // Force immediate sync (bypass debounce) so template appears on all devices right away
+      localStorage.setItem('mxi_v2', JSON.stringify(db));
+      if (_IS_SERVER) await _syncToServer();
       logAudit('load_public_template', { srcId: tid, copyId: copy.id, name: copy.name });
       toast(`"${copy.name}" copied to your templates.`);
       nav('templates');
