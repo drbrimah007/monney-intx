@@ -945,6 +945,33 @@
         else if (dir === 'yot')        yot += a;
         else if (dir === 'yot_credit') yot = Math.max(0, yot - a);
       });
+      // Fold in shared-with-me records from this contact (matched by email or name)
+      if (_cachedSharedRecords.length > 0) {
+        const cEmail = (c.email || '').toLowerCase().trim();
+        const cName  = (c.name  || '').toLowerCase().trim();
+        _cachedSharedRecords.forEach(r => {
+          const e = r.entry;
+          if (!e) return;
+          const st = (e.status || '').toLowerCase();
+          if (st === 'voided' || st === 'void') return; // skip voided
+          const rEmail = (e.fromEmail || '').toLowerCase().trim();
+          const rName  = (e.fromName  || '').toLowerCase().trim();
+          const matches = (cEmail && rEmail && cEmail === rEmail) || (cName && rName && cName === rName);
+          if (!matches) return;
+          const amt = Math.abs(parseFloat(e.amount) || 0);
+          const t = e.txType || '';
+          // txType is from SENDER's perspective — flip for recipient's ledger
+          if (t === 'they_owe_you' || t === 'invoice' || t === 'bill' || t === 'lend') {
+            // sender is owed → we owe the sender
+            if (st === 'paid' || st === 'settled' || st === 'closed') yot = Math.max(0, yot - amt);
+            else yot += amt;
+          } else if (t === 'you_owe_them' || t === 'borrow') {
+            // sender owes us
+            if (st === 'paid' || st === 'settled' || st === 'closed') toy = Math.max(0, toy - amt);
+            else toy += amt;
+          }
+        });
+      }
       return { toy, yot, net: toy - yot };
     }
 
@@ -1428,6 +1455,9 @@
           return;
         }
         const records = data.shared;
+        _cachedSharedRecords = records; // cache for getLedger contact balance calculations
+        // If contacts page is open, refresh it so balances reflect shared records
+        if (_curPage === 'contacts') renderContacts();
         // If there are shared records, hide the onboarding CTA
         const ctaEl = document.getElementById('first-entry-cta');
         if (ctaEl) ctaEl.style.display = 'none';
@@ -6128,7 +6158,8 @@
       } catch(_) { sessionStorage.removeItem('pendingShareToken'); }
     }
 
-    let _pendingShareEntry = null; // holds entry data during consent flow
+    let _pendingShareEntry  = null; // holds entry data during consent flow
+    let _cachedSharedRecords = []; // shared-with-me records, used by getLedger for contact balances
 
     function _showShareConsentModal(token, e) {
       _pendingShareEntry = e; // store for auto-contact creation on accept
