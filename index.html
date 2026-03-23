@@ -2068,23 +2068,51 @@
           html += '<p style="color:var(--muted);font-size:14px;padding:8px 0;">No entries yet.</p>';
         } else {
           html += '<div class="tbl-wrap"><table><thead><tr><th>Type / Doc #</th><th>Amount</th><th>Date</th><th>Status</th><th style="width:70px;">Action</th></tr></thead><tbody>';
+          // Reversed txType labels: sender perspective → recipient perspective
+          // e.g. James records "I Owe Them" (you_owe_them) → recipient sees "They Owe Me"
+          var _recipLabelMap = {
+            they_owe_you:  'I Owe Them',
+            you_owe_them:  'They Owe Me',
+            invoice:       'Invoice Due',
+            bill:          'Bill Due',
+            lend:          'I Borrowed',
+            borrow:        'I Lent',
+            they_paid_you: 'I Paid',
+            you_paid_them: 'They Paid Me',
+            gift:          'Gift Received'
+          };
+          var _recipColorMap = {
+            they_owe_you:  'var(--red)',
+            you_owe_them:  'var(--green)',
+            invoice:       'var(--red)',
+            bill:          'var(--red)',
+            lend:          'var(--red)',
+            borrow:        'var(--green)',
+            they_paid_you: 'var(--green)',
+            you_paid_them: 'var(--green)',
+            gift:          'var(--green)'
+          };
+
           _allCPItems.forEach(function(item) {
             if (item._isShared) {
               var r = item._data;
               var e = r.entry;
+              var txType = e && e.txType;
               var rawAmt = parseFloat(e && e.amount || 0);
               var siteUrl = (e && e.siteUrl) || 'https://moneyinteractions.com';
               var isPendingCP = !r.confirmed && !(e && e.dismissed);
-              // Show type from SENDER perspective (same labels as own entries: "They Owe Me", "I Owe Them", etc.)
-              var dirLabel = TXL[(e && e.txType)] || (e && e.txType) || 'Shared';
+              // REVERSED: show recipient's perspective (flip sender's txType)
+              var dirLabel = _recipLabelMap[txType] || TXL[txType] || 'Shared';
+              var dirColor = _recipColorMap[txType] || 'var(--accent)';
               var pill = isPendingCP
                 ? '<span style="font-size:10px;background:rgba(251,191,36,.18);color:#d97706;border-radius:4px;padding:1px 5px;margin-left:3px;font-weight:700;">⏳ Pending</span>'
                 : '<span style="font-size:10px;background:rgba(108,99,255,.12);color:var(--accent);border-radius:4px;padding:1px 5px;margin-left:3px;">🔗 Shared</span>';
               var isSettledCP = (e && e.status) === 'settled' || (e && e.status) === 'paid';
               var bgColor = isPendingCP ? 'rgba(251,191,36,.04)' : 'rgba(108,99,255,.03)';
               html += '<tr style="background:' + bgColor + ';">';
-              html += '<td><span style="font-weight:700;color:' + txTypeColor(e && e.txType) + ';">' + esc(dirLabel) + '</span>' + pill + '</td>';
-              html += '<td><strong>' + fmt(rawAmt) + '</strong></td>';
+              html += '<td><span style="font-weight:700;color:' + dirColor + ';">' + esc(dirLabel) + '</span>' + pill + '</td>';
+              // Amount + type as second line (visible on mobile where Type col is hidden)
+              html += '<td><strong>' + fmt(rawAmt) + '</strong><div style="font-size:11px;font-weight:700;color:' + dirColor + ';margin-top:2px;">' + esc(dirLabel) + '</div></td>';
               html += '<td>' + (e && e.date ? new Date(e.date).toLocaleDateString() : '—') + '</td>';
               html += '<td>' + statusBadge((e && e.status) || 'posted') + '</td>';
               html += '<td><div class="action-menu"><button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button><div class="action-dropdown">';
@@ -2100,12 +2128,15 @@
               html += '</div></div></td></tr>';
             } else {
               var e2 = item._data;
-              var typeLabel = '<span style="font-weight:700;color:' + txTypeColor(e2.txType) + '">' + esc(TXL[e2.txType] || e2.txType) + '</span>';
+              var ownLabel = TXL[e2.txType] || e2.txType;
+              var ownColor = txTypeColor(e2.txType);
+              var typeLabel = '<span style="font-weight:700;color:' + ownColor + '">' + esc(ownLabel) + '</span>';
               var docNum = e2.invoiceNumber || (e2.entryNum ? '#' + String(e2.entryNum).padStart(4,'0') : null);
               var docBadge = docNum ? '<button class="gh sm" style="font-size:10px;font-weight:700;color:#6c63ff;padding:1px 4px;margin-top:1px;display:block;text-align:left;" onclick="openEntryInvoice(\'' + e2.id + '\')" title="View record">' + esc(docNum) + '</button>' : '';
               html += '<tr>';
               html += '<td><button class="gh sm" style="text-align:left;padding:2px 4px;font-weight:600;" onclick="openEntryInvoice(\'' + e2.id + '\')" title="View document">' + typeLabel + '</button>' + docBadge + '</td>';
-              html += '<td>' + _fmtAmtCell(e2.id) + '</td>';
+              // Amount + type as second line (mobile)
+              html += '<td>' + _fmtAmtCell(e2.id) + '<div style="font-size:11px;font-weight:700;color:' + ownColor + ';margin-top:2px;">' + esc(ownLabel) + '</div></td>';
               html += '<td>' + new Date(e2.date).toLocaleDateString() + '</td>';
               html += '<td>' + statusBadge(e2.status) + '</td>';
               html += '<td><div class="action-menu"><button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button><div class="action-dropdown">';
