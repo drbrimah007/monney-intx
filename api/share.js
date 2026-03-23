@@ -54,6 +54,11 @@ async function ensureTable() {
   await sql`ALTER TABLE share_tokens ADD COLUMN IF NOT EXISTS recipient_closed_at TIMESTAMPTZ`;
   await sql`ALTER TABLE share_tokens ADD COLUMN IF NOT EXISTS viewed BOOLEAN NOT NULL DEFAULT false`;
   await sql`ALTER TABLE share_tokens ADD COLUMN IF NOT EXISTS viewed_at TIMESTAMPTZ`;
+  // confirmed: true = recipient accepted/confirmed; false = auto-linked, awaiting confirmation
+  await sql`ALTER TABLE share_tokens ADD COLUMN IF NOT EXISTS confirmed BOOLEAN NOT NULL DEFAULT false`;
+  // recipient_email: stored at send time so unregistered recipients can claim records on later signup/login
+  await sql`ALTER TABLE share_tokens ADD COLUMN IF NOT EXISTS recipient_email TEXT`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_share_tokens_recipient_email ON share_tokens (LOWER(recipient_email)) WHERE recipient_email IS NOT NULL`;
 }
 
 module.exports = async function handler(req, res) {
@@ -69,18 +74,21 @@ module.exports = async function handler(req, res) {
       try {
         await ensureTable();
         const rows = await sql`
-          SELECT token, entry_data, acknowledged, acknowledged_at, linked_at, created_at
+          SELECT token, entry_data, acknowledged, acknowledged_at, linked_at, created_at,
+                 recipient_closed, confirmed
           FROM share_tokens
           WHERE linked_user_id = ${payload.id}
           ORDER BY linked_at DESC NULLS LAST
         `;
         return res.json({ ok: true, shared: rows.map(r => ({
-          token:          r.token,
-          entry:          r.entry_data,
-          acknowledged:   r.acknowledged,
-          acknowledgedAt: r.acknowledged_at,
-          linkedAt:       r.linked_at,
-          sharedAt:       r.created_at
+          token:           r.token,
+          entry:           r.entry_data,
+          acknowledged:    r.acknowledged,
+          acknowledgedAt:  r.acknowledged_at,
+          linkedAt:        r.linked_at,
+          sharedAt:        r.created_at,
+          recipientClosed: r.recipient_closed,
+          confirmed:       r.confirmed
         }))});
       } catch (e) {
         console.error('[share/linked]', e.message);
@@ -95,7 +103,8 @@ module.exports = async function handler(req, res) {
       await ensureTable();
       const rows = await sql`
         SELECT user_id, entry_id, entry_data, acknowledged, acknowledged_at,
-               recipient_closed, recipient_closed_at, viewed, viewed_at, created_at
+               recipient_closed, recipient_closed_at, viewed, viewed_at, created_at,
+               linked_user_id, confirmed
         FROM share_tokens WHERE token = ${token} LIMIT 1
       `;
       if (rows.length === 0) {
@@ -144,6 +153,19 @@ module.exports = async function handler(req, res) {
         }
       }
 
+      // Optionally detect if the current viewer is the linked recipient
+      // (so view.html can show a "Confirm & Track" button without requiring login first)
+      let isLinkedUser = false;
+      if (row.linked_user_id && !row.confirmed) {
+        try {
+          const { verifyToken, getTokenFromRequest } = require('../lib/auth');
+          const jwtPayload = verifyToken(getTokenFromRequest(req));
+          if (jwtPayload && jwtPayload.id === row.linked_user_id) {
+            isLinkedUser = true;
+          }
+        } catch (_) {}
+      }
+
       return res.json({
         ok: true,
         entry:                  row.entry_data,
@@ -153,6 +175,8 @@ module.exports = async function handler(req, res) {
         recipientClosedAt:      row.recipient_closed_at,
         settlementPending:      row.entry_data?.settlementPending || false,
         settlementConfirmed:    row.entry_data?.settlementConfirmed || false,
+        confirmed:              row.confirmed || false,
+        isLinkedUser,
         viewed:                 true,
         viewedAt:               row.viewed_at,
         sharedAt:               row.created_at
@@ -209,10 +233,10 @@ module.exports = async function handler(req, res) {
           return res.json({ ok: true, selfLink: true, entry: entryData });
         }
 
-        // 1. Link the token to John's account
+        // 1. Link the token to the recipient's account — manual accept = confirmed=true
         await sql`
           UPDATE share_tokens
-          SET linked_user_id = ${payload.id}, linked_at = now()
+          SET linked_user_id = ${payload.id}, linked_at = now(), confirmed = true
           WHERE token = ${token} AND (linked_user_id IS NULL OR linked_user_id = ${payload.id})
         `;
 
@@ -264,24 +288,42 @@ module.exports = async function handler(req, res) {
     if (action === 'create') {
       const payload = requireAuth(req, res);
       if (!payload) return;
-      const { entryId, contactName, fromName, fromEmail, txType, amount, date,
+      const { entryId, contactName, contactEmail, fromName, fromEmail, txType, amount, date,
               note, invoiceNumber, status, appName, siteUrl, tagline } = req.body;
       if (!entryId) return res.status(400).json({ ok: false, error: 'entryId required' });
       try {
         await ensureTable();
 
-        // Look up the sender's blob to resolve contact.linkedUserId
-        // This enables auto-linking for established relationships
+        // Resolve recipient user — two paths:
+        //  1. contactEmail passed directly from client (fast, no blob read needed)
+        //  2. blob-read for contact.linkedUserId (established relationship → confirmed=true)
         let autoLinkedUserId = null;
-        try {
-          const [blobRow] = await sql`SELECT data FROM user_data WHERE user_id = ${payload.id} LIMIT 1`;
-          if (blobRow) {
-            const senderData = blobRow.data || {};
-            const entry   = (senderData.entries  || []).find(e => e.id === entryId);
-            const contact = entry ? (senderData.contacts || []).find(c => c.id === entry.cId) : null;
-            if (contact?.linkedUserId) autoLinkedUserId = contact.linkedUserId;
+        let autoLinkedByEmail = false;
+        const senderEmail = (payload.email || '').toLowerCase().trim();
+
+        // Path 1: direct email lookup
+        if (contactEmail) {
+          const emailClean = contactEmail.toLowerCase().trim();
+          if (emailClean && emailClean !== senderEmail) {
+            try {
+              const [uRow] = await sql`SELECT id FROM users WHERE LOWER(email) = ${emailClean} LIMIT 1`;
+              if (uRow) { autoLinkedUserId = uRow.id; autoLinkedByEmail = true; }
+            } catch (_) {}
           }
-        } catch (_) {}
+        }
+
+        // Path 2: blob-read for linkedUserId (established trusted relationship)
+        if (!autoLinkedUserId) {
+          try {
+            const [blobRow] = await sql`SELECT data FROM user_data WHERE user_id = ${payload.id} LIMIT 1`;
+            if (blobRow) {
+              const senderData = await _decompress(blobRow.data) || {};
+              const entry   = (senderData.entries  || []).find(e => e.id === entryId);
+              const contact = entry ? (senderData.contacts || []).find(c => c.id === entry.cId) : null;
+              if (contact?.linkedUserId) { autoLinkedUserId = contact.linkedUserId; autoLinkedByEmail = false; }
+            }
+          } catch (_) {}
+        }
 
         const existing = await sql`
           SELECT token, linked_user_id FROM share_tokens
@@ -291,8 +333,9 @@ module.exports = async function handler(req, res) {
           const token = existing[0].token;
           // If not yet linked but we now know the linked user, fill it in
           if (autoLinkedUserId && !existing[0].linked_user_id) {
+            const autoConfirmed = !autoLinkedByEmail;
             await sql`
-              UPDATE share_tokens SET linked_user_id = ${autoLinkedUserId}, linked_at = now()
+              UPDATE share_tokens SET linked_user_id = ${autoLinkedUserId}, linked_at = now(), confirmed = ${autoConfirmed}
               WHERE token = ${token}
             `;
           }
@@ -301,8 +344,12 @@ module.exports = async function handler(req, res) {
         }
 
         const token = crypto.randomBytes(18).toString('base64url');
+        // Normalize recipient email — stored as column for later-registration claim
+        const recipientEmailNorm = contactEmail ? contactEmail.toLowerCase().trim() : null;
         const entryData = {
-          entryId, contactName, fromName, fromEmail: fromEmail || '',
+          entryId, contactName,
+          contactEmail: recipientEmailNorm || '',   // stored so view.html can show direction
+          fromName, fromEmail: fromEmail || '',
           txType, amount, date, note: note || '',
           invoiceNumber: invoiceNumber || null,
           status: status || 'posted',
@@ -313,15 +360,17 @@ module.exports = async function handler(req, res) {
         };
 
         if (autoLinkedUserId) {
-          // Established relationship — auto-link, no consent step needed
+          // Auto-linked: confirmed=true for established linkedUserId, false for email-matched (needs recipient confirmation)
+          const autoConfirmed = !autoLinkedByEmail;
           await sql`
-            INSERT INTO share_tokens (token, user_id, entry_id, entry_data, linked_user_id, linked_at)
-            VALUES (${token}, ${payload.id}, ${entryId}, ${entryData}, ${autoLinkedUserId}, now())
+            INSERT INTO share_tokens (token, user_id, entry_id, entry_data, linked_user_id, linked_at, confirmed, recipient_email)
+            VALUES (${token}, ${payload.id}, ${entryId}, ${entryData}, ${autoLinkedUserId}, now(), ${autoConfirmed}, ${recipientEmailNorm})
           `;
         } else {
+          // No user match yet — store recipient_email so they can claim when they register/login
           await sql`
-            INSERT INTO share_tokens (token, user_id, entry_id, entry_data)
-            VALUES (${token}, ${payload.id}, ${entryId}, ${entryData})
+            INSERT INTO share_tokens (token, user_id, entry_id, entry_data, recipient_email)
+            VALUES (${token}, ${payload.id}, ${entryId}, ${entryData}, ${recipientEmailNorm})
           `;
         }
 
@@ -415,6 +464,140 @@ module.exports = async function handler(req, res) {
       } catch (e) {
         console.error('[share/recipient-close]', e.message);
         return res.status(500).json({ ok: false, error: 'Failed to close record.' });
+      }
+    }
+
+    // ── confirm-shared: recipient confirms (Confirm & Track) a shared record ──
+    if (action === 'confirm-shared') {
+      const payload = requireAuth(req, res);
+      if (!payload) return;
+      const { token: cToken } = req.body;
+      if (!cToken) return res.status(400).json({ ok: false, error: 'token required' });
+      try {
+        await ensureTable();
+        await sql`
+          UPDATE share_tokens SET confirmed = true
+          WHERE token = ${cToken} AND linked_user_id = ${payload.id}
+        `;
+        return res.json({ ok: true });
+      } catch (e) {
+        console.error('[share/confirm-shared]', e.message);
+        return res.status(500).json({ ok: false, error: 'Failed to confirm record.' });
+      }
+    }
+
+    // ── dismiss-shared: recipient dismisses (Dismiss) a shared record ────────
+    if (action === 'dismiss-shared') {
+      const payload = requireAuth(req, res);
+      if (!payload) return;
+      const { token: dToken } = req.body;
+      if (!dToken) return res.status(400).json({ ok: false, error: 'token required' });
+      try {
+        await ensureTable();
+        const [row] = await sql`SELECT entry_data FROM share_tokens WHERE token = ${dToken} AND linked_user_id = ${payload.id} LIMIT 1`;
+        if (!row) return res.status(404).json({ ok: false, error: 'Not found.' });
+        const updated = { ...(row.entry_data || {}), dismissed: true };
+        await sql`UPDATE share_tokens SET entry_data = ${updated} WHERE token = ${dToken}`;
+        return res.json({ ok: true });
+      } catch (e) {
+        console.error('[share/dismiss-shared]', e.message);
+        return res.status(500).json({ ok: false, error: 'Failed to dismiss record.' });
+      }
+    }
+
+    // ── backfill: scan sender's blob and create/link tokens for entries missing them ─
+    // Called once after login to recover entries created before auto-linking was added.
+    if (action === 'backfill') {
+      const payload = requireAuth(req, res);
+      if (!payload) return;
+      try {
+        await ensureTable();
+        const [blobRow] = await sql`SELECT data FROM user_data WHERE user_id = ${payload.id} LIMIT 1`;
+        if (!blobRow) return res.json({ ok: true, created: 0 });
+        const db = await _decompress(blobRow.data) || {};
+        const entries  = db.entries  || [];
+        const contacts = db.contacts || [];
+        const senderEmail = (payload.email || '').toLowerCase().trim();
+        const settings = db.settings || {};
+        const siteUrl  = settings.siteUrl || 'https://moneyinteractions.com';
+        const appName  = settings.appName || 'Money IntX';
+        const tagline  = settings.tagline || 'Making Money Matters Memorable';
+        const fromName = payload.displayName || payload.email || appName;
+
+        let created = 0;
+        for (const e of entries) {
+          if (e.status === 'voided') continue;
+          const contact = contacts.find(c => c.id === e.cId);
+          if (!contact?.email) continue;
+          const emailClean = contact.email.toLowerCase().trim();
+          if (!emailClean || emailClean === senderEmail) continue;
+
+          // Check if token already exists for this entry
+          const [existing] = await sql`SELECT token FROM share_tokens WHERE entry_id = ${e.id} AND user_id = ${payload.id} LIMIT 1`;
+          if (existing) continue; // already has token
+
+          // Look up user by email
+          const [uRow] = await sql`SELECT id FROM users WHERE LOWER(email) = ${emailClean} LIMIT 1`;
+          if (!uRow) continue; // no registered user with this email
+
+          const token = crypto.randomBytes(18).toString('base64url');
+          const entryData = {
+            entryId: e.id, contactName: contact.name || '',
+            contactEmail: emailClean,
+            fromName, fromEmail: payload.email || '',
+            txType: e.txType, amount: e.amount,
+            date: e.date, note: e.note || '', invoiceNumber: e.invoiceNumber || null,
+            status: e.status || 'posted', appName, siteUrl, tagline, sharedAt: Date.now()
+          };
+          await sql`
+            INSERT INTO share_tokens (token, user_id, entry_id, entry_data, linked_user_id, linked_at, confirmed, recipient_email)
+            VALUES (${token}, ${payload.id}, ${e.id}, ${entryData}, ${uRow.id}, now(), false, ${emailClean})
+          `;
+          created++;
+        }
+        // Also update existing tokens that are missing recipient_email
+        await sql`
+          UPDATE share_tokens st
+          SET recipient_email = LOWER((entry_data->>'contactEmail'))
+          WHERE st.user_id = ${payload.id}
+            AND recipient_email IS NULL
+            AND entry_data->>'contactEmail' IS NOT NULL
+            AND entry_data->>'contactEmail' != ''
+        `;
+        return res.json({ ok: true, created });
+      } catch (e) {
+        console.error('[share/backfill]', e.message);
+        return res.status(500).json({ ok: false, error: 'Backfill failed.' });
+      }
+    }
+
+    // ── claim-pending: recipient claims all tokens sent to their email ────────
+    // Called on login/initApp from the recipient side.
+    // Handles Case 3: user registers AFTER a record was sent to their email.
+    if (action === 'claim-pending') {
+      const payload = requireAuth(req, res);
+      if (!payload) return;
+      try {
+        await ensureTable();
+        const myEmail = (payload.email || '').toLowerCase().trim();
+        if (!myEmail) return res.json({ ok: true, claimed: 0 });
+        // Find tokens sent to this email that aren't yet linked to any account
+        const rows = await sql`
+          SELECT token FROM share_tokens
+          WHERE LOWER(recipient_email) = ${myEmail}
+            AND linked_user_id IS NULL
+        `;
+        if (rows.length === 0) return res.json({ ok: true, claimed: 0 });
+        const tokens = rows.map(r => r.token);
+        await sql`
+          UPDATE share_tokens
+          SET linked_user_id = ${payload.id}, linked_at = now(), confirmed = false
+          WHERE token = ANY(${tokens})
+        `;
+        return res.json({ ok: true, claimed: rows.length });
+      } catch (e) {
+        console.error('[share/claim-pending]', e.message);
+        return res.status(500).json({ ok: false, error: 'Claim failed.' });
       }
     }
 

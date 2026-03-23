@@ -410,6 +410,56 @@
       cursor: pointer;
     }
 
+    /* Confirm banner (auto-linked, pending confirmation) */
+    .confirm-banner {
+      background: #fef3c7;
+      border: 1.5px solid #fde68a;
+      border-radius: 12px;
+      padding: 16px 18px;
+      margin-bottom: 16px;
+    }
+    .confirm-banner-title {
+      font-size: 13px;
+      font-weight: 800;
+      color: #92400e;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      margin-bottom: 6px;
+    }
+    .confirm-banner-msg {
+      font-size: 13px;
+      color: #78350f;
+      margin-bottom: 14px;
+      line-height: 1.5;
+    }
+    .confirm-banner-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+    .btn-confirm {
+      flex: 1;
+      padding: 11px 16px;
+      background: #16a34a;
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      min-width: 130px;
+    }
+    .btn-confirm:hover { background: #15803d; }
+    .btn-dismiss-banner {
+      flex: 1;
+      padding: 11px 16px;
+      background: none;
+      color: #92400e;
+      border: 1.5px solid #fde68a;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      min-width: 100px;
+    }
+    .btn-dismiss-banner:hover { background: rgba(0,0,0,.04); }
+
     /* Footer */
     .footer {
       text-align: center;
@@ -492,6 +542,16 @@
           <p>This is a record for clarity only. <strong id="disclaimerName">Money IntX</strong> does not hold or process money.</p>
         </div>
 
+        <!-- Confirm banner (shown to auto-linked recipients who haven't confirmed yet) -->
+        <div class="confirm-banner" id="confirmBanner" style="display:none;">
+          <div class="confirm-banner-title">📬 New Record Received</div>
+          <div class="confirm-banner-msg">This record has been automatically linked to your account. Would you like to confirm and start tracking it?</div>
+          <div class="confirm-banner-actions">
+            <button class="btn-confirm" onclick="doConfirmShared()">✅ Confirm & Track</button>
+            <button class="btn-dismiss-banner" onclick="doDismissShared()">✕ Dismiss</button>
+          </div>
+        </div>
+
         <!-- Settlement banner (shown when owner has recorded a payment) -->
         <div id="settlementBanner" style="display:none;margin-bottom:14px;">
           <div style="background:#fef9c3;border:1px solid #fde68a;border-radius:10px;padding:16px 18px;">
@@ -559,6 +619,8 @@
   let _recipientClosed = false;
   let _settlementPending = false;
   let _settlementConfirmed = false;
+  let _confirmed = true;      // true = no confirm banner needed
+  let _isLinkedUser = false;  // true = viewer is the auto-linked recipient
   let _siteUrl = '/';
 
   // Recipient-facing direction labels
@@ -626,6 +688,8 @@
       _recipientClosed = data.recipientClosed || false;
       _settlementPending   = data.settlementPending   || false;
       _settlementConfirmed = data.settlementConfirmed || false;
+      _confirmed     = data.confirmed !== false; // treat missing as true (no banner)
+      _isLinkedUser  = data.isLinkedUser || false;
       renderEntry(_entry, data.sharedAt);
     } catch (e) {
       showError();
@@ -762,6 +826,12 @@
       }
     }
 
+    // Confirm banner — show when viewer is the auto-linked recipient and hasn't confirmed yet
+    const confirmBanner = document.getElementById('confirmBanner');
+    if (confirmBanner) {
+      confirmBanner.style.display = (_isLinkedUser && !_confirmed) ? '' : 'none';
+    }
+
     // Show card
     document.getElementById('loadingState').style.display = 'none';
     document.getElementById('mainCard').style.display = '';
@@ -847,6 +917,50 @@
     } catch (e) {
       btn.disabled = false;
       btn.textContent = '✅ Confirm Settlement';
+    }
+  }
+
+  async function doConfirmShared() {
+    const banner = document.getElementById('confirmBanner');
+    try {
+      const res = await fetch('/api/share', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'confirm-shared', token: _token })
+      });
+      const data = await res.json();
+      if (data.ok) {
+        _confirmed = true;
+        _isLinkedUser = false;
+        if (banner) banner.innerHTML = '<div style="background:#d1fae5;border:1px solid #6ee7b7;border-radius:10px;padding:14px 18px;text-align:center;font-size:14px;color:#065f46;font-weight:600;">✅ Record confirmed — it\'s now in your Entries</div>';
+      } else {
+        // If not authenticated, redirect to login
+        if (res.status === 401) {
+          try { sessionStorage.setItem('pendingShareToken', _token); } catch(_) {}
+          window.location.href = (_siteUrl || '/') + '?login=1';
+        }
+      }
+    } catch (e) {
+      if (banner) banner.innerHTML += '<div style="color:#dc2626;font-size:12px;margin-top:8px;">Something went wrong. Please try again.</div>';
+    }
+  }
+
+  async function doDismissShared() {
+    const banner = document.getElementById('confirmBanner');
+    try {
+      const res = await fetch('/api/share', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'dismiss-shared', token: _token })
+      });
+      const data = await res.json();
+      if (data.ok) {
+        if (banner) banner.style.display = 'none';
+      }
+    } catch (e) {
+      // Silently ignore dismiss errors
     }
   }
 

@@ -1415,7 +1415,7 @@
         </div>`;
 
         // Recent entries
-        const recentEntries = [...allEntries].sort((a,b)=>(b.createdAt||new Date(b.date||0).getTime()||0)-(a.createdAt||new Date(a.date||0).getTime()||0)).slice(0,15);
+        const recentEntries = [...allEntries].sort((a,b)=>(b.createdAt||new Date(b.date||0).getTime()||0)-(a.createdAt||new Date(a.date||0).getTime()||0)).slice(0,10);
         html += `<div class="card">
           <div class="section-title">Recent Entries (All Users)</div>
           ${recentEntries.length === 0 ? `<p style="color:var(--muted);font-size:14px;padding:12px 0;">No entries yet.</p>` : `
@@ -1454,7 +1454,7 @@
             <button class="bs sm" onclick="nav('nok')">🔐 Next of Kin</button>
           </div>
         </div>`;
-        const recentEntries = [...myEntries].sort((a,b)=>(b.createdAt||new Date(b.date||0).getTime()||0)-(a.createdAt||new Date(a.date||0).getTime()||0)).slice(0,15);
+        const recentEntries = [...myEntries].sort((a,b)=>(b.createdAt||new Date(b.date||0).getTime()||0)-(a.createdAt||new Date(a.date||0).getTime()||0)).slice(0,10);
         html += `<div class="card">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;"><h3 style="margin:0;">Recent Entries</h3><button class="gh sm" onclick="nav('entries')">View all →</button></div>
           ${recentEntries.length === 0 ? `<p style="color:var(--muted);font-size:14px;padding:12px 0;">No entries yet. <button class="gh sm" onclick="nav('contacts')">Add a contact</button> to get started.</p>` : `
@@ -1501,12 +1501,14 @@
 
     async function _loadSharedWithMe() {
       const el = document.getElementById('shared-with-me');
-      if (!el) return;
+      // Note: el may be null if we're on the entries page — that's fine, we still load the data
       try {
         const res  = await fetch('/api/share?linked=1', { credentials: 'include' });
         const data = await res.json();
         if (!data.ok || !data.shared || data.shared.length === 0) {
-          // Check for justLinkedShare flag even if list is empty (race condition)
+          // Populate entries-page placeholder with empty state if it exists
+          const entriesEl = document.getElementById('entries-shared-with-me');
+          if (entriesEl) entriesEl.innerHTML = '';
           return;
         }
         const records = data.shared;
@@ -1546,6 +1548,13 @@
 
         // If contacts page is open, refresh it so balances reflect shared records
         if (_curPage === 'contacts') renderContacts();
+        // If entries page is open, re-render so tab counts + shared rows update
+        // Use _sharedDataReady flag to prevent re-entrant loop (renderEntries calls _loadSharedWithMe)
+        if (_curPage === 'entries' && !window._sharedLoadInProgress) {
+          window._sharedLoadInProgress = true;
+          renderEntries();
+          window._sharedLoadInProgress = false;
+        }
         // If there are shared records, hide the onboarding CTA
         const ctaEl = document.getElementById('first-entry-cta');
         if (ctaEl) ctaEl.style.display = 'none';
@@ -1572,6 +1581,28 @@
           they_paid_you:'Settled',  you_paid_them:'Settled', gift:'Gift'
         }[t] || 'Shared');
         const _recipDirColor = t => (t==='they_owe_you'||t==='invoice'||t==='bill'||t==='lend') ? 'var(--red)' : 'var(--green)';
+
+        // Show "New records received" banner for unconfirmed, non-dismissed records
+        const pendingRecs = records.filter(r => !r.confirmed && !r.entry?.dismissed && !r.recipientClosed);
+        if (pendingRecs.length > 0) {
+          html += `<div style="background:#fef3c7;border:1px solid #fde68a;border-radius:10px;padding:14px 16px;margin-bottom:14px;">
+            <div style="font-weight:700;font-size:14px;margin-bottom:10px;color:#92400e;">📬 New Record${pendingRecs.length>1?'s':''} Received (${pendingRecs.length})</div>`;
+          pendingRecs.forEach(r => {
+            const pe = r.entry;
+            const pAmt = parseFloat(pe?.amount||0);
+            html += `<div style="background:#fff;border:1px solid #fde68a;border-radius:8px;padding:10px 14px;margin-bottom:8px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+              <div>
+                <div style="font-weight:700;font-size:13px;">${esc(pe?.fromName||'Someone')}</div>
+                <div style="font-size:12px;color:var(--muted);">${fmt(pAmt)} · <span style="color:${_recipDirColor(pe?.txType)};font-weight:600;">${_recipDirLabel(pe?.txType)}</span> · ${pe?.date ? new Date(pe.date).toLocaleDateString() : ''}</div>
+              </div>
+              <div style="display:flex;gap:8px;">
+                <button onclick="doConfirmShared('${esc(r.token)}')" style="background:var(--accent);color:#fff;border:none;border-radius:7px;padding:7px 14px;font-size:12px;font-weight:700;cursor:pointer;">✅ Confirm &amp; Track</button>
+                <button onclick="doDismissShared('${esc(r.token)}')" style="background:var(--bg3);color:var(--text);border:1px solid var(--border);border-radius:7px;padding:7px 14px;font-size:12px;cursor:pointer;">✕ Dismiss</button>
+              </div>
+            </div>`;
+          });
+          html += `</div>`;
+        }
 
         const hiddenCount  = records.filter(r => _sharedHidden.has(r.token)).length;
         const visibleRecs  = records.filter(r => !_sharedHidden.has(r.token));
@@ -1611,8 +1642,20 @@
           const siteUrl = e.siteUrl || 'https://moneyinteractions.com';
           const rowStyle = isExpired ? 'opacity:.55;' : '';
 
+          // Make sender name clickable — find contact by name
+          const _senderContact = (() => {
+            const u2 = curUser();
+            if (!u2) return null;
+            const nl = (e.fromName||'').toLowerCase().trim();
+            return db.contacts.find(c => c.userId === u2.id && (c.name||'').toLowerCase().trim() === nl) || null;
+          })();
+          const _senderLink = _senderContact
+            ? `<a href="#" onclick="cLink_open('${_senderContact.id}');return false;" style="font-weight:700;color:var(--accent);text-decoration:none;">${esc(e.fromName||'—')}</a>`
+            : `<strong>${esc(e.fromName||'—')}</strong>`;
+          const _pendingBadge = !r.confirmed && !e.dismissed ? `<span style="font-size:10px;background:#fef3c7;color:#92400e;border:1px solid #fde68a;border-radius:4px;padding:1px 5px;margin-left:4px;font-weight:700;">NEW</span>` : '';
+
           html += `<tr style="${rowStyle}">
-            <td><strong>${esc(e.fromName||'—')}</strong></td>
+            <td>${_senderLink}${_pendingBadge}</td>
             <td>${amtHtml}</td>
             <td><span style="font-weight:700;color:${isExpired?'var(--muted)':_recipDirColor(e.txType)}">${esc(_recipDirLabel(e.txType))}</span></td>
             <td>${dt}</td>
@@ -1622,6 +1665,8 @@
                 <button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button>
                 <div class="action-dropdown">
                   <a href="${esc(siteUrl)}/view?t=${esc(r.token)}" target="_blank" style="display:block;padding:8px 14px;font-size:13px;color:var(--accent);text-decoration:none;font-weight:600;">👁 View</a>
+                  ${!r.confirmed && !e.dismissed ? `<button onclick="doConfirmShared('${esc(r.token)}')">✅ Confirm &amp; Track</button>` : ''}
+                  ${!r.confirmed && !e.dismissed ? `<button onclick="doDismissShared('${esc(r.token)}')">✕ Dismiss</button>` : ''}
                   <button onclick="_sharedDepreciateModal('${esc(r.token)}','${esc(e.fromName||'')}',${rawAmt})">📉 Depreciate</button>
                   ${!isExpired ? `<button onclick="_sharedExpire('${esc(r.token)}')">⏰ Expire</button>` : ''}
                   <button onclick="_sharedHideToggle('${esc(r.token)}')">🙈 Hide</button>
@@ -1640,7 +1685,10 @@
         }
 
         html += `</tbody></table></div></div>`;
-        el.innerHTML = html;
+        if (el) el.innerHTML = html;
+        // Also populate entries-page shared section if visible
+        const entriesSharedEl = document.getElementById('entries-shared-with-me');
+        if (entriesSharedEl) entriesSharedEl.innerHTML = html;
 
         // ── Update balance stat cards with shared-with-me amounts ──────────
         // txType is from SENDER's perspective:
@@ -1673,7 +1721,10 @@
         }
 
         // Scroll to it if this is a fresh link
-        if (justLinked) setTimeout(() => el.scrollIntoView({ behavior: 'smooth', block: 'start' }), 150);
+        if (justLinked) {
+          const scrollTarget = el || entriesSharedEl;
+          if (scrollTarget) setTimeout(() => scrollTarget.scrollIntoView({ behavior: 'smooth', block: 'start' }), 150);
+        }
       } catch(_) {}
     }
 
@@ -1686,7 +1737,12 @@
       const showArchived = window._arch_contacts || false;
       let listed = showArchived ? allContacts : allContacts.filter(c => !c.archived);
       if (q) listed = listed.filter(c => (c.name||'').toLowerCase().includes(q) || (c.email||'').toLowerCase().includes(q) || (c.phone||'').toLowerCase().includes(q));
-      listed = [...listed].sort((a,b) => sortDesc ? (b.createdAt||0)-(a.createdAt||0) : (a.createdAt||0)-(b.createdAt||0));
+      const _lastActivity = cId => {
+        const eTs = db.entries.filter(e=>e.cId===cId).reduce((m,e)=>Math.max(m,e.createdAt||0),0);
+        const nTs = (db.notifs||[]).filter(n=>n.cId===cId).reduce((m,n)=>Math.max(m,n.createdAt||0),0);
+        return Math.max(eTs, nTs, db.contacts.find(c=>c.id===cId)?.createdAt||0);
+      };
+      listed = [...listed].sort((a,b) => sortDesc ? _lastActivity(b.id)-_lastActivity(a.id) : _lastActivity(a.id)-_lastActivity(b.id));
       PG['contacts'] = PG['contacts'] || 1;
       if (q) PG['contacts'] = 1; // reset to page 1 on search
       const p2 = paginate(listed, 'contacts');
@@ -2482,9 +2538,16 @@
     function renderEntries() {
       const u = curUser();
       const role = curRole();
+      const isStd = role === 'standard' && _IS_SERVER;
+
+      // Tab state: 'mine' | 'shared' | 'all' (default 'all')
+      window._entriesTab = window._entriesTab || 'all';
+      const tab = window._entriesTab;
+
+      // ── Own entries ──────────────────────────────────────────────────────
       const allEntries = role === 'admin' ? db.entries : (role === 'standard' ? db.entries.filter(e => e.userId === u.id) : db.entries.filter(e => e.shared && e.cId));
       const q = (window._search_entries||'').toLowerCase().trim();
-      const sortDesc = window._sort_entries !== false; // default: latest first
+      const sortDesc = window._sort_entries !== false;
       let listed = allEntries.filter(e => e.status !== 'voided');
       if (q) listed = listed.filter(e => {
         const c = db.contacts.find(x => x.id === e.cId);
@@ -2493,40 +2556,126 @@
                (TXL[e.txType]||'').toLowerCase().includes(q) || (ENTRY_STATUS[e.status]||'').toLowerCase().includes(q);
       });
       listed = [...listed].sort((a,b) => sortDesc ? (b.createdAt||new Date(b.date||0).getTime()||0)-(a.createdAt||new Date(a.date||0).getTime()||0) : (a.createdAt||new Date(a.date||0).getTime()||0)-(b.createdAt||new Date(b.date||0).getTime()||0));
+
+      // ── Confirmed shared-with-me records ─────────────────────────────────
+      const _recipDirLabelE = t => ({
+        they_owe_you:'You Owe', invoice:'Invoice Due', bill:'Bill Due',
+        you_owe_them:'Owed To You', lend:'You Borrowed', borrow:'Owed To You',
+        they_paid_you:'Settled', you_paid_them:'Settled', gift:'Gift'
+      }[t] || 'Shared');
+      const _recipDirColorE = t => (t==='they_owe_you'||t==='invoice'||t==='bill'||t==='lend') ? 'var(--red)' : 'var(--green)';
+
+      let confirmedShared = isStd ? _cachedSharedRecords.filter(r => !r.recipientClosed && !(r.entry?.dismissed)) : [];
+      if (q) confirmedShared = confirmedShared.filter(r => {
+        const e = r.entry;
+        return (e?.fromName||'').toLowerCase().includes(q) || (e?.amount||'').toString().includes(q) ||
+               (_recipDirLabelE(e?.txType)||'').toLowerCase().includes(q);
+      });
+      confirmedShared = [...confirmedShared].sort((a,b) => sortDesc
+        ? (b.sharedAt||0)-(a.sharedAt||0) : (a.sharedAt||0)-(b.sharedAt||0));
+
+      // ── Tab counts ───────────────────────────────────────────────────────
+      const mineCount   = listed.length;
+      const sharedCount = confirmedShared.length;
+      const allCount    = mineCount + sharedCount;
+
       PG['entries'] = PG['entries'] || 1;
       if (q) PG['entries'] = 1;
-      const p = paginate(listed, 'entries');
+
+      // Determine what to paginate based on tab
+      const tabListed = tab === 'shared' ? confirmedShared : (tab === 'mine' ? listed : [...listed, ...confirmedShared].sort((a,b) => {
+        const aTs = a.createdAt || new Date(a.date||0).getTime() || a.sharedAt || 0;
+        const bTs = b.createdAt || new Date(b.date||0).getTime() || b.sharedAt || 0;
+        return sortDesc ? bTs - aTs : aTs - bTs;
+      }));
+      const p = paginate(tabListed, 'entries');
+
+      // ── Header + tabs ────────────────────────────────────────────────────
+      const tabBtnStyle = (t) => `padding:7px 14px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;border:none;` +
+        (tab===t ? 'background:var(--accent);color:#fff;' : 'background:var(--bg3);color:var(--muted);');
 
       let html = `<div class="page-header"><h2>Entries</h2>`;
       if (role === 'admin' || role === 'standard') html += `<button class="btn sm" onclick="openNewEntry()">+ Add Entry</button>`;
-      html += `</div><div class="card">
+      html += `</div>`;
+
+      // Tabs — only show for standard users with shared records or server mode
+      if (isStd) {
+        html += `<div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;">
+          <button style="${tabBtnStyle('all')}" onclick="window._entriesTab='all';PG.entries=1;renderEntries()">All (${allCount})</button>
+          <button style="${tabBtnStyle('mine')}" onclick="window._entriesTab='mine';PG.entries=1;renderEntries()">Mine (${mineCount})</button>
+          <button style="${tabBtnStyle('shared')}" onclick="window._entriesTab='shared';PG.entries=1;renderEntries()">🔗 Shared With Me (${sharedCount})</button>
+        </div>`;
+      }
+
+      html += `<div class="card">
         <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;flex-wrap:wrap;">
           <input type="search" id="entries_search_input" placeholder="Search entries…" value="${esc(window._search_entries||'')}" style="flex:1;min-width:180px;max-width:340px;">
           <button class="bs sm${sortDesc?' on':''}" onclick="window._sort_entries=!${sortDesc};renderEntries()" title="Sort order">${sortDesc?'↓ Latest first':'↑ Oldest first'}</button>
         </div>
         <div class="tbl-wrap"><table><thead><tr><th>Contact</th><th class="hide-mobile">Doc #</th><th>Amount</th><th class="hide-mobile">Type</th><th>Date</th><th>Status</th><th style="width:80px;">Action</th></tr></thead><tbody>`;
-      p.items.forEach(e => {
-        const c = db.contacts.find(x => x.id === e.cId);
-        html += `<tr>
-          <td>${cLink(e.cId, c?.name || '—')}</td>
-          <td class="hide-mobile">${(()=>{ const lbl = e.invoiceNumber || (e.entryNum ? '#'+String(e.entryNum).padStart(4,'0') : null); return lbl ? `<button class="gh sm" style="font-size:12px;font-weight:700;color:var(--accent);padding:2px 6px;" onclick="openEntryInvoice('${e.id}')" title="View record">${esc(lbl)}</button>` : '<span style="color:var(--muted);">—</span>'; })()}</td>
-          <td>${_fmtAmtCell(e.id)}</td>
-          <td class="hide-mobile"><button class="gh sm" style="font-size:13px;padding:2px 6px;font-weight:700;color:${txTypeColor(e.txType)};" onclick="openEntryInvoice('${e.id}')" title="View record">${esc(TXL[e.txType]||e.txType)}</button></td>
-          <td>${new Date(e.date).toLocaleDateString()}</td>
-          <td>${statusBadge(e.status)}</td>
-          <td><div class="action-menu"><button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button><div class="action-dropdown">
-            <button onclick="openEntryInvoice('${e.id}')">📄 View</button>
-            <button onclick="editEntry('${e.id}')">✏️ Edit</button>
-            ${(isInvoiceMode(e) || e.txType === 'they_owe_you' || e.txType === 'you_owe_them') && e.status !== 'settled' && e.status !== 'voided' ? `<button onclick="recordSettlement('${e.id}')">💰 Settle</button>` : ''}
-            <button onclick="openNotifyModal('${e.id}')">🔔 Notify</button>
-            <button onclick="openShareModal('${e.id}')">🔗 Share</button>
-            <button onclick="toggleArchiveEntry('${e.id}')">${e.archived ? '📤 Unarchive' : '📥 Archive'}</button>
-            ${e.status !== 'voided' ? `<button onclick="voidEntry('${e.id}')" style="color:var(--amber);">🚫 Void</button>` : ''}
-            <button onclick="${e.status==='closed' ? 'reopenEntry' : 'openCloseModal'}('${e.id}')">${e.status==='closed' ? '🔓 Reopen' : '🔒 Close Record'}</button>
-            <button onclick="delEntry('${e.id}')" style="color: var(--red);">🗑 Delete</button>
-          </div></div></td>
-        </tr>`;
+
+      p.items.forEach(item => {
+        // Determine if this is a shared record (from _cachedSharedRecords) or own entry
+        const isSharedRow = item.token !== undefined;
+
+        if (isSharedRow) {
+          // ── Shared-with-me row ──────────────────────────────────────────
+          const r = item;
+          const e = r.entry;
+          const rawAmt  = parseFloat(e?.amount||0);
+          const dt      = e?.date ? new Date(e.date).toLocaleDateString() : '—';
+          const dirLabel = _recipDirLabelE(e?.txType);
+          const dirColor = _recipDirColorE(e?.txType);
+          const siteUrl  = e?.siteUrl || 'https://moneyinteractions.com';
+          // Find contact
+          const nl = (e?.fromName||'').toLowerCase().trim();
+          const sc = db.contacts.find(c => c.userId === u.id && (c.name||'').toLowerCase().trim() === nl);
+          const nameHtml = sc
+            ? `<a href="#" onclick="cLink_open('${sc.id}');return false;" style="color:var(--accent);text-decoration:none;font-weight:700;">${esc(e?.fromName||'—')}</a>`
+            : `<strong>${esc(e?.fromName||'—')}</strong>`;
+          const isPending = !r.confirmed && !(e?.dismissed);
+          const sharedPill = isPending
+            ? `<span style="font-size:10px;background:rgba(251,191,36,.18);color:#d97706;border-radius:4px;padding:1px 5px;margin-left:3px;">⏳ Pending</span>`
+            : `<span style="font-size:10px;background:rgba(108,99,255,.12);color:var(--accent);border-radius:4px;padding:1px 5px;margin-left:3px;">🔗 Shared</span>`;
+          html += `<tr style="background:${isPending?'rgba(251,191,36,.05)':'rgba(108,99,255,.04)'};">
+            <td>${nameHtml} ${sharedPill}</td>
+            <td class="hide-mobile"><span style="color:var(--muted);">—</span></td>
+            <td><strong>${fmt(rawAmt)}</strong></td>
+            <td class="hide-mobile"><span style="font-weight:700;color:${dirColor}">${esc(dirLabel)}</span></td>
+            <td>${dt}</td>
+            <td>${statusBadge(e?.status||'posted')}</td>
+            <td><div class="action-menu"><button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button><div class="action-dropdown">
+              <a href="${esc(siteUrl)}/view?t=${esc(r.token)}" target="_blank" style="display:block;padding:8px 14px;font-size:13px;color:var(--accent);text-decoration:none;font-weight:600;">👁 View</a>
+              ${isPending ? `<button onclick="doConfirmShared('${esc(r.token)}')" style="color:#16a34a;font-weight:700;">✅ Confirm & Track</button><button onclick="doDismissShared('${esc(r.token)}')" style="color:var(--red);">✕ Dismiss</button>` : ''}
+              <button onclick="_sharedExpire('${esc(r.token)}')">⏰ Expire</button>
+            </div></div></td>
+          </tr>`;
+        } else {
+          // ── Own entry row ───────────────────────────────────────────────
+          const e = item;
+          const c = db.contacts.find(x => x.id === e.cId);
+          html += `<tr>
+            <td>${cLink(e.cId, c?.name || '—')}</td>
+            <td class="hide-mobile">${(()=>{ const lbl = e.invoiceNumber || (e.entryNum ? '#'+String(e.entryNum).padStart(4,'0') : null); return lbl ? `<button class="gh sm" style="font-size:12px;font-weight:700;color:var(--accent);padding:2px 6px;" onclick="openEntryInvoice('${e.id}')" title="View record">${esc(lbl)}</button>` : '<span style="color:var(--muted);">—</span>'; })()}</td>
+            <td>${_fmtAmtCell(e.id)}</td>
+            <td class="hide-mobile"><button class="gh sm" style="font-size:13px;padding:2px 6px;font-weight:700;color:${txTypeColor(e.txType)};" onclick="openEntryInvoice('${e.id}')" title="View record">${esc(TXL[e.txType]||e.txType)}</button></td>
+            <td>${new Date(e.date).toLocaleDateString()}</td>
+            <td>${statusBadge(e.status)}</td>
+            <td><div class="action-menu"><button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button><div class="action-dropdown">
+              <button onclick="openEntryInvoice('${e.id}')">📄 View</button>
+              <button onclick="editEntry('${e.id}')">✏️ Edit</button>
+              ${(isInvoiceMode(e) || e.txType === 'they_owe_you' || e.txType === 'you_owe_them') && e.status !== 'settled' && e.status !== 'voided' ? `<button onclick="recordSettlement('${e.id}')">💰 Settle</button>` : ''}
+              <button onclick="openNotifyModal('${e.id}')">🔔 Notify</button>
+              <button onclick="openShareModal('${e.id}')">🔗 Share</button>
+              <button onclick="toggleArchiveEntry('${e.id}')">${e.archived ? '📤 Unarchive' : '📥 Archive'}</button>
+              ${e.status !== 'voided' ? `<button onclick="voidEntry('${e.id}')" style="color:var(--amber);">🚫 Void</button>` : ''}
+              <button onclick="${e.status==='closed' ? 'reopenEntry' : 'openCloseModal'}('${e.id}')">${e.status==='closed' ? '🔓 Reopen' : '🔒 Close Record'}</button>
+              <button onclick="delEntry('${e.id}')" style="color: var(--red);">🗑 Delete</button>
+            </div></div></td>
+          </tr>`;
+        }
       });
+
       html += `</tbody></table></div>`;
       html += `<p style="font-size: 12px; color: var(--muted); margin-top: 12px;">Page ${p.page} of ${p.pages}</p>
         <div style="display: flex; gap: 8px; margin-top: 8px;">
@@ -2534,7 +2683,16 @@
           <button class="bs sm" onclick="PG['entries'] = Math.min(${p.pages}, (PG['entries']||1)+1); renderEntries()" ${p.page === p.pages ? 'disabled' : ''}>Next →</button>
         </div>`;
       html += '</div>';
+      // Placeholder for Shared With You section below entries (dashboard-style)
+      if (isStd) {
+        html += `<div id="entries-shared-with-me" style="margin-top:0;"></div>`;
+      }
       document.getElementById('content').innerHTML = html;
+      // Load/refresh shared-with-me data (updates both tab counts and the section below)
+      // Skip if we were called FROM _loadSharedWithMe to prevent infinite loop
+      if (isStd && !window._sharedLoadInProgress) {
+        _loadSharedWithMe();
+      }
       // Attach debounced search handler
       const searchInput = document.getElementById('entries_search_input');
       if (searchInput) {
@@ -3109,10 +3267,10 @@
       logAudit('add_entry',{cid,txType,amount,tpl:_entryTpl?.name||null,invoiceNumber});
       await saveNow(); // immediate sync for cross-device consistency
 
-      // If this contact has accepted a previous record (linkedUserId is set),
-      // auto-create and auto-link a share token — no consent step needed,
-      // relationship already established. Works regardless of email used.
-      if (contact?.linkedUserId && _IS_SERVER) {
+      // Auto-create a share token whenever the contact has an email OR an established linkedUserId.
+      // The backend will look up whether that email belongs to a registered user and auto-link if so.
+      // This ensures new contacts with matching emails receive records immediately (confirmed=false → banner).
+      if ((contact?.linkedUserId || contact?.email) && _IS_SERVER) {
         const u = curUser();
         const siteUrl = db.settings?.siteUrl || window.location.origin;
         fetch('/api/share', {
@@ -3121,6 +3279,7 @@
           body: JSON.stringify({
             action: 'create', entryId: newEid,
             contactName: contact.name || '',
+            contactEmail: contact.email || '',   // ← direct email for user lookup
             fromName:  u.displayName || u.email || (db.settings?.appName || 'Money IntX'),
             fromEmail: u.email || '',
             txType, amount, date, note, invoiceNumber,
@@ -3527,7 +3686,8 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             action: 'create', entryId: eid,
-            contactName: c?.name || '', fromName: u.displayName || u.email || appName,
+            contactName: c?.name || '', contactEmail: c?.email || '',
+            fromName: u.displayName || u.email || appName,
             fromEmail: u.email || '', txType: e.txType, amount: e.amount,
             date: e.date, note: e.note || '', invoiceNumber: e.invoiceNumber || null,
             status: e.status || 'posted', appName, siteUrl, tagline
@@ -3627,6 +3787,7 @@
           body: JSON.stringify({
             action: 'create', entryId: eid,
             contactName: contact?.name || '',
+            contactEmail: contact?.email || '',  // ← direct email for user lookup
             fromName: u.displayName || u.email || (db.settings?.appName || 'Money IntX'),
             fromEmail: u.email || '',
             txType: e.txType, amount: e.amount, date: e.date,
@@ -3701,7 +3862,7 @@
         }
       }
       document.getElementById('notifyModalBg')?.remove();
-      _sendNotificationForEntry(eid, message, who);
+      _sendNotificationForEntry(eid, message, who).then(() => refreshCurPage());
     }
 
     // Unified notify toggle — prefix is 'ne' (entry form) or 'r' (recurring form)
@@ -6616,6 +6777,50 @@
       toast('Record declined — nothing was added to your account.');
     }
 
+    // Open a contact's detail view by ID (used by clickable names in Shared With You)
+    function cLink_open(cId) {
+      if (!cId) return;
+      nav('contacts');
+      setTimeout(() => openContactPanel(cId), 200);
+    }
+
+    // Confirm a shared record (Confirm & Track) — moves it into full tracking flow
+    async function doConfirmShared(token) {
+      try {
+        const res = await fetch('/api/share', {
+          method: 'POST', credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'confirm-shared', token })
+        });
+        const data = await res.json();
+        if (!data.ok) return toast('Could not confirm record.');
+        // Update local cache
+        const r = _cachedSharedRecords.find(x => x.token === token);
+        if (r) r.confirmed = true;
+        toast('✅ Record confirmed — now tracked in Entries.');
+        _loadSharedWithMe();
+        if (_curPage === 'entries') renderEntries();
+      } catch (_) { toast('Network error — please try again.'); }
+    }
+
+    // Dismiss a shared record — keeps it in Shared With You but hides the banner
+    async function doDismissShared(token) {
+      try {
+        const res = await fetch('/api/share', {
+          method: 'POST', credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'dismiss-shared', token })
+        });
+        const data = await res.json();
+        if (!data.ok) return toast('Could not dismiss record.');
+        // Update local cache
+        const r = _cachedSharedRecords.find(x => x.token === token);
+        if (r && r.entry) r.entry.dismissed = true;
+        toast('Record dismissed — stays in Shared With You only.');
+        _loadSharedWithMe();
+      } catch (_) { toast('Network error — please try again.'); }
+    }
+
     async function doLogout() {
       db.settings.impersonating = null;
       await API.logout(); // clears cookie + localStorage
@@ -6652,6 +6857,28 @@
       setTimeout(checkAndShowUsernamePrompt, 300);
       // Start background notification polling
       _startNotifPolling();
+      // Backfill share tokens for existing entries that pre-date auto-linking (fire-and-forget)
+      if (_IS_SERVER && curRole() === 'standard') {
+        setTimeout(() => {
+          // Backfill: create share tokens for sender's existing entries
+          fetch('/api/share', {
+            method: 'POST', credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'backfill' })
+          }).catch(() => {});
+          // Claim-pending: auto-link any tokens sent to this user's email before they registered
+          fetch('/api/share', {
+            method: 'POST', credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'claim-pending' })
+          }).then(r => r.json()).then(d => {
+            if (d.claimed > 0) {
+              // New records were just linked — refresh shared panel
+              _loadSharedWithMe();
+            }
+          }).catch(() => {});
+        }, 2000); // slight delay so initApp finishes rendering first
+      }
     }
 
     // ── Notification polling ──────────────────────────────────────────────
