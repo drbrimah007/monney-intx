@@ -1,6 +1,5 @@
 .env.local
 .env
 *.env
-bdusa-banner*
 node_modules/
 package-lock.json
