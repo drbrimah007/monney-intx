@@ -4331,6 +4331,11 @@
       const p = paginate(notifs, 'notifs');
 
       const whoLabel = w => w === 'them' ? 'Contact' : w === 'you' ? 'You' : w === 'both' ? 'Both' : '—';
+      const eventBadge = t => {
+        if (t === 'viewed') return `<span class="badge" style="background:rgba(108,99,255,.12);color:var(--accent);font-size:11px;">👁 Viewed</span>`;
+        if (t === 'closed') return `<span class="badge badge-gray" style="font-size:11px;">🔒 Closed</span>`;
+        return `<span class="badge badge-green" style="font-size:11px;">📤 Sent</span>`;
+      };
 
       let html = `<div class="page-header"><h2>Notifications</h2></div><div class="card">`;
       if (notifs.length === 0) {
@@ -4338,28 +4343,28 @@
       } else {
         html += `<div class="tbl-wrap"><table><thead><tr>
           <th>Contact</th>
-          <th class="hide-mobile">Entry</th>
+          <th class="hide-mobile">Amount</th>
           <th>Message</th>
           <th class="hide-mobile">Sent To</th>
           <th class="hide-mobile">Date</th>
-          <th class="hide-mobile">Status</th>
+          <th>Event</th>
           <th></th>
         </tr></thead><tbody>`;
         p.items.forEach(n => {
           const c  = db.contacts.find(x => x.id === n.cId);
           const e  = db.entries.find(x => x.id === n.eid);
-          const entryInfo = e ? `${fmt(e.amount)} — ${TXL[e.txType]||e.txType}` : '—';
+          const amtStr = e ? fmt(e.amount) : '—';
           const sentTo = Array.isArray(n.sentTo) && n.sentTo.length
             ? n.sentTo.join(', ')
             : (n.who ? whoLabel(n.who) : '—');
           const dateStr = n.createdAt ? new Date(n.createdAt).toLocaleDateString() : '—';
           html += `<tr>
             <td>${c ? cLink(c.id, c.name) : '<span style="color:var(--muted)">—</span>'}</td>
-            <td class="hide-mobile" style="font-size:12px;color:var(--muted);">${esc(entryInfo)}</td>
+            <td class="hide-mobile" style="font-size:13px;font-weight:600;">${esc(amtStr)}</td>
             <td style="max-width:200px;"><span style="display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;" title="${esc(n.msg)}">${esc(n.msg)}</span></td>
             <td class="hide-mobile" style="font-size:12px;">${esc(sentTo)}</td>
             <td class="hide-mobile" style="font-size:12px;color:var(--muted);">${dateStr}</td>
-            <td class="hide-mobile"><span class="badge ${n.sent?'badge-green':'badge-gray'}" style="font-size:11px;">${n.sent?'Sent':'Pending'}</span></td>
+            <td>${eventBadge(n.type)}</td>
             <td><button class="gh sm" onclick="delNotif('${n.id}')">Delete</button></td>
           </tr>`;
         });
@@ -5958,6 +5963,51 @@
       });
       // Show username prompt if user hasn't set one yet
       setTimeout(checkAndShowUsernamePrompt, 300);
+      // Start background notification polling
+      _startNotifPolling();
+    }
+
+    // ── Notification polling ──────────────────────────────────────────────
+    // Silently fetches the latest server blob every 30 s and merges any new
+    // notifications (view alerts, close alerts, etc.) into db.notifs without
+    // touching the rest of the local state.
+    let _lastPollAt = 0;
+    async function _pollNotifs() {
+      if (!_IS_SERVER || !curUser()) return;
+      try {
+        const res = await fetch('/api/data/load', { credentials: 'include' });
+        if (!res.ok) return;
+        const { data } = await res.json();
+        if (!data || !Array.isArray(data.notifs)) return;
+        const uid       = curUser().id;
+        const existing  = new Set((db.notifs || []).map(n => n.id));
+        const incoming  = data.notifs.filter(n => n.userId === uid && !existing.has(n.id));
+        if (incoming.length === 0) return;
+        db.notifs = [...(db.notifs || []), ...incoming];
+        // Persist merged notifs locally and refresh badge + page if on Notifs
+        save();
+        renderNav();
+        if (_curPage === 'notifs') renderNotifs();
+        else {
+          // Flash badge attention
+          const badge = document.querySelector('.nav-badge');
+          if (badge) badge.classList.add('badge-pulse');
+          setTimeout(() => badge?.classList.remove('badge-pulse'), 2000);
+        }
+      } catch (_) {}
+    }
+
+    function _startNotifPolling() {
+      if (!_IS_SERVER) return;
+      // Poll every 30 seconds
+      setInterval(_pollNotifs, 30_000);
+      // Also re-check immediately when the user returns to the tab
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') {
+          const now = Date.now();
+          if (now - _lastPollAt > 10_000) { _lastPollAt = now; _pollNotifs(); }
+        }
+      });
     }
 
     function showResetPasswordPage() {
