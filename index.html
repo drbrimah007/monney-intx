@@ -658,10 +658,10 @@
       // in-memory and must not push it to the admin's server blob.
       if (_impersonatingDataUserId) { return; }
       localStorage.setItem('mxi_v2', JSON.stringify(db));
-      // Debounce server sync: wait 800 ms after last change before pushing
+      // Debounce server sync: wait 3000 ms after last change before pushing
       if (_IS_SERVER) {
         clearTimeout(_syncTimer);
-        _syncTimer = setTimeout(_syncToServer, 800);
+        _syncTimer = setTimeout(_syncToServer, 3000);
       }
     }
 

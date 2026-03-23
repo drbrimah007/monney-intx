@@ -1,9 +1,28 @@
 // GET /api/data/load
 // Returns the authenticated user's full data blob.
 // Frontend calls this on login to populate its in-memory db.
+// Supports gzip-compressed blobs written by sync.js ({ _c:1, v:"<base64>" }).
 
 const { sql }         = require('../../lib/db');
 const { requireAuth } = require('../../lib/auth');
+const zlib            = require('zlib');
+const { promisify }   = require('util');
+const gunzip          = promisify(zlib.gunzip);
+
+// Decompress blob if it was stored compressed by sync.js
+async function maybeDecompress(raw) {
+  if (raw && raw._c === 1 && typeof raw.v === 'string') {
+    try {
+      const buf  = Buffer.from(raw.v, 'base64');
+      const json = await gunzip(buf);
+      return JSON.parse(json.toString('utf8'));
+    } catch (e) {
+      console.error('[load] decompress failed:', e.message);
+      return {}; // safe fallback — frontend will recover from localStorage
+    }
+  }
+  return raw; // already plain JSON (legacy rows written before compression)
+}
 
 module.exports = async function handler(req, res) {
   if (req.method === 'OPTIONS') return res.status(200).end();
@@ -23,7 +42,8 @@ module.exports = async function handler(req, res) {
       FROM users WHERE id = ${payload.id} LIMIT 1
     `;
 
-    const data = row?.data || {};
+    // Decompress if stored compressed; fall back to raw object for legacy rows
+    const data = await maybeDecompress(row?.data || {});
 
     // For admin: return all registered users so admin panel stays in sync
     let allUsers = null;
@@ -51,8 +71,10 @@ module.exports = async function handler(req, res) {
           WHERE u.role = 'admin'
           ORDER BY u.created_at ASC LIMIT 1
         `;
-        if (adminRow?.data?.settings) {
-          const s = adminRow.data.settings;
+        // Admin blob may also be compressed
+        const adminData = await maybeDecompress(adminRow?.data || {});
+        if (adminData?.settings) {
+          const s = adminData.settings;
           platformSettings = {
             appName:  s.appName  || '',
             tagline:  s.tagline  || '',
