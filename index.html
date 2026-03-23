@@ -3499,7 +3499,7 @@
               <button type="button" id="nwho_both" class="nwho-btn" style="padding:8px 18px;font-size:13px;background:var(--bg3);color:var(--text);border:none;border-left:1px solid var(--border);cursor:pointer;" onclick="_setNwho('both')">Both</button>
             </div>
           </div>
-          <div id="notify_email_wrap" style="margin-top:10px;${c?.email ? 'display:none;' : ''}">
+          <div id="notify_email_wrap" data-has-email="${c?.email ? '1' : '0'}" style="margin-top:10px;${c?.email ? 'display:none;' : ''}">
             <div style="background:#fff8e1;border:1px solid #ffe082;border-radius:8px;padding:10px 14px;">
               <div style="font-size:13px;color:#795548;margin-bottom:8px;">⚠️ <strong>${esc(c?.name||'This contact')}</strong> has no email on file.</div>
               <input type="email" id="notify_contact_email" placeholder="Enter email to send notification"
@@ -3566,9 +3566,12 @@
         b.style.color      = active ? '#fff' : 'var(--text)';
         b.style.fontWeight = active ? '600' : '400';
       });
-      // Show email prompt only when notification targets the contact
+      // Show email prompt only when notification targets the contact AND they have no email
       const wrap = document.getElementById('notify_email_wrap');
-      if (wrap) wrap.style.display = (val === 'them' || val === 'both') ? '' : 'none';
+      if (wrap) {
+        const noEmail = wrap.dataset.hasEmail !== '1';
+        wrap.style.display = noEmail && (val === 'them' || val === 'both') ? '' : 'none';
+      }
     }
 
     // Shared helper — saves to db.notifs AND calls the email API

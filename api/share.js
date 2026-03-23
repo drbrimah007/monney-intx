@@ -9,6 +9,29 @@
 const { sql }         = require('../lib/db');
 const { requireAuth } = require('../lib/auth');
 const crypto          = require('crypto');
+const zlib            = require('zlib');
+const { promisify }   = require('util');
+const _gunzip         = promisify(zlib.gunzip);
+const _gzip           = promisify(zlib.gzip);
+
+// Decompress user_data blob if stored compressed by sync.js
+async function _decompress(raw) {
+  if (raw && raw._c === 1 && typeof raw.v === 'string') {
+    try {
+      const buf = await _gunzip(Buffer.from(raw.v, 'base64'));
+      return JSON.parse(buf.toString('utf8'));
+    } catch (e) {
+      console.error('[share] decompress failed:', e.message);
+    }
+  }
+  return raw;
+}
+// Compress data object back to the sync.js envelope format
+async function _compress(data) {
+  const json  = JSON.stringify(data);
+  const buf   = await _gzip(Buffer.from(json, 'utf8'));
+  return { _c: 1, v: buf.toString('base64') };
+}
 
 async function ensureTable() {
   await sql`
@@ -92,7 +115,8 @@ module.exports = async function handler(req, res) {
           const entryData = row.entry_data;
           const [blobRow] = await sql`SELECT data FROM user_data WHERE user_id = ${ownerId} LIMIT 1`;
           if (blobRow) {
-            const ownerData = blobRow.data || {};
+            // Decompress if gzip-compressed (sync.js stores {_c:1, v:"<base64>"})
+            const ownerData = await _decompress(blobRow.data || {});
             const entry   = (ownerData.entries  || []).find(e => e.id === entryId);
             const contact = entry ? (ownerData.contacts || []).find(c => c.id === entry.cId) : null;
             const name    = contact?.name || entryData?.contactName || 'Someone';
@@ -111,7 +135,9 @@ module.exports = async function handler(req, res) {
               read:      false,
               createdAt: Date.now()
             });
-            await sql`UPDATE user_data SET data = ${ownerData}, updated_at = now() WHERE user_id = ${ownerId}`;
+            // Re-compress before writing back
+            const recompressed = await _compress(ownerData);
+            await sql`UPDATE user_data SET data = ${recompressed}, updated_at = now() WHERE user_id = ${ownerId}`;
           }
         } catch (innerErr) {
           console.error('[share/view] notif push failed:', innerErr.message);
@@ -353,7 +379,8 @@ module.exports = async function handler(req, res) {
         try {
           const [blobRow] = await sql`SELECT data FROM user_data WHERE user_id = ${ownerId} LIMIT 1`;
           if (blobRow) {
-            const ownerData = blobRow.data || {};
+            // Decompress if gzip-compressed
+            const ownerData = await _decompress(blobRow.data || {});
             const entry = (ownerData.entries || []).find(e => e.id === entryId);
             if (entry) {
               entry.closedByRecipient = true;
@@ -376,7 +403,9 @@ module.exports = async function handler(req, res) {
               read: false,
               createdAt: Date.now()
             });
-            await sql`UPDATE user_data SET data = ${ownerData}, updated_at = now() WHERE user_id = ${ownerId}`;
+            // Re-compress before writing back
+            const recompressed = await _compress(ownerData);
+            await sql`UPDATE user_data SET data = ${recompressed}, updated_at = now() WHERE user_id = ${ownerId}`;
           }
         } catch (innerErr) {
           console.error('[share/recipient-close] owner update failed:', innerErr.message);
