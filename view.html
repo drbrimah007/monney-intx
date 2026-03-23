@@ -562,23 +562,31 @@
     return '$' + v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   }
 
-  function statusPillClass(status) {
+  function statusPillClass(status, txType) {
     if (!status) return 'pill-default';
     const s = status.toLowerCase();
-    if (s === 'posted' || s === 'sent' || s === 'due') return 'pill-due';
+    const recipientOwes = (txType === 'they_owe_you' || txType === 'invoice' || txType === 'bill');
+    // posted/sent: amber-due when recipient owes, blue-owed when recipient is owed
+    if (s === 'posted' || s === 'sent' || s === 'due') return recipientOwes ? 'pill-due' : 'pill-partial';
     if (s === 'paid' || s === 'settled' || s === 'voided' || s === 'void') return 'pill-settled';
     if (s === 'partial' || s === 'partially_settled') return 'pill-partial';
     if (s === 'closed') return 'pill-settled';
     return 'pill-default';
   }
 
-  function statusLabel(status) {
+  function statusLabel(status, txType) {
+    // For 'posted' the label depends on who owes whom (recipient's perspective)
+    // they_owe_you / invoice / bill → recipient OWES → "Due" (it's due from them)
+    // you_owe_them → recipient is OWED → "Owed"
+    const recipientOwes = (txType === 'they_owe_you' || txType === 'invoice' || txType === 'bill');
+    const postedLabel   = recipientOwes ? 'Due' : 'Owed';
     const map = {
-      posted:'Owed', sent:'Sent', paid:'Paid', settled:'Settled',
+      posted: postedLabel, sent: postedLabel,
+      paid:'Paid', settled:'Settled',
       void:'Void', voided:'Voided', partial:'Partially Settled',
       partially_settled:'Partially Settled', closed:'Closed', draft:'Draft'
     };
-    return map[(status||'').toLowerCase()] || (status ? status.charAt(0).toUpperCase() + status.slice(1) : 'Due');
+    return map[(status||'').toLowerCase()] || (status ? status.charAt(0).toUpperCase() + status.slice(1) : postedLabel);
   }
 
   // Perspective: the RECIPIENT viewing the page (the contact who received the share link)
@@ -631,18 +639,27 @@
     document.getElementById('signupLink').onclick  = e => { e.preventDefault(); _goWithToken(_siteUrl + '?register=1'); };
     document.getElementById('loginBtn').onclick    = e => { e.preventDefault(); _goWithToken(_siteUrl + '?login=1'); };
 
-    // Status pill
+    // Status pill — direction-aware for posted status
     const pill = document.getElementById('statusPill');
-    pill.textContent = statusLabel(e.status);
-    pill.className = 'pill ' + statusPillClass(e.status);
+    pill.textContent = statusLabel(e.status, e.txType);
+    pill.className = 'pill ' + statusPillClass(e.status, e.txType);
 
     // Shared date
     const d = sharedAt ? new Date(sharedAt) : new Date(e.sharedAt);
     document.getElementById('sharedDateEl').textContent = 'Shared on ' + d.toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' });
 
-    // Amount
+    // Amount — show remaining balance for partial settlements, original for others
     document.getElementById('amountLabel').textContent = amountDirection(e.txType, true);
-    document.getElementById('amountValue').textContent = fmt(e.amount);
+    const isPartial = (e.status === 'partially_settled' || e.status === 'partial');
+    const displayAmt = isPartial && e.remaining != null ? e.remaining : e.amount;
+    document.getElementById('amountValue').textContent = fmt(displayAmt);
+    // Show settlement note under amount if partially settled
+    if (isPartial && e.settledAmt) {
+      const sub = document.createElement('div');
+      sub.style.cssText = 'font-size:13px;color:var(--muted);margin-top:4px;';
+      sub.textContent = fmt(e.settledAmt) + ' paid — ' + fmt(displayAmt) + ' remaining';
+      document.getElementById('amountValue').insertAdjacentElement('afterend', sub);
+    }
 
     // Parties
     document.getElementById('fromName').textContent = e.fromName || '—';

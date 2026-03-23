@@ -73,6 +73,11 @@
     tr.archived td { opacity:.6; font-style:italic; }
     .tbl-wrap { overflow-x: auto; }
     @media(max-width:640px) { .hide-mobile { display: none; } }
+    /* ── Mobile modal: pin to top so keyboard doesn't push form off screen ── */
+    @media(max-width:640px) {
+      .modal-bg { align-items: flex-start; padding: 10px 8px; overflow-y: auto; }
+      .modal { max-height: none; overflow-y: visible; border-radius: 12px; padding: 18px 16px; }
+    }
     .page-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; flex-wrap: wrap; gap: 10px; }
     h2 { font-size: 20px; font-weight: 700; }
     h3 { font-size: 16px; font-weight: 600; margin-bottom: 12px; }
@@ -394,6 +399,7 @@
         const safeId    = c.id.replace(/'/g, '&#39;');
         return `<div class="csopt" data-label="${safeLabel}" data-val="${safeId}"
                   onmousedown="event.preventDefault();_csSelect('${id}','${safeId}','${safeLabel}')"
+                  ontouchend="event.preventDefault();_csSelect('${id}','${safeId}','${safeLabel}')"
                 >${esc(c.name)}${c.email?`<span class="cs-sub">${esc(c.email)}</span>`:''}</div>`;
       }).join('');
       return `<div class="cs-wrap">
@@ -415,6 +421,16 @@
       list.querySelectorAll('.csopt').forEach(el => {
         el.style.display = (el.dataset.label||'').toLowerCase().includes(q) ? '' : 'none';
       });
+      // Use fixed positioning so dropdown escapes overflow:auto clipping inside modals
+      const input = document.getElementById(id+'_search');
+      if (input) {
+        const r = input.getBoundingClientRect();
+        list.style.position = 'fixed';
+        list.style.top    = (r.bottom + 2) + 'px';
+        list.style.left   = r.left + 'px';
+        list.style.width  = r.width + 'px';
+        list.style.right  = 'auto';
+      }
       list.style.display = '';
     }
     function _csBlur(id) {
@@ -439,6 +455,13 @@
       if (hidden) hidden.value = val;
       if (search) search.value = label;
       if (list)   list.style.display = 'none';
+      // Re-evaluate notify email prompt visibility when contact changes
+      // id is 'necon' (entry form) or 'rcon' (recurring form)
+      const prefix = id === 'necon' ? 'ne' : id === 'rcon' ? 'r' : null;
+      if (prefix) {
+        const currentNwho = window['_formNwho_' + prefix] || 'them';
+        _setFormNwho(prefix, currentNwho);
+      }
     }
     // Add a new contact option to an existing cs-wrap dropdown
     function _csAddOption(id, val, label) {
@@ -576,6 +599,16 @@
       if (_IS_SERVER) {
         clearTimeout(_syncTimer);
         _syncTimer = setTimeout(_syncToServer, 800);
+      }
+    }
+
+    // saveNow: write localStorage + push to server immediately (no debounce).
+    // Use for critical operations: entry save, contact add/edit, template actions.
+    async function saveNow() {
+      localStorage.setItem('mxi_v2', JSON.stringify(db));
+      if (_IS_SERVER) {
+        clearTimeout(_syncTimer); // cancel any pending debounced sync
+        await _syncToServer();
       }
     }
 
@@ -1541,6 +1574,12 @@
             <td><div class="action-menu"><button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button><div class="action-dropdown">
               <button onclick="openEntryInvoice('${e.id}')">📄 View</button>
               <button onclick="closeCPModal();editEntry('${e.id}')">✏️ Edit</button>
+              <button onclick="closeCPModal();openNotifyModal('${e.id}')">🔔 Notify</button>
+              <button onclick="closeCPModal();openShareModal('${e.id}')">🔗 Share</button>
+              ${isInvoiceMode(e) && e.status !== 'settled' && e.status !== 'voided' ? `<button onclick="closeCPModal();recordSettlement('${e.id}')">💰 Settle</button>` : ''}
+              <button onclick="closeCPModal();toggleArchiveEntry('${e.id}')">${e.archived?'📤 Unarchive':'📥 Archive'}</button>
+              ${e.status !== 'voided' ? `<button onclick="closeCPModal();voidEntry('${e.id}')" style="color:var(--amber);">🚫 Void</button>` : ''}
+              <button onclick="closeCPModal();deleteEntry('${e.id}')" style="color:var(--red);">🗑 Delete</button>
             </div></div></td>
           </tr>`;
         });
@@ -2547,7 +2586,7 @@
       return sum;
     }
 
-    function saveNewEntry() {
+    async function saveNewEntry() {
       const cid    = document.getElementById('necon')?.value.trim();
       const note   = document.getElementById('nenote')?.value.trim()||'';
       const status = document.getElementById('nests')?.value.trim()||'posted';
@@ -2560,12 +2599,8 @@
       if (_entryTpl) {
         // Template entry — txType + amount come from template
         txType = _entryTpl.txType || 'invoice';
-        // Warn if template has computed fields but no Final Total is designated
-        const hasComputed = (_entryTpl.fields||[]).some(f => (f.calculators||[]).length > 0);
-        const hasFinalTotal = (_entryTpl.fields||[]).some(f => f.isFinalTotal);
-        if (hasComputed && !hasFinalTotal) {
-          if (!confirm('This template has no Final Total field designated.\n\nThe system will fall back to the last aggregate result or sum of all computed fields, which may produce unexpected totals.\n\nSave anyway?')) return;
-        }
+        // No longer block save for missing Final Total — fall back gracefully to last aggregate or sum
+        // (removed confirm() dialog: was causing false-positive blocks on mobile)
         // Amount = final total field (if designated), else last aggregate, else sum all computed
         amount = _getEntryAmountFromForm(_entryTpl);
         // Generate invoice number and increment the template counter
@@ -2632,7 +2667,8 @@
         note, date, status:safeStatus(status), archived:false, shared:false, responses:[],
         templateId:_entryTpl?.id||null, templateData:tplData,
         templateSnapshot, invoiceNumber, entryNum, createdAt:Date.now() });
-      save(); logAudit('add_entry',{cid,txType,amount,tpl:_entryTpl?.name||null,invoiceNumber});
+      logAudit('add_entry',{cid,txType,amount,tpl:_entryTpl?.name||null,invoiceNumber});
+      await saveNow(); // immediate sync for cross-device consistency
 
       // If this contact has accepted a previous record (linkedUserId is set),
       // auto-create and auto-link a share token — no consent step needed,
@@ -2662,13 +2698,14 @@
       if (notifyOn && notifyMsg) {
         // Save inline email to contact if provided
         const inlineEmail = document.getElementById('ne_notify_contact_email')?.value.trim() || '';
-        if (inlineEmail && contact && !contact.email) { contact.email = inlineEmail; save(); }
+        if (inlineEmail && contact && !contact.email) { contact.email = inlineEmail; await saveNow(); }
         const notifyWho = window._formNwho_ne || 'them';
         _sendNotificationForEntry(newEid, notifyMsg, notifyWho);
       }
       closeEntryModal();
       toast(`Entry saved${invoiceNumber ? ' — ' + invoiceNumber : ''}`);
-      refreshCurPage();
+      // Always navigate to dashboard so Recent Entries refreshes (fixes mobile stale view)
+      nav('home');
     }
 
     function editEntry(eid) {
@@ -3099,6 +3136,8 @@
       const _siteUrl = db.settings?.siteUrl || window.location.origin;
       let _viewUrl = _siteUrl + '?entry=' + eid; // fallback (owner deep-link)
       try {
+        // Include current settlement state so resent link shows latest status
+        const _invSt = isInvoiceMode(e) ? _getInvoiceSettlement(eid) : null;
         const _shareRes = await fetch('/api/share', {
           method: 'POST', credentials: 'include',
           headers: { 'Content-Type': 'application/json' },
@@ -3110,6 +3149,8 @@
             txType: e.txType, amount: e.amount, date: e.date,
             note: e.note || '', invoiceNumber: e.invoiceNumber || null,
             status: e.status || 'posted',
+            settledAmt: _invSt?.settled || 0,
+            remaining:  _invSt?.remaining ?? e.amount,
             appName: db.settings?.appName || 'Money Intx',
             siteUrl: _siteUrl,
             tagline: db.settings?.tagline || 'Making Money Matters Memorable'
@@ -3369,12 +3410,12 @@
       let html = `<div class="page-header"><h2>Templates</h2>
         <button class="btn sm" onclick="openTemplateBuilder()">+ New Template</button>
       </div>
-      <div style="display:flex;gap:8px;align-items:center;margin-bottom:14px;flex-wrap:wrap;">
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap;">
         <button class="bs sm" onclick="nav('templatedb')" style="font-size:12px;flex-shrink:0;">🌐 Template DB</button>
-        <input type="search" placeholder="Search templates…" value="${esc(window._search_templates||'')}" oninput="window._search_templates=this.value;PG.templates=1;renderTemplates()" style="flex:1;min-width:120px;">
-        <button class="bs sm${sortDesc?' on':''}" onclick="window._sort_templates=!${sortDesc};renderTemplates()" style="flex-shrink:0;">${sortDesc?'↓ Latest first':'↑ Oldest first'}</button>
-        <label style="display:inline-flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;flex-shrink:0;">
-          <input type="checkbox" ${showArchived?'checked':''} onchange="window._tmplShowArch=this.checked;PG.templates=1;renderTemplates()"> Archived
+        <input type="search" placeholder="Search templates…" value="${esc(window._search_templates||'')}" oninput="window._search_templates=this.value;PG.templates=1;renderTemplates()" style="flex:1;min-width:100px;">
+        <button class="bs sm${sortDesc?' on':''}" onclick="window._sort_templates=!${sortDesc};renderTemplates()" style="flex-shrink:0;white-space:nowrap;">${sortDesc?'↓ Latest':'↑ Oldest'}</button>
+        <label style="display:inline-flex;align-items:center;gap:5px;font-size:13px;cursor:pointer;flex-shrink:0;white-space:nowrap;padding:6px 10px;background:var(--bg3);border-radius:8px;border:1px solid var(--border);">
+          <input type="checkbox" ${showArchived?'checked':''} onchange="window._tmplShowArch=this.checked;PG.templates=1;renderTemplates()" style="width:15px;height:15px;cursor:pointer;accent-color:var(--accent);"> Show Archived
         </label>
       </div>`;
       if (p.items.length === 0) {
