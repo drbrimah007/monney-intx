@@ -4277,31 +4277,42 @@
       // Generate a public share link so recipient can view without needing to log in
       const _siteUrl = db.settings?.siteUrl || window.location.origin;
       let _viewUrl = _siteUrl + '?entry=' + eid; // fallback (owner deep-link)
-      try {
-        // Include current settlement state so resent link shows latest status
-        const _invSt = isInvoiceMode(e) ? _getInvoiceSettlement(eid) : null;
-        const _shareRes = await fetch('/api/share', {
-          method: 'POST', credentials: 'include',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            action: 'create', entryId: eid,
-            contactName: contact?.name || '',
-            contactEmail: contact?.email || '',  // ← direct email for user lookup
-            fromName: u.displayName || u.email || (db.settings?.appName || 'Money IntX'),
-            fromEmail: u.email || '',
-            txType: e.txType, amount: e.amount, date: e.date,
-            note: e.note || '', invoiceNumber: e.invoiceNumber || null,
-            status: e.status || 'posted',
-            settledAmt: _invSt?.settled || 0,
-            remaining:  _invSt?.remaining ?? e.amount,
-            appName: db.settings?.appName || 'Money IntX',
-            siteUrl: _siteUrl,
-            tagline: db.settings?.tagline || 'Making Money Matters Memorable'
-          })
-        });
-        const _shareData = await _shareRes.json();
-        if (_shareData.ok && _shareData.shareUrl) _viewUrl = _shareData.shareUrl;
-      } catch(_) { /* keep fallback */ }
+
+      // LOOP GUARD: isShared entries were confirmed FROM someone else — we must NOT
+      // create a new outbound share token pointing back to that sender.
+      // Doing so would create a reverse share that auto-confirms (because contact
+      // has linkedUserId), immediately appearing in the sender's inbox as a new
+      // record, which triggers their own notifications → infinite loop.
+      // Instead, reuse the existing shareToken as the view URL.
+      if (e.isShared && e.shareToken) {
+        _viewUrl = (e.fromSiteUrl || _siteUrl) + '/view?t=' + e.shareToken;
+      } else {
+        try {
+          // Include current settlement state so resent link shows latest status
+          const _invSt = isInvoiceMode(e) ? _getInvoiceSettlement(eid) : null;
+          const _shareRes = await fetch('/api/share', {
+            method: 'POST', credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              action: 'create', entryId: eid,
+              contactName: contact?.name || '',
+              contactEmail: contact?.email || '',  // ← direct email for user lookup
+              fromName: u.displayName || u.email || (db.settings?.appName || 'Money IntX'),
+              fromEmail: u.email || '',
+              txType: e.txType, amount: e.amount, date: e.date,
+              note: e.note || '', invoiceNumber: e.invoiceNumber || null,
+              status: e.status || 'posted',
+              settledAmt: _invSt?.settled || 0,
+              remaining:  _invSt?.remaining ?? e.amount,
+              appName: db.settings?.appName || 'Money IntX',
+              siteUrl: _siteUrl,
+              tagline: db.settings?.tagline || 'Making Money Matters Memorable'
+            })
+          });
+          const _shareData = await _shareRes.json();
+          if (_shareData.ok && _shareData.shareUrl) _viewUrl = _shareData.shareUrl;
+        } catch(_) { /* keep fallback */ }
+      }
 
       // Compute settlement breakdown for email
       const _emailSt    = _getInvoiceSettlement(eid);
@@ -7367,7 +7378,8 @@
         fromName:     dispName,
         fromEmail:    entry.fromEmail || '',
         fromSiteUrl:  siteUrl,
-        noLedger:     true,          // shared records NEVER affect balance
+        // noLedger NOT set — confirmed shared records are ledger-active by default
+        // (user chose "Confirm & Track" — they want this in their balance)
         sharedAt:     r.sharedAt || null,
         createdAt:    r.sharedAt ? new Date(r.sharedAt).getTime() : Date.now()
       };
