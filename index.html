@@ -1935,8 +1935,14 @@
     /* ── Entry point: pick mode based on entry type ─────────────────── */
     function openEntryInvoice(eid) {
       const e = db.entries.find(x => x.id === eid); if (!e) return;
-      if (isInvoiceMode(e)) { _renderInvoiceDoc(e); }
-      else                  { _renderTransactionDoc(e); }
+      if (isInvoiceMode(e)) {
+        _renderInvoiceDoc(e);
+        // Sync current status to share_tokens snapshot whenever owner views invoice
+        // This also back-fills stale tokens from before the sync-status feature
+        _pushShareStatus(eid);
+      } else {
+        _renderTransactionDoc(e);
+      }
     }
 
     /* ── Record Settlement: creates linked credit entry + syncs invoice ─ */

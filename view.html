@@ -566,13 +566,18 @@
     if (!status) return 'pill-default';
     const s = status.toLowerCase();
     if (s === 'posted' || s === 'sent' || s === 'due') return 'pill-due';
-    if (s === 'paid' || s === 'settled' || s === 'void') return 'pill-settled';
-    if (s === 'partial') return 'pill-partial';
+    if (s === 'paid' || s === 'settled' || s === 'voided' || s === 'void') return 'pill-settled';
+    if (s === 'partial' || s === 'partially_settled') return 'pill-partial';
+    if (s === 'closed') return 'pill-settled';
     return 'pill-default';
   }
 
   function statusLabel(status) {
-    const map = { posted:'Owed', sent:'Sent', paid:'Paid', settled:'Settled', void:'Void', partial:'Partially Settled', draft:'Draft' };
+    const map = {
+      posted:'Owed', sent:'Sent', paid:'Paid', settled:'Settled',
+      void:'Void', voided:'Voided', partial:'Partially Settled',
+      partially_settled:'Partially Settled', closed:'Closed', draft:'Draft'
+    };
     return map[(status||'').toLowerCase()] || (status ? status.charAt(0).toUpperCase() + status.slice(1) : 'Due');
   }
 
