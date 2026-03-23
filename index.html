@@ -2020,12 +2020,24 @@
       document.getElementById('cpModal')?.remove();
       const l = getLedger(cid);
       const userEntries = curRole() === 'admin' ? db.entries.filter(e => e.cId === cid) : db.entries.filter(e => e.cId === cid && e.userId === curUser().id);
+
+      // ── Shared-with-me records from this sender ───────────────────────────
+      // Match by contact name or by email (sender may have used email as fromName)
+      const _cNameL  = (c.name  || '').toLowerCase().trim();
+      const _cEmailL = (c.email || '').toLowerCase().trim();
+      const sharedFromContact = (_cachedSharedRecords || []).filter(r => {
+        const e = r.entry;
+        if (!e) return false;
+        const fn = (e._resolvedFromName || e.fromName || '').toLowerCase().trim();
+        return fn === _cNameL || (_cEmailL && fn === _cEmailL);
+      });
+
       const tab = sessionStorage.getItem('cp_tab') || 'ledger';
 
       let html = `<div class="modal-bg" id="cpModal" onclick="if(event.target===this)closeCPModal()"><div class="modal" onclick="event.stopPropagation()"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;"><div class="modal-title" style="margin:0;">${esc(c.name)}</div><button class="gh sm" onclick="closeCPModal()">✕</button></div>
         <div class="tabs">
           <button class="tab ${tab === 'overview' ? 'on' : ''}" onclick="sessionStorage.setItem('cp_tab','overview');openCP('${cid}')">Overview</button>
-          <button class="tab ${tab === 'entries' ? 'on' : ''}" onclick="sessionStorage.setItem('cp_tab','entries');openCP('${cid}')">Entries</button>
+          <button class="tab ${tab === 'entries' ? 'on' : ''}" onclick="sessionStorage.setItem('cp_tab','entries');openCP('${cid}')">Entries${(userEntries.length + sharedFromContact.length) > 0 ? ` (${userEntries.length + sharedFromContact.length})` : ''}</button>
           <button class="tab ${tab === 'ledger' ? 'on' : ''}" onclick="sessionStorage.setItem('cp_tab','ledger');openCP('${cid}')">Ledger</button>
           <button class="tab ${tab === 'recurring' ? 'on' : ''}" onclick="sessionStorage.setItem('cp_tab','recurring');openCP('${cid}')">Recurring</button>
         </div>`;
@@ -2036,34 +2048,82 @@
           <button class="btn sm" style="margin-top: 12px;" onclick="openNewEntry('${cid}'); this.closest('.modal-bg').remove()">+ Add Entry</button>
         </div>`;
       } else if (tab === 'entries') {
+        // Merge own entries + shared-from-this-contact, sorted latest first
+        const _recipDirLabelCP = t => ({
+          they_owe_you:'You Owe', invoice:'Invoice Due', bill:'Bill Due',
+          you_owe_them:'Owed To You', lend:'You Borrowed', borrow:'Owed To You',
+          they_paid_you:'Settled', you_paid_them:'Settled', gift:'Gift'
+        }[t] || 'Shared');
+        const _ownSorted    = [...userEntries].sort((a,b) => (b.createdAt||new Date(b.date||0).getTime()||0) - (a.createdAt||new Date(a.date||0).getTime()||0));
+        const _sharedSorted = [...sharedFromContact].sort((a,b) => (b.sharedAt ? new Date(b.sharedAt).getTime() : 0) - (a.sharedAt ? new Date(a.sharedAt).getTime() : 0));
+        // Interleave all items sorted by timestamp
+        const _allCPItems = [
+          ..._ownSorted.map(e => ({ _isShared: false, _ts: e.createdAt||new Date(e.date||0).getTime()||0, _data: e })),
+          ..._sharedSorted.map(r => ({ _isShared: true,  _ts: r.sharedAt ? new Date(r.sharedAt).getTime() : 0, _data: r }))
+        ].sort((a,b) => b._ts - a._ts);
+
+        const totalCount = _allCPItems.length;
         html += `<div><button class="btn sm" style="margin-bottom: 12px;" onclick="openNewEntry('${cid}'); this.closest('.modal-bg').remove()">+ Add Entry</button>
+          ${totalCount === 0 ? `<p style="color:var(--muted);font-size:14px;padding:8px 0;">No entries yet.</p>` : `
           <div class="tbl-wrap"><table><thead><tr><th>Type / Doc #</th><th>Amount</th><th>Date</th><th>Status</th><th style="width:70px;">Action</th></tr></thead><tbody>`;
-        userEntries.forEach(e => {
-          const typeLabel = `<span style="font-weight:700;color:${txTypeColor(e.txType)}">${esc(TXL[e.txType]||e.txType)}</span>`;
-          const docNum = e.invoiceNumber || (e.entryNum ? '#'+String(e.entryNum).padStart(4,'0') : null);
-          const docBadge = docNum ? `<button class="gh sm" style="font-size:10px;font-weight:700;color:#6c63ff;padding:1px 4px;margin-top:1px;display:block;text-align:left;" onclick="openEntryInvoice('${e.id}')" title="View record">${esc(docNum)}</button>` : '';
-          html += `<tr>
-            <td>
-              <button class="gh sm" style="text-align:left;padding:2px 4px;font-weight:600;" onclick="openEntryInvoice('${e.id}')" title="View document">${typeLabel}</button>
-              ${docBadge}
-            </td>
-            <td>${_fmtAmtCell(e.id)}</td>
-            <td>${new Date(e.date).toLocaleDateString()}</td>
-            <td>${statusBadge(e.status)}</td>
-            <td><div class="action-menu"><button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button><div class="action-dropdown">
-              <button onclick="openEntryInvoice('${e.id}')">📄 View</button>
-              <button onclick="closeCPModal();editEntry('${e.id}')">✏️ Edit</button>
-              <button onclick="closeCPModal();openNotifyModal('${e.id}')">🔔 Notify</button>
-              <button onclick="closeCPModal();openShareModal('${e.id}')">🔗 Share</button>
-              ${(isInvoiceMode(e) || e.txType === 'they_owe_you' || e.txType === 'you_owe_them') && e.status !== 'settled' && e.status !== 'voided' ? `<button onclick="closeCPModal();recordSettlement('${e.id}')">💰 Settle</button>` : ''}
-              <button onclick="closeCPModal();toggleArchiveEntry('${e.id}')">${e.archived?'📤 Unarchive':'📥 Archive'}</button>
-              ${e.status !== 'voided' ? `<button onclick="closeCPModal();voidEntry('${e.id}')" style="color:var(--amber);">🚫 Void</button>` : ''}
-              <button onclick="closeCPModal();${e.status==='closed'?'reopenEntry':'openCloseModal'}('${e.id}')">${e.status==='closed'?'🔓 Reopen':'🔒 Close Record'}</button>
-              <button onclick="closeCPModal();delEntry('${e.id}')" style="color:var(--red);">🗑 Delete</button>
-            </div></div></td>
-          </tr>`;
+
+        _allCPItems.forEach(item => {
+          if (item._isShared) {
+            const r = item._data;
+            const e = r.entry;
+            const rawAmt = parseFloat(e?.amount||0);
+            const dn = e?._resolvedFromName || e?.fromName || '—';
+            const siteUrl = e?.siteUrl || 'https://moneyinteractions.com';
+            const isPendingCP = !r.confirmed && !(e?.dismissed);
+            const pill = isPendingCP
+              ? `<span style="font-size:10px;background:rgba(251,191,36,.18);color:#d97706;border-radius:4px;padding:1px 5px;margin-left:3px;font-weight:700;">⏳ Pending</span>`
+              : `<span style="font-size:10px;background:rgba(108,99,255,.12);color:var(--accent);border-radius:4px;padding:1px 5px;margin-left:3px;">🔗 Shared</span>`;
+            const isSettledCP = e?.status === 'settled' || e?.status === 'paid';
+            html += `<tr style="background:${isPendingCP?'rgba(251,191,36,.04)':'rgba(108,99,255,.03)'};">
+              <td>
+                <span style="font-weight:700;color:var(--accent);">${esc(_recipDirLabelCP(e?.txType))}</span>
+                ${pill}
+              </td>
+              <td><strong>${fmt(rawAmt)}</strong></td>
+              <td>${e?.date ? new Date(e.date).toLocaleDateString() : '—'}</td>
+              <td>${statusBadge(e?.status||'posted')}</td>
+              <td><div class="action-menu"><button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button><div class="action-dropdown">
+                <a href="${esc(siteUrl)}/view?t=${esc(r.token)}" target="_blank" style="display:block;padding:8px 14px;font-size:13px;color:var(--accent);text-decoration:none;font-weight:600;">👁 View</a>
+                ${isPendingCP ? `<button onclick="doConfirmShared('${esc(r.token)}')">✅ Confirm &amp; Track</button>` : ''}
+                ${isPendingCP ? `<button onclick="doDismissShared('${esc(r.token)}')">✕ Dismiss</button>` : ''}
+                ${!isSettledCP ? `<button onclick="_sharedMarkPaid('${esc(r.token)}')" style="color:var(--green);font-weight:700;">💰 Mark Paid</button>` : ''}
+                <button onclick="_sharedExpire('${esc(r.token)}')">⏰ Expire</button>
+              </div></div></td>
+            </tr>`;
+          } else {
+            const e = item._data;
+            const typeLabel = `<span style="font-weight:700;color:${txTypeColor(e.txType)}">${esc(TXL[e.txType]||e.txType)}</span>`;
+            const docNum = e.invoiceNumber || (e.entryNum ? '#'+String(e.entryNum).padStart(4,'0') : null);
+            const docBadge = docNum ? `<button class="gh sm" style="font-size:10px;font-weight:700;color:#6c63ff;padding:1px 4px;margin-top:1px;display:block;text-align:left;" onclick="openEntryInvoice('${e.id}')" title="View record">${esc(docNum)}</button>` : '';
+            html += `<tr>
+              <td>
+                <button class="gh sm" style="text-align:left;padding:2px 4px;font-weight:600;" onclick="openEntryInvoice('${e.id}')" title="View document">${typeLabel}</button>
+                ${docBadge}
+              </td>
+              <td>${_fmtAmtCell(e.id)}</td>
+              <td>${new Date(e.date).toLocaleDateString()}</td>
+              <td>${statusBadge(e.status)}</td>
+              <td><div class="action-menu"><button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button><div class="action-dropdown">
+                <button onclick="openEntryInvoice('${e.id}')">📄 View</button>
+                <button onclick="closeCPModal();editEntry('${e.id}')">✏️ Edit</button>
+                <button onclick="closeCPModal();openNotifyModal('${e.id}')">🔔 Notify</button>
+                <button onclick="closeCPModal();openShareModal('${e.id}')">🔗 Share</button>
+                ${(isInvoiceMode(e) || e.txType === 'they_owe_you' || e.txType === 'you_owe_them') && e.status !== 'settled' && e.status !== 'voided' ? `<button onclick="closeCPModal();recordSettlement('${e.id}')">💰 Settle</button>` : ''}
+                <button onclick="closeCPModal();toggleArchiveEntry('${e.id}')">${e.archived?'📤 Unarchive':'📥 Archive'}</button>
+                ${e.status !== 'voided' ? `<button onclick="closeCPModal();voidEntry('${e.id}')" style="color:var(--amber);">🚫 Void</button>` : ''}
+                <button onclick="closeCPModal();${e.status==='closed'?'reopenEntry':'openCloseModal'}('${e.id}')">${e.status==='closed'?'🔓 Reopen':'🔒 Close Record'}</button>
+                <button onclick="closeCPModal();delEntry('${e.id}')" style="color:var(--red);">🗑 Delete</button>
+              </div></div></td>
+            </tr>`;
+          }
         });
-        html += '</tbody></table></div></div>';
+        html += `</tbody></table></div>`}
+        html += `</div>`;
       } else if (tab === 'ledger') {
         html += `<div><div class="grid2"><div class="stat-card"><div class="stat-lbl">They Owe Me</div><div class="stat-val" style="color: var(--green);">${fmt(l.toy)}</div></div>
           <div class="stat-card"><div class="stat-lbl">I Owe Them</div><div class="stat-val" style="color: var(--red);">${fmt(l.yot)}</div></div></div>
