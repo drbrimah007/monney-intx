@@ -1809,6 +1809,8 @@
           const e  = r.entry;
           const st = (e?.status || '').toLowerCase();
           if (st === 'closed' || st === 'voided' || r.recipientClosed) return; // expired — skip
+          if (e?.dismissed) return;                                              // dismissed — skip
+          if (_sharedNoLedger.has(r.token)) return;                             // removed from ledger — skip
           const rawAmt = parseFloat(e?.amount) || 0;
           const offset = _sharedOffsets[r.token] || 0;
           const amt    = Math.max(0, rawAmt - offset);
@@ -2058,6 +2060,8 @@
       const sharedFromContact = (_cachedSharedRecords || []).filter(r => {
         const e = r.entry;
         if (!e) return false;
+        if (r.recipientClosed) return false;   // exclude expired
+        if (e.dismissed) return false;          // exclude dismissed
         const fn = (e._resolvedFromName || e.fromName || '').toLowerCase().trim();
         return fn === _cNameL || (_cEmailL && fn === _cEmailL);
       });
@@ -2182,7 +2186,7 @@
                 html += '<button onclick="closeCPModal();voidEntry(\'' + e2.id + '\')" style="color:var(--amber);">🚫 Void</button>';
               }
               html += '<button onclick="closeCPModal();' + (e2.status === 'closed' ? 'reopenEntry' : 'openCloseModal') + '(\'' + e2.id + '\')">' + (e2.status === 'closed' ? '🔓 Reopen' : '🔒 Close Record') + '</button>';
-              html += '<button onclick="closeCPModal();delEntry(\'' + e2.id + '\')" style="color:var(--red);">🗑 Delete</button>';
+              html += '<button onclick="(function(){var _cid=\'' + cid + '\';closeCPModal();delEntry(\'' + e2.id + '\');setTimeout(function(){openCP(_cid);},80);})()" style="color:var(--red);">🗑 Delete</button>';
               html += '</div></div></td></tr>';
             }
           });
