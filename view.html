@@ -669,7 +669,7 @@
     const details = [];
     if (e.date) details.push({ k: 'Date', v: new Date(e.date).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' }) });
     if (e.invoiceNumber) details.push({ k: 'Reference', v: e.invoiceNumber });
-    if (e.txType) details.push({ k: 'Type', v: TX_LABELS[e.txType] || e.txType });
+    // Type (txType) is intentionally hidden — the direction label ("You owe" / "You are owed") already communicates this
     if (e.note) details.push({ k: 'Note', v: e.note });
 
     const box = document.getElementById('detailsBox');
