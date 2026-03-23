@@ -1026,6 +1026,7 @@
         _cachedSharedRecords.forEach(r => {
           const e = r.entry;
           if (!e) return;
+          if (_sharedNoLedger.has(r.token)) return; // skip entries removed from ledger
           const st = (e.status || '').toLowerCase();
           if (st === 'voided' || st === 'void') return; // skip voided
           const rEmail = (e.fromEmail || '').toLowerCase().trim();
@@ -2867,9 +2868,11 @@
             : `<span style="font-size:10px;background:rgba(108,99,255,.12);color:var(--accent);border-radius:4px;padding:1px 5px;margin-left:3px;">🔗 Shared</span>`;
           const isSettledE = e?.status === 'settled' || e?.status === 'paid';
           const _selSharedId = r.token; // use token as id for shared rows
+          const _sNoLedger = _sharedNoLedger.has(r.token);
+          const _sNoLedgPill = _sNoLedger ? `<span title="Excluded from ledger balance" style="font-size:9px;background:rgba(245,158,11,.15);color:#b45309;border-radius:3px;padding:1px 4px;margin-left:3px;font-weight:700;">⊘ Ledger</span>` : '';
           html += `<tr style="background:${isPending?'rgba(251,191,36,.05)':'rgba(108,99,255,.04)'};"${_sm&&window._selectedEntries.has(_selSharedId)?' class="row-selected"':''}>
             ${_sm ? `<td class="sel-col"><input type="checkbox" class="sel-cb entry-sel-cb" data-id="${esc(_selSharedId)}" ${window._selectedEntries.has(_selSharedId)?'checked':''} onchange="_toggleEntrySelect('${esc(_selSharedId)}')"></td>` : ''}
-            <td>${nameHtmlE} ${sharedPill}</td>
+            <td>${nameHtmlE} ${sharedPill}${_sNoLedgPill}</td>
             <td class="hide-mobile"><span style="color:var(--muted);">—</span></td>
             <td><strong>${fmt(rawAmt)}</strong><div class="mobile-label" style="font-size:11px;font-weight:700;color:${dirColor};margin-top:2px;">${esc(dirLabel)}</div></td>
             <td class="hide-mobile"><span style="font-weight:700;color:${dirColor}">${esc(dirLabel)}</span></td>
@@ -2879,6 +2882,9 @@
               <a href="${esc(siteUrl)}/view?t=${esc(r.token)}" target="_blank" style="display:block;padding:8px 14px;font-size:13px;color:var(--accent);text-decoration:none;font-weight:600;">👁 View</a>
               ${isPending ? `<button onclick="doConfirmShared('${esc(r.token)}')" style="color:#16a34a;font-weight:700;">✅ Confirm &amp; Track</button><button onclick="doDismissShared('${esc(r.token)}')" style="color:var(--red);">✕ Dismiss</button>` : ''}
               ${!isSettledE ? `<button onclick="_sharedMarkPaid('${esc(r.token)}')" style="color:var(--green);font-weight:700;">✅ Mark Settled</button>` : ''}
+              ${_sNoLedger
+                ? `<button onclick="_sharedNoLedger.delete('${esc(r.token)}');_saveSharedPrefs();toast('📊 Restored to ledger');renderEntries();">📊 Restore to Ledger</button>`
+                : `<button onclick="_sharedNoLedger.add('${esc(r.token)}');_saveSharedPrefs();toast('⊘ Removed from ledger');renderEntries();">⊘ Rm Ledger</button>`}
               <button onclick="_sharedExpire('${esc(r.token)}')">⏰ Expire</button>
             </div></div></td>
           </tr>`;
@@ -3901,8 +3907,10 @@
     function _bulkAction(action) {
       const ids = [...window._selectedEntries];
       if (ids.length === 0) return toast('No entries selected');
-      // Only own (non-shared) entries support most bulk actions
+      // Own entries: IDs found in db.entries
       const ownIds = ids.filter(id => db.entries.find(e => e.id === id));
+      // Shared records: IDs that are tokens found in _cachedSharedRecords
+      const sharedRecs = ids.map(id => _cachedSharedRecords.find(r => r.token === id)).filter(Boolean);
 
       if (action === 'delete') {
         if (!confirm('Delete ' + ownIds.length + ' entr' + (ownIds.length === 1 ? 'y' : 'ies') + '? This cannot be undone.')) return;
@@ -3938,13 +3946,19 @@
 
       } else if (action === 'noledger') {
         ownIds.forEach(id => { const e = db.entries.find(x => x.id === id); if (e) e.noLedger = true; });
-        logAudit('bulk_noledger', { count: ownIds.length });
-        toast('📊 ' + ownIds.length + ' entries removed from ledger balance');
+        sharedRecs.forEach(r => { _sharedNoLedger.add(r.token); });
+        _saveSharedPrefs();
+        const _nlCount = ownIds.length + sharedRecs.length;
+        logAudit('bulk_noledger', { count: _nlCount });
+        toast('⊘ ' + _nlCount + ' entries removed from ledger balance');
 
       } else if (action === 'ledger') {
         ownIds.forEach(id => { const e = db.entries.find(x => x.id === id); if (e) delete e.noLedger; });
-        logAudit('bulk_restore_ledger', { count: ownIds.length });
-        toast('📊 ' + ownIds.length + ' entries restored to ledger');
+        sharedRecs.forEach(r => { _sharedNoLedger.delete(r.token); });
+        _saveSharedPrefs();
+        const _rlCount = ownIds.length + sharedRecs.length;
+        logAudit('bulk_restore_ledger', { count: _rlCount });
+        toast('📊 ' + _rlCount + ' entries restored to ledger');
       }
 
       save();
@@ -6976,12 +6990,14 @@
     let _pendingShareEntry   = null; // holds entry data during consent flow
     let _cachedSharedRecords = []; // shared-with-me records, used by getLedger for contact balances
     // Shared-with-me record management — persisted in localStorage
-    let _sharedHidden  = new Set(JSON.parse(localStorage.getItem('mxi_sh_hidden') || '[]'));
-    let _sharedOffsets = JSON.parse(localStorage.getItem('mxi_sh_off') || '{}'); // {token: amount}
+    let _sharedHidden   = new Set(JSON.parse(localStorage.getItem('mxi_sh_hidden') || '[]'));
+    let _sharedOffsets  = JSON.parse(localStorage.getItem('mxi_sh_off') || '{}'); // {token: amount}
+    let _sharedNoLedger = new Set(JSON.parse(localStorage.getItem('mxi_sh_noledger') || '[]')); // tokens excluded from ledger
 
     function _saveSharedPrefs() {
-      localStorage.setItem('mxi_sh_hidden',  JSON.stringify([..._sharedHidden]));
-      localStorage.setItem('mxi_sh_off',     JSON.stringify(_sharedOffsets));
+      localStorage.setItem('mxi_sh_hidden',   JSON.stringify([..._sharedHidden]));
+      localStorage.setItem('mxi_sh_off',      JSON.stringify(_sharedOffsets));
+      localStorage.setItem('mxi_sh_noledger', JSON.stringify([..._sharedNoLedger]));
     }
 
     function _sharedHideToggle(token) {
