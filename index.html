@@ -1011,7 +1011,7 @@
       const c = db.contacts.find(x => x.id === cid);
       if (!c) return { toy: 0, yot: 0, net: 0 };
       let toy = c.startToy || 0, yot = c.startYot || 0;
-      db.entries.filter(e => e.cId === cid && e.status !== 'voided' && !e.noLedger && !e.isShared).forEach(e => {
+      db.entries.filter(e => e.cId === cid && e.status !== 'voided' && !e.noLedger).forEach(e => {
         const a = Math.abs(parseFloat(e.amount) || 0);
         const dir = TX_LEDGER[e.txType] || '';
         if      (dir === 'toy')        toy += a;
@@ -2861,9 +2861,9 @@
       }
 
       const _sm = window._selectMode || false;
-      // Collect IDs of all own-entry rows visible on this page (for select-all)
-      // Excludes pending shared rows (item.token) and isShared db.entries
-      const _selPageIds = p.items.filter(item => !item.token && !item.isShared).map(item => item.id);
+      // Collect IDs of all selectable rows visible on this page (for select-all)
+      // Excludes only pending shared rows (item.token) — isShared db.entries CAN be selected
+      const _selPageIds = p.items.filter(item => !item.token).map(item => item.id);
       // Store page IDs in window so the onchange handler can reference without quote conflicts
       window._entryPageIds = _selPageIds;
 
@@ -2963,7 +2963,7 @@
           // (meaning from recipient's perspective: they_owe_you/lend — they owe recipient)
           const isRemindableSE = (e.senderTxType === 'you_owe_them' || e.senderTxType === 'borrow') && !isSettledSE;
           html += `<tr style="background:rgba(108,99,255,.04);"${_sm&&window._selectedEntries.has(e.id)?' class="row-selected"':''}>
-            ${_sm ? `<td class="sel-col"></td>` : ''}
+            ${_sm ? `<td class="sel-col"><input type="checkbox" class="sel-cb entry-sel-cb" data-id="${e.id}" ${window._selectedEntries.has(e.id)?'checked':''} onchange="_toggleEntrySelect('${e.id}')"></td>` : ''}
             <td>${nameHtmlSE} ${sharedPillSE}${_noLedgPillSE}</td>
             <td class="hide-mobile"><span style="color:var(--muted);">—</span></td>
             <td><strong>${fmt(rawAmt)}</strong><div class="mobile-label" style="font-size:11px;font-weight:700;color:${dirColor};margin-top:2px;">${esc(dirLabel)}</div></td>
