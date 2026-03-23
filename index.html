@@ -1519,6 +1519,7 @@
                   ${!isSettled2 ? `<button onclick="_sharedMarkPaid('${esc(e.shareToken)}')" style="color:var(--green);font-weight:700;">✅ Mark Settled</button>` : ''}
                   ${isRemindable2 ? `<button onclick="openSharedRemindModal('${esc(e.shareToken)}')" style="color:var(--accent);font-weight:700;">🔔 Remind</button>` : ''}
                   <button onclick="_sharedExpire('${esc(e.shareToken)}')">⏰ Expire</button>
+                  <button onclick="delEntry('${esc(e.id)}')" style="color:var(--red);">🗑 Delete</button>
                 </div></div></td>
               </tr>`;
             }
@@ -2978,6 +2979,7 @@
                 ? `<button onclick="(function(){var _se=db.entries.find(x=>x.id==='${e.id}');if(_se){delete _se.noLedger;save();toast('📊 Restored to ledger');renderEntries();}})()">📊 Restore to Ledger</button>`
                 : `<button onclick="(function(){var _se=db.entries.find(x=>x.id==='${e.id}');if(_se){_se.noLedger=true;save();toast('⊘ Removed from ledger');renderEntries();}})()">⊘ Rm Ledger</button>`}
               <button onclick="_sharedExpire('${esc(e.shareToken)}')">⏰ Expire</button>
+              <button onclick="delEntry('${esc(e.id)}')" style="color:var(--red);">🗑 Delete</button>
             </div></div></td>
           </tr>`;
         } else {
@@ -4008,6 +4010,17 @@
         if (!confirm('Delete ' + ownIds.length + ' entr' + (ownIds.length === 1 ? 'y' : 'ies') + '? This cannot be undone.')) return;
         ownIds.forEach(id => {
           const e = db.entries.find(x => x.id === id);
+          // Dismiss shared-with-me entries on the server so the migration
+          // in _loadSharedWithMe won't immediately re-insert them
+          if (e?.isShared && e?.shareToken) {
+            fetch('/api/share', {
+              method: 'POST', credentials: 'include',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ action: 'dismiss-shared', token: e.shareToken })
+            }).catch(() => {});
+            const _cr = (_cachedSharedRecords || []).find(x => x.token === e.shareToken);
+            if (_cr && _cr.entry) _cr.entry.dismissed = true;
+          }
           if (e?.linkedInvoiceId) { _syncInvoiceStatus(e.linkedInvoiceId); _pushShareStatus(e.linkedInvoiceId); }
           db.entries = db.entries.filter(x => x.id !== id);
         });
@@ -4062,6 +4075,18 @@
     function delEntry(eid) {
       if (!confirm('Delete this entry?')) return;
       const e = db.entries.find(x => x.id === eid);
+      // If this is a shared-with-me entry, tell the server to mark it dismissed
+      // so the migration in _loadSharedWithMe won't immediately re-insert it
+      if (e?.isShared && e?.shareToken) {
+        fetch('/api/share', {
+          method: 'POST', credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'dismiss-shared', token: e.shareToken })
+        }).catch(() => {});
+        // Also mark local cache so any in-progress render skips it
+        const _cr = (_cachedSharedRecords || []).find(x => x.token === e.shareToken);
+        if (_cr && _cr.entry) _cr.entry.dismissed = true;
+      }
       const linkedInv = e?.linkedInvoiceId;
       db.entries = db.entries.filter(x => x.id !== eid);
       // If deleted entry was a settlement, resync the linked invoice
