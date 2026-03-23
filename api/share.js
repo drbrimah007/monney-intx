@@ -196,12 +196,28 @@ module.exports = async function handler(req, res) {
             const senderData = blobRow.data || {};
             const entry   = (senderData.entries  || []).find(e => e.id === entryId);
             const contact = entry ? (senderData.contacts || []).find(c => c.id === entry.cId) : null;
-            if (contact && !contact.linkedUserId) {
-              contact.linkedUserId = payload.id;
-              await sql`
-                UPDATE user_data SET data = ${senderData}, updated_at = now()
-                WHERE user_id = ${senderId}
-              `;
+            if (contact) {
+              if (!contact.linkedUserId) {
+                contact.linkedUserId = payload.id;
+                await sql`
+                  UPDATE user_data SET data = ${senderData}, updated_at = now()
+                  WHERE user_id = ${senderId}
+                `;
+              }
+              // Auto-link ALL other unlinked tokens from this sender for this same contact
+              // so the recipient doesn't need to click each share link individually
+              const contactEntryIds = (senderData.entries || [])
+                .filter(e => e.cId === contact.id)
+                .map(e => e.id);
+              if (contactEntryIds.length > 0) {
+                await sql`
+                  UPDATE share_tokens
+                  SET linked_user_id = ${payload.id}, linked_at = now()
+                  WHERE user_id   = ${senderId}
+                    AND linked_user_id IS NULL
+                    AND entry_id  = ANY(${contactEntryIds})
+                `;
+              }
             }
           }
         } catch (innerErr) {

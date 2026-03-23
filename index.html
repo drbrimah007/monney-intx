@@ -1447,23 +1447,29 @@
           </div>`;
         }
 
+        // Direction label from RECIPIENT's perspective
+        const _recipDirLabel = t => ({
+          they_owe_you:'You Owe',  invoice:'Invoice Due',  bill:'Bill Due',
+          you_owe_them:'Owed To You', lend:'You Borrowed', borrow:'Owed To You',
+          they_paid_you:'Settled',  you_paid_them:'Settled', gift:'Gift'
+        }[t] || 'Shared');
+        const _recipDirColor = t => (t==='they_owe_you'||t==='invoice'||t==='bill'||t==='lend') ? 'var(--red)' : 'var(--green)';
+
         html += `<div class="tbl-wrap"><table><thead><tr>
-          <th>From</th><th>Amount</th><th>Type</th><th>Date</th><th>Status</th><th></th>
+          <th>From</th><th>Amount</th><th>Direction</th><th>Date</th><th>Status</th><th></th>
         </tr></thead><tbody>`;
 
         records.forEach(r => {
           const e = r.entry;
           const amt = e.amount != null ? `<strong>$${parseFloat(e.amount).toFixed(2)}</strong>` : '—';
           const dt  = e.date ? new Date(e.date).toLocaleDateString() : '—';
-          const txLabel = { toy:'They Owe You', yot:'You Owe Them', lend:'Lent', borrow:'Borrowed', gift:'Gift', other:'Other' }[e.txType] || (e.txType || '—');
-          const txColor = { toy:'var(--green)', yot:'var(--red)', lend:'var(--accent)', borrow:'var(--red)' }[e.txType] || 'var(--muted)';
           const statusColors = { posted:'#888', accepted:'var(--green)', rejected:'var(--red)', settled:'var(--accent)', disputed:'orange' };
           const sBadge = `<span style="font-size:11px;font-weight:700;color:${statusColors[e.status]||'#888'};text-transform:uppercase;">${e.status||'posted'}</span>`;
           const siteUrl = e.siteUrl || 'https://moneyinteractions.com';
           html += `<tr>
             <td><strong>${esc(e.fromName||'—')}</strong></td>
             <td>${amt}</td>
-            <td><span style="font-weight:700;color:${txColor}">${esc(txLabel)}</span></td>
+            <td><span style="font-weight:700;color:${_recipDirColor(e.txType)}">${esc(_recipDirLabel(e.txType))}</span></td>
             <td>${dt}</td>
             <td>${sBadge}</td>
             <td><a href="${esc(siteUrl)}/view?t=${esc(r.token)}" target="_blank" style="font-size:12px;color:var(--accent);font-weight:600;">View →</a></td>
@@ -6122,10 +6128,19 @@
       } catch(_) { sessionStorage.removeItem('pendingShareToken'); }
     }
 
+    let _pendingShareEntry = null; // holds entry data during consent flow
+
     function _showShareConsentModal(token, e) {
-      const TXL2 = { toy:'They Owe You', yot:'You Owe Them', lend:'Lent', borrow:'Borrowed', gift:'Gift', other:'Other' };
-      const txLabel = TXL2[e.txType] || (e.txType || 'Transaction');
-      const txColor = { toy:'var(--green)', yot:'var(--red)', lend:'var(--accent)', borrow:'var(--red)' }[e.txType] || 'var(--muted)';
+      _pendingShareEntry = e; // store for auto-contact creation on accept
+      // Direction from RECIPIENT's perspective (opposite of sender's txType)
+      const recipDir = {
+        they_owe_you:'You Owe',  invoice:'Invoice Due',  bill:'Bill Due',
+        you_owe_them:'Owed To You',
+        lend:'You Borrowed',     borrow:'Owed To You',
+        they_paid_you:'Settled', you_paid_them:'Settled',
+        gift:'Gift Recorded'
+      }[e.txType] || 'Record Shared';
+      const dirColor = (e.txType==='they_owe_you'||e.txType==='invoice'||e.txType==='bill'||e.txType==='lend') ? '#dc2626' : '#16a34a';
       const amt     = e.amount != null ? `$${parseFloat(e.amount).toFixed(2)}` : '—';
       const dt      = e.date ? new Date(e.date).toLocaleDateString() : '—';
       const noteHtml = e.note ? `<p style="margin:0;font-size:13px;color:#333;background:#f5f5ff;border-left:3px solid var(--accent,#6c63ff);padding:10px 14px;border-radius:4px;">${esc(e.note)}</p>` : '';
@@ -6143,11 +6158,11 @@
               <div>
                 <div style="font-size:11px;font-weight:700;letter-spacing:.06em;color:#aaa;text-transform:uppercase;margin-bottom:3px;">Amount</div>
                 <div style="font-size:28px;font-weight:900;color:#1a1a2e;">${esc(amt)}</div>
+                <div style="font-size:13px;font-weight:700;color:${dirColor};margin-top:4px;">${esc(recipDir)}</div>
               </div>
               <div style="text-align:right;">
-                <div style="font-size:11px;font-weight:700;letter-spacing:.06em;color:#aaa;text-transform:uppercase;margin-bottom:3px;">Type</div>
-                <div style="font-size:14px;font-weight:700;color:${txColor};">${esc(txLabel)}</div>
-                <div style="font-size:12px;color:#aaa;margin-top:2px;">${dt}</div>
+                <div style="font-size:11px;font-weight:700;letter-spacing:.06em;color:#aaa;text-transform:uppercase;margin-bottom:3px;">Date</div>
+                <div style="font-size:13px;font-weight:600;color:#555;">${dt}</div>
               </div>
             </div>
             ${e.invoiceNumber ? `<div style="font-size:12px;color:#888;margin-bottom:10px;">Ref: <strong>${esc(e.invoiceNumber)}</strong></div>` : ''}
@@ -6180,6 +6195,28 @@
         });
         sessionStorage.removeItem('pendingShareToken');
         sessionStorage.setItem('justLinkedShare', '1');
+        // Auto-add sender as contact if not already present
+        if (_pendingShareEntry?.fromName) {
+          const u = curUser();
+          if (u) {
+            const nameLower = (_pendingShareEntry.fromName || '').toLowerCase().trim();
+            const exists = db.contacts.find(c =>
+              c.userId === u.id && (c.name || '').toLowerCase().trim() === nameLower
+            );
+            if (!exists) {
+              db.contacts.push({
+                id: uuid(), userId: u.id,
+                name: _pendingShareEntry.fromName,
+                email: _pendingShareEntry.fromEmail || '',
+                phone: '', address: '', notes: 'Added from shared record',
+                tags: [], archived: false, photo: '', linkedUserId: null,
+                createdAt: Date.now()
+              });
+              await saveNow();
+            }
+          }
+        }
+        _pendingShareEntry = null;
       } catch(_) {}
       document.getElementById('shareConsentBg')?.remove();
       nav('dash');
@@ -6374,6 +6411,7 @@
         const session = await API.getSession();
         if (session.ok) {
           await load();
+          await _linkPendingShare(); // process any pending share token even if already logged in
           initApp();
           return;
         }
@@ -6387,6 +6425,7 @@
       // Local file mode
       await load();
       if (isLoggedIn()) {
+        await _linkPendingShare(); // process any pending share token even if already logged in
         initApp();
       } else {
         renderLandingPage();
