@@ -782,8 +782,9 @@
         if (parent) e.linkedInvoiceId = parent.id;
       });
       // Resync all invoice statuses from linked settlements
+      // Include they_owe_you / you_owe_them so non-template entries also reflect partial settlements
       db.entries.forEach(e => {
-        if (e.status !== 'voided' && isInvoiceMode(e)) _syncInvoiceStatus(e.id);
+        if (e.status !== 'voided' && (isInvoiceMode(e) || e.txType === 'they_owe_you' || e.txType === 'you_owe_them')) _syncInvoiceStatus(e.id);
       });
       // Backfill sequential entryNum on entries that predate this feature
       if (db.settings.entryCounter === undefined) {
@@ -1638,7 +1639,7 @@
         </div>`;
 
       const showAdmin = curRole() === 'admin';
-      html += `<div class="tbl-wrap"><table><thead><tr><th>Name</th>${showAdmin?'<th class="hide-mobile">Owner</th>':''}<th class="hide-mobile">Email / Phone</th><th>Balance</th><th style="width:60px;"></th></tr></thead><tbody>`;
+      html += `<div class="tbl-wrap"><table><thead><tr><th>Name</th>${showAdmin?'<th class="hide-mobile">Owner</th>':''}<th>Email / Phone</th><th>Balance</th><th style="width:60px;"></th></tr></thead><tbody>`;
       p2.items.forEach(c => {
         const l = getLedger(c.id);
         const bal = l.toy - l.yot;
@@ -1646,7 +1647,7 @@
         html += `<tr${c.archived ? ' class="archived"' : ''}>
           <td>${cLink(c.id, c.name)}${c.archived?` <span class="badge badge-gray" style="font-size:10px;">arch.</span>`:''}</td>
           ${showAdmin?`<td class="hide-mobile" style="font-size:12px;color:var(--muted);">${esc(owner?.displayName||'—')}</td>`:''}
-          <td class="hide-mobile" style="font-size:13px;">${esc(c.email||c.phone||'—')}</td>
+          <td style="font-size:13px;">${esc(c.email||c.phone||'—')}</td>
           <td><strong style="color: ${bal > 0 ? 'var(--green)' : bal < 0 ? 'var(--red)' : 'var(--muted)'}">${fmt(bal)}</strong></td>
           <td><div class="action-menu"><button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button><div class="action-dropdown">
             <button onclick="openCP('${c.id}')">👁 View</button>
@@ -1790,7 +1791,7 @@
       c.address = document.getElementById('eaddr').value.trim();
       c.notes = document.getElementById('enotes').value.trim();
       c.tags = document.getElementById('etags').value.trim().split(',').map(t => t.trim()).filter(t => t);
-      save();
+      saveNow(); // immediate sync — prevents email/phone being lost on quick navigation
       logAudit('edit_contact', { cid, name: c.name });
       document.querySelector('.modal-bg').remove();
       toast('Contact updated');
@@ -2233,6 +2234,27 @@
           <div style="font-size:52px;font-weight:900;color:${accentHex};letter-spacing:-.01em;">${fmt(e.amount)}</div>
         </div>`;
 
+      // Settlement breakdown (mirrors invoice doc behaviour)
+      const _txSt = _getInvoiceSettlement(e.id);
+      if (_txSt.settled > 0) {
+        doc += `<div style="display:flex;justify-content:flex-end;margin-bottom:24px;">
+          <div style="border:2px solid #111;border-radius:8px;padding:16px 24px;min-width:260px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+              <span style="font-size:12px;color:#666;text-transform:uppercase;letter-spacing:.06em;">Original Amount</span>
+              <span style="font-size:14px;font-weight:700;">${fmt(_txSt.total)}</span>
+            </div>
+            <div style="display:flex;justify-content:space-between;align-items:center;padding-bottom:10px;border-bottom:1px solid #ddd;margin-bottom:10px;">
+              <span style="font-size:12px;color:#059669;text-transform:uppercase;letter-spacing:.06em;">Paid</span>
+              <span style="font-size:14px;font-weight:700;color:#059669;">− ${fmt(_txSt.settled)}</span>
+            </div>
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+              <span style="font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;">Balance</span>
+              <span style="font-size:26px;font-weight:900;color:${_txSt.remaining<=0?'#059669':'#111'};">${fmt(_txSt.remaining)}</span>
+            </div>
+          </div>
+        </div>`;
+      }
+
       // Note
       if (e.note) {
         doc += `<div style="background:#f8f8f8;border-left:4px solid #d1d5db;border-radius:4px;padding:12px 16px;margin-bottom:20px;">
@@ -2245,7 +2267,7 @@
         This document is a record only. It does not transfer funds or constitute a legal instrument.
       </div>`;
 
-      const canSettle = (e.status !== 'settled' && e.status !== 'voided' &&
+      const canSettle = (_txSt.remaining > 0 && e.status !== 'voided' &&
                          (e.txType==='they_owe_you' || e.txType==='you_owe_them'));
       const actionBar = `
         ${canSettle ? `<button onclick="recordSettlement('${e.id}')" style="background:#065f46;color:#fff;border:none;border-radius:6px;padding:9px 18px;font-size:13px;font-weight:700;cursor:pointer;">✅ Record Settlement</button>` : ''}
@@ -2269,7 +2291,7 @@
     }
 
     /* ── Record Settlement: creates linked credit entry + syncs invoice ─ */
-    function recordSettlement(eid) {
+    async function recordSettlement(eid) {
       const e = db.entries.find(x => x.id === eid); if (!e) return;
       const invSt = _getInvoiceSettlement(eid);
       const remainingAmt = invSt.remaining > 0 ? invSt.remaining : (parseFloat(e.amount) || 0);
@@ -2317,12 +2339,12 @@
           invoiceNumber: null, entryNum: db.settings.entryCounter, createdAt: Date.now(),
           isOverpayment: true, linkedInvoiceId: eid
         });
-        save();
+        await saveNow();
         logAudit('record_settlement_overpayment', { eid, applyAmt, overAmt });
         document.getElementById('invoicePrintWrap')?.remove();
         toast(`Settlement recorded. ${fmt(applyAmt)} applied to ${docRef}. Overpayment receipt of ${fmt(overAmt)} created.`);
       } else {
-        save();
+        await saveNow();
         logAudit('record_settlement', { eid, applyAmt, newStatus: e.status });
         document.getElementById('invoicePrintWrap')?.remove();
         toast(`Settlement of ${fmt(applyAmt)} recorded`);
@@ -3494,7 +3516,7 @@
           const en = db.entries.find(x => x.id === eid);
           if (en) {
             const ct = db.contacts.find(x => x.id === en.cId);
-            if (ct && !ct.email) { ct.email = inlineEmail; save(); }
+            if (ct && !ct.email) { ct.email = inlineEmail; saveNow(); } // saveNow: persist email immediately
           }
         }
       }
