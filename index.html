@@ -547,16 +547,34 @@
             const localHasData = localBelongsToUser &&
               ((_localData.entries?.length > 0) || (_localData.contacts?.length > 0) || (_localData.templates?.length > 0));
 
+            console.log('[load] serverHasData:', serverHasData,
+              '| localHasData:', localHasData,
+              '| srvUser:', srvUser?.id,
+              '| localSessionUserId:', _localData?.settings?.sessionUserId,
+              '| localEntries:', _localData?.entries?.length,
+              '| serverEntries:', data?.entries?.length);
+
             if (serverHasData) {
               // Server is authoritative — use it
               db = data;
+              console.log('[load] Using server data (' + (data.entries?.length||0) + ' entries)');
             } else if (localHasData) {
               // Server blob is empty but this device has data for this user.
-              // Recover: use local data and push to server immediately.
-              console.log('[load] Server blank — recovering ' + (_localData.entries?.length||0) + ' entries from localStorage and syncing to server.');
+              // Recover: use local data and push to server immediately (AWAITED so it doesn't get dropped).
               db = _localData;
-              _syncToServer().catch(() => {}); // push recovery data to server (non-blocking)
+              console.log('[load] Recovery path: using local data (' + (_localData.entries?.length||0) + ' entries), pushing to server…');
+              // Show toast AFTER render cycle — queue via setTimeout
+              setTimeout(() => toast('⏫ Syncing your data to cloud…', 4000), 500);
+              try {
+                await _syncToServer(); // AWAIT — don't fire-and-forget, ensure it completes
+                console.log('[load] Recovery sync succeeded');
+                setTimeout(() => toast('✅ Data synced — reload other devices', 3000), 500);
+              } catch(syncErr) {
+                console.error('[load] Recovery sync failed:', syncErr.message);
+                setTimeout(() => toast('⚠️ Sync failed — check connection and try again', 5000), 500);
+              }
             } else {
+              console.log('[load] No usable data — using defaults. serverKeys:', Object.keys(data), 'localDataPresent:', !!_localData);
               db = defDB();
             }
 
@@ -629,6 +647,21 @@
       }
     }
 
+    // forceSyncNow: manually triggered by user — push full db to server and confirm
+    async function forceSyncNow() {
+      if (!_IS_SERVER) return toast('Only available in online mode.');
+      const btn = event?.target;
+      if (btn) { btn.disabled = true; btn.textContent = '⏳ Syncing…'; }
+      try {
+        await saveNow();
+        toast('✅ Synced! Open other devices and reload the page.', 4000);
+      } catch(e) {
+        toast('❌ Sync failed — check your connection.', 4000);
+      } finally {
+        if (btn) { btn.disabled = false; btn.textContent = '⏫ Sync This Device to Cloud Now'; }
+      }
+    }
+
     // saveNow: write localStorage + push to server immediately (no debounce).
     // Use for critical operations: entry save, contact add/edit, template actions.
     async function saveNow() {
@@ -640,15 +673,20 @@
     }
 
     async function _syncToServer() {
-      try {
-        await fetch('/api/data/sync', {
-          method: 'POST',
-          credentials: 'include',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ data: db })
-        });
-      } catch (e) {
-        console.warn('[sync] Server push failed (offline?):', e.message);
+      // Include Bearer token as a fallback alongside the HttpOnly cookie.
+      // This makes sync resilient if the cookie is absent (e.g. first load on a new device).
+      const _tok = localStorage.getItem('mxi_token');
+      const _headers = { 'Content-Type': 'application/json' };
+      if (_tok) _headers['Authorization'] = 'Bearer ' + _tok;
+      const res = await fetch('/api/data/sync', {
+        method: 'POST',
+        credentials: 'include',
+        headers: _headers,
+        body: JSON.stringify({ data: db })
+      });
+      if (!res.ok) {
+        const errBody = await res.json().catch(() => ({}));
+        throw new Error('[sync] HTTP ' + res.status + ': ' + (errBody.error || 'unknown'));
       }
     }
     function migrate() {
@@ -1221,7 +1259,7 @@
         </div>`;
 
         // Recent entries
-        const recentEntries = allEntries.sort((a,b)=>b.date-a.date).slice(0,8);
+        const recentEntries = allEntries.sort((a,b)=>b.date-a.date).slice(0,15);
         html += `<div class="card">
           <div class="section-title">Recent Entries (All Users)</div>
           ${recentEntries.length === 0 ? `<p style="color:var(--muted);font-size:14px;padding:12px 0;">No entries yet.</p>` : `
@@ -1260,7 +1298,7 @@
             <button class="bs sm" onclick="nav('nok')">🔐 Next of Kin</button>
           </div>
         </div>`;
-        const recentEntries = myEntries.sort((a,b)=>b.date-a.date).slice(0,8);
+        const recentEntries = myEntries.sort((a,b)=>b.date-a.date).slice(0,15);
         html += `<div class="card">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;"><h3 style="margin:0;">Recent Entries</h3><button class="gh sm" onclick="nav('entries')">View all →</button></div>
           ${recentEntries.length === 0 ? `<p style="color:var(--muted);font-size:14px;padding:12px 0;">No entries yet. <button class="gh sm" onclick="nav('contacts')">Add a contact</button> to get started.</p>` : `
@@ -4886,7 +4924,12 @@
           : `<div style="width:64px;height:64px;border-radius:8px;background:var(--bg3);border:1px dashed var(--border);display:flex;align-items:center;justify-content:center;font-size:24px;">💰</div>`;
 
         let html = `<div class="page-header"><h2>Admin Settings</h2><button class="btn sm" onclick="saveAllAdminSettings()">💾 Save All Settings</button></div>
-        <p style="color:var(--muted);font-size:13px;margin-bottom:20px;">Configure your site identity, organization info, and system defaults. Changes here affect how the app appears to all users.</p>`;
+        <p style="color:var(--muted);font-size:13px;margin-bottom:20px;">Configure your site identity, organization info, and system defaults. Changes here affect how the app appears to all users.</p>
+        <div class="card" style="margin-bottom:16px;border-color:var(--accent);">
+          <div class="section-title">☁️ Data Sync</div>
+          <p style="font-size:13px;color:var(--muted);margin-bottom:12px;">If your data isn't showing on another device, use this to force-push everything from this device to the cloud right now.</p>
+          <button class="btn sm" onclick="forceSyncNow()">⏫ Sync This Device to Cloud Now</button>
+        </div>`;
 
         // ── BRANDING ──────────────────────────────────────────────────
         html += `<div class="card" style="margin-bottom:16px;">
@@ -5012,6 +5055,11 @@
           : `<div style="width:80px;height:80px;border-radius:50%;background:var(--accent);display:flex;align-items:center;justify-content:center;font-size:28px;font-weight:800;color:#fff;border:3px solid var(--accent);">${(u.displayName||'?')[0].toUpperCase()}</div>`;
 
         let html = `<div class="page-header"><h2>My Profile</h2></div>
+        <div class="card" style="margin-bottom:16px;border-color:var(--accent);">
+          <div class="section-title">☁️ Data Sync</div>
+          <p style="font-size:13px;color:var(--muted);margin-bottom:12px;">If your data isn't showing on another device, tap this to push everything from this device to the cloud right now.</p>
+          <button class="btn sm" onclick="forceSyncNow()">⏫ Sync This Device to Cloud Now</button>
+        </div>
         <div class="card" style="margin-bottom:16px;">
           <div class="section-title">📷 Profile Photo</div>
           <div style="display:flex;align-items:center;gap:20px;flex-wrap:wrap;">
