@@ -2126,7 +2126,7 @@
       }
       html += `<div class="grid2"><div class="fg"><label>Date</label><input type="date" id="nedate" value="${dateVal}"></div>
         <div class="fg"><label>Status</label><select id="nests">${statusOpts(e?.status||'posted')}</select></div></div>`;
-      html += `<div class="fg"><textarea id="ne_notify_msg" rows="2" style="width:100%;box-sizing:border-box;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg2);color:var(--text);font-size:14px;resize:vertical;" placeholder="For your kind attention.">${esc(e?.notifyMsg||'For your kind attention.')}</textarea></div>`;
+      html += `<div class="fg"><textarea id="ne_notify_msg" rows="2" style="width:100%;box-sizing:border-box;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg2);color:var(--text);font-size:14px;resize:vertical;" placeholder="For your attention.">${esc(e?.notifyMsg||'For your attention.')}</textarea></div>`;
       // ── Template-driven fields ────────────────────────────────────────
       if (tpl && tpl.fields && tpl.fields.length > 0) {
         html += `<div id="tplFieldsWrap" style="border-top:1px solid var(--border);margin-top:6px;padding-top:14px;">
@@ -2963,7 +2963,7 @@
             <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px;">Record</div>
             <div style="font-weight:700;">${esc(c?.name||'—')} — ${fmt(e.amount)}</div>
           </div>
-          <div class="fg"><label>Message</label><textarea id="notify_msg" rows="3" style="width:100%;">For your kind attention</textarea></div>
+          <div class="fg"><label>Message</label><textarea id="notify_msg" rows="3" style="width:100%;">For your attention.</textarea></div>
           <div class="fg">
             <label style="display:block;margin-bottom:8px;">Notify</label>
             <div style="display:inline-flex;border:1px solid var(--border);border-radius:8px;overflow:hidden;">
