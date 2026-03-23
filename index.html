@@ -370,6 +370,7 @@
       viewed: 'Viewed',
       accepted: 'Accepted',
       disputed: 'Disputed',
+      paid: 'Settled',
       settled: 'Settled',
       partially_settled: 'Partially Settled',
       overdue: 'Overdue',
@@ -954,7 +955,7 @@
       const _st = _getInvoiceSettlement(eid);
       const e   = db.entries.find(x=>x.id===eid);
       if (_st.settled <= 0) return fmt(e?.amount || 0);
-      return `${fmt(_st.total)} (Paid ${fmt(_st.settled)} · Bal ${fmt(_st.remaining)})`;
+      return `${fmt(_st.total)} (Settled ${fmt(_st.settled)} · Bal ${fmt(_st.remaining)})`;
     }
     // Returns the display amount (remaining if partial, original if not)
     function _displayAmt(eid) {
@@ -2121,8 +2122,8 @@
               var bgColor = isPendingCP ? 'rgba(251,191,36,.04)' : 'rgba(108,99,255,.03)';
               html += '<tr style="background:' + bgColor + ';">';
               html += '<td><span style="font-weight:700;color:' + dirColor + ';">' + esc(dirLabel) + '</span>' + pill + '</td>';
-              // Amount + type as second line (mobile only — Type col hidden on mobile)
-              html += '<td><strong>' + fmt(rawAmt) + '</strong><div class="mobile-label" style="font-size:11px;font-weight:700;color:' + dirColor + ';margin-top:2px;">' + esc(dirLabel) + '</div></td>';
+              // Amount only — Type is always visible in col 1 of this table
+              html += '<td><strong>' + fmt(rawAmt) + '</strong></td>';
               html += '<td>' + (e && e.date ? new Date(e.date).toLocaleDateString() : '—') + '</td>';
               html += '<td>' + statusBadge((e && e.status) || 'posted') + '</td>';
               html += '<td><div class="action-menu"><button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button><div class="action-dropdown">';
@@ -2146,7 +2147,7 @@
               html += '<tr>';
               html += '<td><button class="gh sm" style="text-align:left;padding:2px 4px;font-weight:600;" onclick="openEntryInvoice(\'' + e2.id + '\')" title="View document">' + typeLabel + '</button>' + docBadge + '</td>';
               // Amount + type as second line (mobile only)
-              html += '<td>' + _fmtAmtCell(e2.id, '<div class="mobile-label" style="font-size:11px;font-weight:700;color:' + ownColor + ';margin-top:2px;">' + esc(ownLabel) + '</div>') + '</td>';
+              html += '<td>' + _fmtAmtCell(e2.id) + '</td>'; // Type always in col 1, no mobile-label needed
               html += '<td>' + new Date(e2.date).toLocaleDateString() + '</td>';
               html += '<td>' + statusBadge(e2.status) + '</td>';
               html += '<td><div class="action-menu"><button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button><div class="action-dropdown">';

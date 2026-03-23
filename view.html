@@ -659,7 +659,7 @@
     const postedLabel   = recipientOwes ? 'Due' : 'Owed';
     const map = {
       posted: postedLabel, sent: postedLabel,
-      paid:'Paid', settled:'Settled',
+      paid:'Settled', settled:'Settled',
       void:'Void', voided:'Voided', partial:'Partially Settled',
       partially_settled:'Partially Settled', closed:'Closed', draft:'Draft'
     };
@@ -671,7 +671,7 @@
     if (txType === 'they_owe_you' || txType === 'invoice' || txType === 'bill') return 'Amount You Owe';
     if (txType === 'you_owe_them') return 'Amount You Are Owed';
     if (txType === 'they_paid_you') return 'Amount Settled';
-    if (txType === 'you_paid_them') return 'Amount Paid to You';
+    if (txType === 'you_paid_them') return 'Amount Settled to You';
     return 'Amount';
   }
 
