@@ -1027,6 +1027,8 @@
           const e = r.entry;
           if (!e) return;
           if (_sharedNoLedger.has(r.token)) return; // skip entries removed from ledger
+          if (r.recipientClosed) return;             // skip expired records
+          if (e.dismissed) return;                   // skip dismissed/deprecated records
           const st = (e.status || '').toLowerCase();
           if (st === 'voided' || st === 'void') return; // skip voided
           const rEmail = (e.fromEmail || '').toLowerCase().trim();
