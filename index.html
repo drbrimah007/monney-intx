@@ -527,13 +527,40 @@
 
     // ── load(): pull from server, fall back to localStorage ──────────────
     async function load() {
+      // Read localStorage first — we need it as a recovery source if server is blank
+      let _localData = null;
+      try { const _s = localStorage.getItem('mxi_v2'); if (_s) _localData = JSON.parse(_s); } catch(_) {}
+
       if (_IS_SERVER) {
         try {
           const res = await fetch('/api/data/load', { credentials: 'include' });
           if (res.ok) {
             const { data, user: srvUser, allUsers, platformSettings } = await res.json();
+
+            // Determine which data source to use
+            const serverHasData = Object.keys(data).length > 0 &&
+              ((data.entries?.length > 0) || (data.contacts?.length > 0) || (data.templates?.length > 0));
+            // Only recover local data if it belongs to the same logged-in user.
+            // Allow recovery when sessionUserId is absent (older data format that pre-dates the field).
+            const localBelongsToUser = _localData && srvUser &&
+              (!_localData.settings?.sessionUserId || _localData.settings?.sessionUserId === srvUser.id);
+            const localHasData = localBelongsToUser &&
+              ((_localData.entries?.length > 0) || (_localData.contacts?.length > 0) || (_localData.templates?.length > 0));
+
+            if (serverHasData) {
+              // Server is authoritative — use it
+              db = data;
+            } else if (localHasData) {
+              // Server blob is empty but this device has data for this user.
+              // Recover: use local data and push to server immediately.
+              console.log('[load] Server blank — recovering ' + (_localData.entries?.length||0) + ' entries from localStorage and syncing to server.');
+              db = _localData;
+              _syncToServer().catch(() => {}); // push recovery data to server (non-blocking)
+            } else {
+              db = defDB();
+            }
+
             // Merge server user into db.users and set session
-            db = Object.keys(data).length ? data : defDB();
             if (srvUser) {
               db.settings = db.settings || {};
               db.settings.sessionUserId = srvUser.id;
