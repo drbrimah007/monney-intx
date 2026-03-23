@@ -5849,8 +5849,10 @@
         <!-- TOP NAV -->
         <nav class="lp-topnav">
           <div class="lp-topnav-brand">
-            <img src="${esc(logoSrc)}" style="height:56px;border-radius:6px" onerror="this.style.display='none'" alt="logo">
-            <strong>${esc(appName)}</strong>
+            <img src="${esc(logoSrc)}" style="height:56px;border-radius:6px"
+                 onerror="this.style.display='none';this.nextElementSibling.style.display=''"
+                 alt="logo">
+            <strong style="display:none">${esc(appName)}</strong>
           </div>
           <div class="lp-topnav-actions">
             <button class="lp-btn-secondary" style="padding:9px 20px;font-size:14px" onclick="openLoginModal()">Log In</button>
@@ -6629,7 +6631,10 @@
       lp.innerHTML = `
         <div class="lp-topnav">
           <div class="lp-topnav-brand">
-            <strong>${esc(db.settings?.appName || 'Money IntX')}</strong>
+            <img src="${esc(db.settings?.logoData || 'money.png')}" style="height:56px;border-radius:6px"
+                 onerror="this.style.display='none';this.nextElementSibling.style.display=''"
+                 alt="logo">
+            <strong style="display:none">${esc(db.settings?.appName || 'Money IntX')}</strong>
           </div>
         </div>
         <div style="flex:1;display:flex;align-items:center;justify-content:center;padding:40px 16px;">
