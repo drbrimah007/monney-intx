@@ -73,6 +73,8 @@
     tr.archived td { opacity:.6; font-style:italic; }
     .tbl-wrap { overflow-x: auto; }
     @media(max-width:640px) { .hide-mobile { display: none; } }
+    .mobile-label { display: none; }
+    @media(max-width:640px) { .mobile-label { display: block; } }
     /* ── Mobile modal: pin to top so keyboard doesn't push form off screen ── */
     @media(max-width:640px) {
       .modal-bg { align-items: flex-start; padding: 10px 8px; overflow-y: auto; overflow-x: hidden; }
@@ -1422,7 +1424,7 @@
           <div class="tbl-wrap"><table><thead><tr><th>Contact</th><th>Amount</th><th class="hide-mobile">Type</th><th>Date</th><th>Status</th><th style="width:80px;">Action</th></tr></thead><tbody>
           ${recentEntries.map(e => {
             const c = db.contacts.find(x => x.id === e.cId);
-            return `<tr><td>${cLink(e.cId, c?.name||'—')}</td><td>${_fmtAmtCell(e.id)}</td><td class="hide-mobile"><span style="font-weight:700;color:${txTypeColor(e.txType)}">${esc(TXL[e.txType]||e.txType)}</span></td><td>${new Date(e.date).toLocaleDateString()}</td><td>${statusBadge(e.status)}</td><td><div class="action-menu"><button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button><div class="action-dropdown"><button onclick="openEntryInvoice('${e.id}')">📄 View</button><button onclick="editEntry('${e.id}')">✏️ Edit</button>${(isInvoiceMode(e) || e.txType === 'they_owe_you' || e.txType === 'you_owe_them') && e.status !== 'settled' && e.status !== 'voided' ? `<button onclick="recordSettlement('${e.id}')">💰 Settle</button>` : ''}<button onclick="openNotifyModal('${e.id}')">🔔 Notify</button><button onclick="openShareModal('${e.id}')">🔗 Share</button><button onclick="toggleArchiveEntry('${e.id}')">${e.archived?'📤 Unarchive':'📥 Archive'}</button>${e.status !== 'voided' ? `<button onclick="voidEntry('${e.id}')" style="color:var(--amber);">🚫 Void</button>` : ''}<button onclick="delEntry('${e.id}')" style="color:var(--red);">🗑 Delete</button></div></div></td></tr>`;
+            return `<tr><td>${cLink(e.cId, c?.name||'—')}</td><td>${_fmtAmtCell(e.id)}<div class="mobile-label" style="font-size:11px;font-weight:700;color:${txTypeColor(e.txType)};margin-top:2px;">${esc(TXL[e.txType]||e.txType)}</div></td><td class="hide-mobile"><span style="font-weight:700;color:${txTypeColor(e.txType)}">${esc(TXL[e.txType]||e.txType)}</span></td><td>${new Date(e.date).toLocaleDateString()}</td><td>${statusBadge(e.status)}</td><td><div class="action-menu"><button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button><div class="action-dropdown"><button onclick="openEntryInvoice('${e.id}')">📄 View</button><button onclick="editEntry('${e.id}')">✏️ Edit</button>${(isInvoiceMode(e) || e.txType === 'they_owe_you' || e.txType === 'you_owe_them') && e.status !== 'settled' && e.status !== 'voided' ? `<button onclick="recordSettlement('${e.id}')">💰 Settle</button>` : ''}<button onclick="openNotifyModal('${e.id}')">🔔 Notify</button><button onclick="openShareModal('${e.id}')">🔗 Share</button><button onclick="toggleArchiveEntry('${e.id}')">${e.archived?'📤 Unarchive':'📥 Archive'}</button>${e.status !== 'voided' ? `<button onclick="voidEntry('${e.id}')" style="color:var(--amber);">🚫 Void</button>` : ''}<button onclick="delEntry('${e.id}')" style="color:var(--red);">🗑 Delete</button></div></div></td></tr>`;
           }).join('')}
           </tbody></table></div>`}
         </div>`;
@@ -1480,24 +1482,28 @@
               const pill = !r.confirmed && !e?.dismissed ? `<span style="font-size:10px;background:rgba(251,191,36,.18);color:#d97706;border-radius:4px;padding:1px 5px;margin-left:3px;font-weight:700;">⏳ Pending</span>` : `<span style="font-size:10px;background:rgba(108,99,255,.12);color:var(--accent);border-radius:4px;padding:1px 5px;margin-left:3px;">🔗 Shared</span>`;
               const siteUrl = e?.siteUrl || 'https://moneyinteractions.com';
               const isSettled = e?.status === 'settled' || e?.status === 'paid';
+              const _dashRecipLbl = {they_owe_you:'You Owe',you_owe_them:'They Owe Me',invoice:'Invoice Due',bill:'Bill Due',lend:'You Borrowed',borrow:'I Lent',they_paid_you:'They Settled Me',you_paid_them:'I Settled Them',gift:'Gift Received'};
+              const _dashRecipClr = {they_owe_you:'var(--red)',invoice:'var(--red)',bill:'var(--red)',lend:'var(--red)',you_owe_them:'var(--green)',borrow:'var(--green)',they_paid_you:'#0d9488',you_paid_them:'#0d9488',gift:'var(--green)'};
+              const dashTypeLabel = _dashRecipLbl[e?.txType] || (TXL[e?.txType] || 'Shared');
+              const dashTypeColor = _dashRecipClr[e?.txType] || 'var(--accent)';
               return `<tr style="background:${!r.confirmed&&!e?.dismissed?'rgba(251,191,36,.04)':'rgba(108,99,255,.03)'};">
                 <td>${sLink}${pill}</td>
-                <td><strong>${fmt(rawAmt)}</strong></td>
-                <td class="hide-mobile"><span style="font-weight:700;color:var(--accent);">🔗 Shared</span></td>
+                <td><strong>${fmt(rawAmt)}</strong><div class="mobile-label" style="font-size:11px;font-weight:700;color:${dashTypeColor};margin-top:2px;">${esc(dashTypeLabel)}</div></td>
+                <td class="hide-mobile"><span style="font-weight:700;color:${dashTypeColor};">${esc(dashTypeLabel)}</span></td>
                 <td>${e?.date ? new Date(e.date).toLocaleDateString() : '—'}</td>
                 <td>${statusBadge(e?.status||'posted')}</td>
                 <td><div class="action-menu"><button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button><div class="action-dropdown">
                   <a href="${esc(siteUrl)}/view?t=${esc(r.token)}" target="_blank" style="display:block;padding:8px 14px;font-size:13px;color:var(--accent);text-decoration:none;font-weight:600;">👁 View</a>
                   ${!r.confirmed && !e?.dismissed ? `<button onclick="doConfirmShared('${esc(r.token)}')">✅ Confirm &amp; Track</button>` : ''}
                   ${!r.confirmed && !e?.dismissed ? `<button onclick="doDismissShared('${esc(r.token)}')">✕ Dismiss</button>` : ''}
-                  ${!isSettled ? `<button onclick="_sharedMarkPaid('${esc(r.token)}')" style="color:var(--green);font-weight:700;">💰 Mark Paid</button>` : ''}
+                  ${!isSettled ? `<button onclick="_sharedMarkPaid('${esc(r.token)}')" style="color:var(--green);font-weight:700;">✅ Mark Settled</button>` : ''}
                   <button onclick="_sharedExpire('${esc(r.token)}')">⏰ Expire</button>
                 </div></div></td>
               </tr>`;
             }
             const e = item;
             const c = db.contacts.find(x => x.id === e.cId);
-            return `<tr><td>${cLink(e.cId, c?.name||'—')}</td><td>${_fmtAmtCell(e.id)}</td><td class="hide-mobile"><span style="font-weight:700;color:${txTypeColor(e.txType)}">${esc(TXL[e.txType]||e.txType)}</span></td><td>${new Date(e.date).toLocaleDateString()}</td><td>${statusBadge(e.status)}</td><td><div class="action-menu"><button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button><div class="action-dropdown"><button onclick="openEntryInvoice('${e.id}')">📄 View</button><button onclick="editEntry('${e.id}')">✏️ Edit</button>${(isInvoiceMode(e) || e.txType === 'they_owe_you' || e.txType === 'you_owe_them') && e.status !== 'settled' && e.status !== 'voided' ? `<button onclick="recordSettlement('${e.id}')">💰 Settle</button>` : ''}<button onclick="openNotifyModal('${e.id}')">🔔 Notify</button><button onclick="openShareModal('${e.id}')">🔗 Share</button><button onclick="toggleArchiveEntry('${e.id}')">${e.archived?'📤 Unarchive':'📥 Archive'}</button>${e.status !== 'voided' ? `<button onclick="voidEntry('${e.id}')" style="color:var(--amber);">🚫 Void</button>` : ''}<button onclick="delEntry('${e.id}')" style="color:var(--red);">🗑 Delete</button></div></div></td></tr>`;
+            return `<tr><td>${cLink(e.cId, c?.name||'—')}</td><td>${_fmtAmtCell(e.id)}<div class="mobile-label" style="font-size:11px;font-weight:700;color:${txTypeColor(e.txType)};margin-top:2px;">${esc(TXL[e.txType]||e.txType)}</div></td><td class="hide-mobile"><span style="font-weight:700;color:${txTypeColor(e.txType)}">${esc(TXL[e.txType]||e.txType)}</span></td><td>${new Date(e.date).toLocaleDateString()}</td><td>${statusBadge(e.status)}</td><td><div class="action-menu"><button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button><div class="action-dropdown"><button onclick="openEntryInvoice('${e.id}')">📄 View</button><button onclick="editEntry('${e.id}')">✏️ Edit</button>${(isInvoiceMode(e) || e.txType === 'they_owe_you' || e.txType === 'you_owe_them') && e.status !== 'settled' && e.status !== 'voided' ? `<button onclick="recordSettlement('${e.id}')">💰 Settle</button>` : ''}<button onclick="openNotifyModal('${e.id}')">🔔 Notify</button><button onclick="openShareModal('${e.id}')">🔗 Share</button><button onclick="toggleArchiveEntry('${e.id}')">${e.archived?'📤 Unarchive':'📥 Archive'}</button>${e.status !== 'voided' ? `<button onclick="voidEntry('${e.id}')" style="color:var(--amber);">🚫 Void</button>` : ''}<button onclick="delEntry('${e.id}')" style="color:var(--red);">🗑 Delete</button></div></div></td></tr>`;
           }).join('')}
           </tbody></table></div>`}
         </div>`;
@@ -1651,7 +1657,7 @@
         const _recipDirLabel = t => ({
           they_owe_you:'You Owe',  invoice:'Invoice Due',  bill:'Bill Due',
           you_owe_them:'Owed To You', lend:'You Borrowed', borrow:'Owed To You',
-          they_paid_you:'Settled',  you_paid_them:'Settled', gift:'Gift'
+          they_paid_you:'They Settled Me',  you_paid_them:'I Settled Them', gift:'Gift'
         }[t] || 'Shared');
         const _recipDirColor = t => (t==='they_owe_you'||t==='invoice'||t==='bill'||t==='lend') ? 'var(--red)' : 'var(--green)';
 
@@ -1745,7 +1751,7 @@
                   <a href="${esc(siteUrl)}/view?t=${esc(r.token)}" target="_blank" style="display:block;padding:8px 14px;font-size:13px;color:var(--accent);text-decoration:none;font-weight:600;">👁 View</a>
                   ${!r.confirmed && !e.dismissed ? `<button onclick="doConfirmShared('${esc(r.token)}')">✅ Confirm &amp; Track</button>` : ''}
                   ${!r.confirmed && !e.dismissed ? `<button onclick="doDismissShared('${esc(r.token)}')">✕ Dismiss</button>` : ''}
-                  ${!isExpired && e.status !== 'settled' && e.status !== 'paid' ? `<button onclick="_sharedMarkPaid('${esc(r.token)}')" style="color:var(--green);font-weight:700;">💰 Mark Paid</button>` : ''}
+                  ${!isExpired && e.status !== 'settled' && e.status !== 'paid' ? `<button onclick="_sharedMarkPaid('${esc(r.token)}')" style="color:var(--green);font-weight:700;">✅ Mark Settled</button>` : ''}
                   <button onclick="_sharedDepreciateModal('${esc(r.token)}','${esc(e.fromName||'')}',${rawAmt})">📉 Depreciate</button>
                   ${!isExpired ? `<button onclick="_sharedExpire('${esc(r.token)}')">⏰ Expire</button>` : ''}
                   <button onclick="_sharedHideToggle('${esc(r.token)}')">🙈 Hide</button>
@@ -2052,7 +2058,7 @@
         const _recipDirLabelCP = t => ({
           they_owe_you:'You Owe', invoice:'Invoice Due', bill:'Bill Due',
           you_owe_them:'Owed To You', lend:'You Borrowed', borrow:'Owed To You',
-          they_paid_you:'Settled', you_paid_them:'Settled', gift:'Gift'
+          they_paid_you:'They Settled Me', you_paid_them:'I Settled Them', gift:'Gift'
         }[t] || 'Shared');
         const _ownSorted    = [...userEntries].sort((a,b) => (b.createdAt||new Date(b.date||0).getTime()||0) - (a.createdAt||new Date(a.date||0).getTime()||0));
         const _sharedSorted = [...sharedFromContact].sort((a,b) => (b.sharedAt ? new Date(b.sharedAt).getTime() : 0) - (a.sharedAt ? new Date(a.sharedAt).getTime() : 0));
@@ -2077,8 +2083,8 @@
             bill:          'Bill Due',
             lend:          'I Borrowed',
             borrow:        'I Lent',
-            they_paid_you: 'I Paid',
-            you_paid_them: 'They Paid Me',
+            they_paid_you: 'They Settled Me',
+            you_paid_them: 'I Settled Them',
             gift:          'Gift Received'
           };
           var _recipColorMap = {
@@ -2111,8 +2117,8 @@
               var bgColor = isPendingCP ? 'rgba(251,191,36,.04)' : 'rgba(108,99,255,.03)';
               html += '<tr style="background:' + bgColor + ';">';
               html += '<td><span style="font-weight:700;color:' + dirColor + ';">' + esc(dirLabel) + '</span>' + pill + '</td>';
-              // Amount + type as second line (visible on mobile where Type col is hidden)
-              html += '<td><strong>' + fmt(rawAmt) + '</strong><div style="font-size:11px;font-weight:700;color:' + dirColor + ';margin-top:2px;">' + esc(dirLabel) + '</div></td>';
+              // Amount + type as second line (mobile only — Type col hidden on mobile)
+              html += '<td><strong>' + fmt(rawAmt) + '</strong><div class="mobile-label" style="font-size:11px;font-weight:700;color:' + dirColor + ';margin-top:2px;">' + esc(dirLabel) + '</div></td>';
               html += '<td>' + (e && e.date ? new Date(e.date).toLocaleDateString() : '—') + '</td>';
               html += '<td>' + statusBadge((e && e.status) || 'posted') + '</td>';
               html += '<td><div class="action-menu"><button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button><div class="action-dropdown">';
@@ -2122,7 +2128,7 @@
                 html += '<button onclick="doDismissShared(\'' + esc(r.token) + '\')">✕ Dismiss</button>';
               }
               if (!isSettledCP) {
-                html += '<button onclick="_sharedMarkPaid(\'' + esc(r.token) + '\')" style="color:var(--green);font-weight:700;">💰 Mark Paid</button>';
+                html += '<button onclick="_sharedMarkPaid(\'' + esc(r.token) + '\')" style="color:var(--green);font-weight:700;">✅ Mark Settled</button>';
               }
               html += '<button onclick="_sharedExpire(\'' + esc(r.token) + '\')">⏰ Expire</button>';
               html += '</div></div></td></tr>';
@@ -2135,8 +2141,8 @@
               var docBadge = docNum ? '<button class="gh sm" style="font-size:10px;font-weight:700;color:#6c63ff;padding:1px 4px;margin-top:1px;display:block;text-align:left;" onclick="openEntryInvoice(\'' + e2.id + '\')" title="View record">' + esc(docNum) + '</button>' : '';
               html += '<tr>';
               html += '<td><button class="gh sm" style="text-align:left;padding:2px 4px;font-weight:600;" onclick="openEntryInvoice(\'' + e2.id + '\')" title="View document">' + typeLabel + '</button>' + docBadge + '</td>';
-              // Amount + type as second line (mobile)
-              html += '<td>' + _fmtAmtCell(e2.id) + '<div style="font-size:11px;font-weight:700;color:' + ownColor + ';margin-top:2px;">' + esc(ownLabel) + '</div></td>';
+              // Amount + type as second line (mobile only)
+              html += '<td>' + _fmtAmtCell(e2.id) + '<div class="mobile-label" style="font-size:11px;font-weight:700;color:' + ownColor + ';margin-top:2px;">' + esc(ownLabel) + '</div></td>';
               html += '<td>' + new Date(e2.date).toLocaleDateString() + '</td>';
               html += '<td>' + statusBadge(e2.status) + '</td>';
               html += '<td><div class="action-menu"><button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button><div class="action-dropdown">';
@@ -2198,7 +2204,8 @@
     function _showDocPopup(docHtml, actionBarHtml) {
       document.getElementById('invoicePrintWrap')?.remove();
       const wrap = `<div id="invoicePrintWrap" style="position:fixed;inset:0;background:rgba(0,0,0,.78);z-index:800;overflow-y:auto;padding:32px 16px;" onclick="if(event.target.id==='invoicePrintWrap'){event.stopPropagation();this.remove();}">
-        <div style="max-width:660px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 12px 48px rgba(0,0,0,.55);" onclick="event.stopPropagation()">
+        <div style="max-width:660px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 12px 48px rgba(0,0,0,.55);position:relative;" onclick="event.stopPropagation()">
+          <button class="inv-no-print" onclick="document.getElementById('invoicePrintWrap').remove()" title="Close" style="position:absolute;top:12px;right:14px;z-index:10;background:rgba(0,0,0,.08);color:#333;border:none;border-radius:50%;width:34px;height:34px;font-size:18px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;">✕</button>
           ${docHtml}
           <div class="inv-no-print" style="background:#f3f3f3;border-top:1px solid #ddd;padding:14px 20px;display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;">
             ${actionBarHtml}
@@ -2556,7 +2563,7 @@
               <span style="font-size:14px;font-weight:700;">${fmt(_txSt.total)}</span>
             </div>
             <div style="display:flex;justify-content:space-between;align-items:center;padding-bottom:10px;border-bottom:1px solid #ddd;margin-bottom:10px;">
-              <span style="font-size:12px;color:#059669;text-transform:uppercase;letter-spacing:.06em;">Paid</span>
+              <span style="font-size:12px;color:#059669;text-transform:uppercase;letter-spacing:.06em;">Settled</span>
               <span style="font-size:14px;font-weight:700;color:#059669;">− ${fmt(_txSt.settled)}</span>
             </div>
             <div style="display:flex;justify-content:space-between;align-items:center;">
@@ -2622,7 +2629,7 @@
           <div style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:12px 14px;margin-bottom:14px;font-size:13px;line-height:1.8;">
             <div style="display:flex;justify-content:space-between;"><span style="color:var(--muted);">Record</span><strong>${esc(docRef)}</strong></div>
             <div style="display:flex;justify-content:space-between;"><span style="color:var(--muted);">Total</span><span>${fmt(invSt.total)}</span></div>
-            ${invSt.settled > 0 ? `<div style="display:flex;justify-content:space-between;"><span style="color:var(--muted);">Already Paid</span><span style="color:var(--green);">${fmt(invSt.settled)}</span></div>` : ''}
+            ${invSt.settled > 0 ? `<div style="display:flex;justify-content:space-between;"><span style="color:var(--muted);">Already Settled</span><span style="color:var(--green);">${fmt(invSt.settled)}</span></div>` : ''}
             <div style="display:flex;justify-content:space-between;border-top:1px solid var(--border);margin-top:6px;padding-top:6px;font-weight:700;"><span>Remaining</span><span>${fmt(remainingAmt)}</span></div>
           </div>
           <div class="fg">
@@ -2735,7 +2742,7 @@
       const _recipDirLabelE = t => ({
         they_owe_you:'You Owe', invoice:'Invoice Due', bill:'Bill Due',
         you_owe_them:'Owed To You', lend:'You Borrowed', borrow:'Owed To You',
-        they_paid_you:'Settled', you_paid_them:'Settled', gift:'Gift'
+        they_paid_you:'They Settled Me', you_paid_them:'I Settled Them', gift:'Gift'
       }[t] || 'Shared');
       const _recipDirColorE = t => (t==='they_owe_you'||t==='invoice'||t==='bill'||t==='lend') ? 'var(--red)' : 'var(--green)';
 
@@ -2831,14 +2838,14 @@
           html += `<tr style="background:${isPending?'rgba(251,191,36,.05)':'rgba(108,99,255,.04)'};">
             <td>${nameHtmlE} ${sharedPill}</td>
             <td class="hide-mobile"><span style="color:var(--muted);">—</span></td>
-            <td><strong>${fmt(rawAmt)}</strong></td>
+            <td><strong>${fmt(rawAmt)}</strong><div class="mobile-label" style="font-size:11px;font-weight:700;color:${dirColor};margin-top:2px;">${esc(dirLabel)}</div></td>
             <td class="hide-mobile"><span style="font-weight:700;color:${dirColor}">${esc(dirLabel)}</span></td>
             <td>${dt}</td>
             <td>${statusBadge(e?.status||'posted')}</td>
             <td><div class="action-menu"><button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button><div class="action-dropdown">
               <a href="${esc(siteUrl)}/view?t=${esc(r.token)}" target="_blank" style="display:block;padding:8px 14px;font-size:13px;color:var(--accent);text-decoration:none;font-weight:600;">👁 View</a>
               ${isPending ? `<button onclick="doConfirmShared('${esc(r.token)}')" style="color:#16a34a;font-weight:700;">✅ Confirm &amp; Track</button><button onclick="doDismissShared('${esc(r.token)}')" style="color:var(--red);">✕ Dismiss</button>` : ''}
-              ${!isSettledE ? `<button onclick="_sharedMarkPaid('${esc(r.token)}')" style="color:var(--green);font-weight:700;">💰 Mark Paid</button>` : ''}
+              ${!isSettledE ? `<button onclick="_sharedMarkPaid('${esc(r.token)}')" style="color:var(--green);font-weight:700;">✅ Mark Settled</button>` : ''}
               <button onclick="_sharedExpire('${esc(r.token)}')">⏰ Expire</button>
             </div></div></td>
           </tr>`;
@@ -2849,7 +2856,7 @@
           html += `<tr>
             <td>${cLink(e.cId, c?.name || '—')}</td>
             <td class="hide-mobile">${(()=>{ const lbl = e.invoiceNumber || (e.entryNum ? '#'+String(e.entryNum).padStart(4,'0') : null); return lbl ? `<button class="gh sm" style="font-size:12px;font-weight:700;color:var(--accent);padding:2px 6px;" onclick="openEntryInvoice('${e.id}')" title="View record">${esc(lbl)}</button>` : '<span style="color:var(--muted);">—</span>'; })()}</td>
-            <td>${_fmtAmtCell(e.id)}</td>
+            <td>${_fmtAmtCell(e.id)}<div class="mobile-label" style="font-size:11px;font-weight:700;color:${txTypeColor(e.txType)};margin-top:2px;">${esc(TXL[e.txType]||e.txType)}</div></td>
             <td class="hide-mobile"><button class="gh sm" style="font-size:13px;padding:2px 6px;font-weight:700;color:${txTypeColor(e.txType)};" onclick="openEntryInvoice('${e.id}')" title="View record">${esc(TXL[e.txType]||e.txType)}</button></td>
             <td>${new Date(e.date).toLocaleDateString()}</td>
             <td>${statusBadge(e.status)}</td>
