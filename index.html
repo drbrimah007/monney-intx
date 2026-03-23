@@ -1575,7 +1575,7 @@
           return;
         }
         const records = data.shared;
-        _cachedSharedRecords = records; // cache for getLedger contact balance calculations
+        _cachedSharedRecords = records; // cache for UI rendering — confirmed records are in db.entries (isShared:true)
 
         // ── Migration: Unified Record Layer ──────────────────────────────────
         // For any already-confirmed shared records not yet in db.entries, insert them now.
@@ -7184,7 +7184,7 @@
     }
 
     let _pendingShareEntry   = null; // holds entry data during consent flow
-    let _cachedSharedRecords = []; // shared-with-me records, used by getLedger for contact balances
+    let _cachedSharedRecords = []; // pending/unconfirmed shared records — confirmed ones live in db.entries (isShared:true)
     // Shared-with-me record management — persisted in localStorage
     let _sharedHidden   = new Set(JSON.parse(localStorage.getItem('mxi_sh_hidden') || '[]'));
     let _sharedOffsets  = JSON.parse(localStorage.getItem('mxi_sh_off') || '{}'); // {token: amount}
