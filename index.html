@@ -3582,6 +3582,12 @@
         if (_shareData.ok && _shareData.shareUrl) _viewUrl = _shareData.shareUrl;
       } catch(_) { /* keep fallback */ }
 
+      // Use remaining balance for partially settled entries, not original amount
+      const _emailSt = _getInvoiceSettlement(eid);
+      const _emailAmt = (_emailSt.settled > 0 && _emailSt.remaining != null)
+        ? _emailSt.remaining
+        : (e.amount || null);
+
       try {
         for (const addr of toAddresses) {
           await fetch('/api/email', {
@@ -3595,7 +3601,8 @@
               fromEmail: u.email || '',
               message,
               invoiceNumber: e.invoiceNumber || null,
-              amount: e.amount || null,
+              amount: _emailAmt,
+              entryStatus: e.status || null,
               txType: e.txType || null,
               viewUrl: _viewUrl,
               siteUrl: _siteUrl,
