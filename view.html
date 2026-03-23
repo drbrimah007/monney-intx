@@ -453,10 +453,10 @@
     <div class="main-card" id="mainCard" style="display:none;">
       <div class="card-body">
 
-        <!-- Title block -->
+        <!-- Title block (direction set dynamically by renderEntry) -->
         <div class="eyebrow">Money Interaction Notice</div>
-        <div class="card-title">A record has been shared with you</div>
-        <div class="card-subtitle">Review the details below for clarity.</div>
+        <div class="card-title" id="cardTitle">A record has been shared with you</div>
+        <div class="card-subtitle" id="cardSubtitle">Review the details below for clarity.</div>
 
         <!-- Status row -->
         <div class="status-row">
@@ -550,13 +550,14 @@
   let _recipientClosed = false;
   let _siteUrl = '/';
 
+  // Recipient-facing direction labels
   const TX_LABELS = {
-    they_owe_you:  'They owe you',
-    invoice:       'Invoice',
-    bill:          'Bill',
-    you_owe_them:  'You owe them',
-    they_paid_you: 'Payment received',
-    you_paid_them: 'You paid them'
+    they_owe_you:  'You Owe',
+    invoice:       'You Owe',
+    bill:          'You Owe',
+    you_owe_them:  'You Are Owed',
+    they_paid_you: 'You Have Settled',
+    you_paid_them: 'You Have Been Settled'
   };
 
   function fmt(n) {
@@ -594,10 +595,10 @@
 
   // Perspective: the RECIPIENT viewing the page (the contact who received the share link)
   function amountDirection(txType) {
-    if (txType === 'they_owe_you' || txType === 'invoice' || txType === 'bill') return 'You owe';
-    if (txType === 'you_owe_them') return 'You are owed';
-    if (txType === 'they_paid_you') return 'Payment made';
-    if (txType === 'you_paid_them') return 'Payment received';
+    if (txType === 'they_owe_you' || txType === 'invoice' || txType === 'bill') return 'Amount You Owe';
+    if (txType === 'you_owe_them') return 'Amount You Are Owed';
+    if (txType === 'they_paid_you') return 'Amount Settled';
+    if (txType === 'you_paid_them') return 'Amount Paid to You';
     return 'Amount';
   }
 
@@ -651,6 +652,21 @@
     document.getElementById('loginLink').onclick  = e => { e.preventDefault(); _goWithToken(_siteUrl + '?login=1'); };
     document.getElementById('signupLink').onclick  = e => { e.preventDefault(); _goWithToken(_siteUrl + '?register=1'); };
     document.getElementById('loginBtn').onclick    = e => { e.preventDefault(); _goWithToken(_siteUrl + '?login=1'); };
+
+    // Direction-aware card title + subtitle
+    const directionLabel = TX_LABELS[e.txType] || 'A record';
+    const titleEl = document.getElementById('cardTitle');
+    const subtitleEl = document.getElementById('cardSubtitle');
+    if (titleEl) titleEl.textContent = directionLabel;
+    if (subtitleEl) {
+      const isOwed = (e.txType === 'they_owe_you' || e.txType === 'invoice' || e.txType === 'bill');
+      const isAreOwed = (e.txType === 'you_owe_them');
+      subtitleEl.textContent = isOwed
+        ? `${e.fromName || 'The sender'} has recorded that you owe this amount.`
+        : isAreOwed
+          ? `${e.fromName || 'The sender'} has recorded that you are owed this amount.`
+          : `${e.fromName || 'The sender'} has shared this record with you.`;
+    }
 
     // Status pill — direction-aware for posted status
     const pill = document.getElementById('statusPill');

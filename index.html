@@ -377,12 +377,21 @@
     };
 
     const TXL = {
-      they_owe_you:  'They Owe You',
-      they_paid_you: 'They Settled You',
-      you_owe_them:  'You Owe Them',
-      you_paid_them: 'You Settled Them',
+      they_owe_you:  'They Owe Me',
+      they_paid_you: 'They Settled Me',
+      you_owe_them:  'I Owe Them',
+      you_paid_them: 'I Settled Them',
       invoice:       'Invoice',
       bill:          'Bill'
+    };
+    // Recipient-facing labels (external: email, shared page, login-accept)
+    const TXL_EXT = {
+      they_owe_you:  'You Owe',
+      they_paid_you: 'You Have Settled',
+      you_owe_them:  'You Are Owed',
+      you_paid_them: 'You Have Been Settled',
+      invoice:       'You Owe',
+      bill:          'You Owe'
     };
     // Ledger direction for each tx type
     // invoice & bill both behave like they_owe_you (you are owed money)
@@ -893,10 +902,30 @@
       const e = db.entries.find(x => x.id === eid);
       if (!e) return { settled: 0, remaining: 0, status: 'posted' };
       const total = parseFloat(e.amount) || 0;
-      // Sum all valid (non-voided) settlement entries that reference this invoice
-      const settled = db.entries
+      // Sum all valid (non-voided) settlement entries that reference this entry
+      let settled = db.entries
         .filter(s => s.linkedInvoiceId === eid && s.status !== 'voided')
         .reduce((sum, s) => sum + (parseFloat(s.amount) || 0), 0);
+      // Fallback: if settled = 0 but status indicates settlement, search by note text + cId
+      if (settled === 0 && (e.status === 'partially_settled' || e.status === 'settled')) {
+        const docRef = e.invoiceNumber || (e.entryNum ? '#' + String(e.entryNum).padStart(4, '0') : null);
+        const altSettled = db.entries
+          .filter(s => s.cId === e.cId && s.status !== 'voided' &&
+                       (s.txType === 'they_paid_you' || s.txType === 'you_paid_them') &&
+                       !s.linkedInvoiceId && docRef && s.note && s.note.includes(docRef))
+          .reduce((sum, s) => sum + (parseFloat(s.amount) || 0), 0);
+        if (altSettled > 0) {
+          settled = altSettled;
+          // Back-fill linkedInvoiceId so future calls are direct
+          db.entries.forEach(s => {
+            if (s.cId === e.cId && s.status !== 'voided' &&
+                (s.txType === 'they_paid_you' || s.txType === 'you_paid_them') &&
+                !s.linkedInvoiceId && docRef && s.note && s.note.includes(docRef)) {
+              s.linkedInvoiceId = eid;
+            }
+          });
+        }
+      }
       const remaining = Math.max(0, total - settled);
       const status =
         e.status === 'voided' ? 'voided' :
@@ -1387,8 +1416,8 @@
         html += `<div class="page-header"><h2>Dashboard</h2></div>`;
         html += `<div class="grid3" style="margin-bottom:16px;">
           <div class="stat-card"><div class="stat-lbl">Contacts</div><div class="stat-val">${myContacts.length}</div></div>
-          <div class="stat-card"><div class="stat-lbl">They Owe You</div><div class="stat-val" style="color:var(--green)" id="stat_shared_toy">${fmt(totToy)}</div></div>
-          <div class="stat-card"><div class="stat-lbl">You Owe Them</div><div class="stat-val" style="color:var(--red)" id="stat_shared_yot">${fmt(totYot)}</div></div>
+          <div class="stat-card"><div class="stat-lbl">They Owe Me</div><div class="stat-val" style="color:var(--green)" id="stat_shared_toy">${fmt(totToy)}</div></div>
+          <div class="stat-card"><div class="stat-lbl">I Owe Them</div><div class="stat-val" style="color:var(--red)" id="stat_shared_yot">${fmt(totYot)}</div></div>
         </div>`;
         html += `<div class="card card-sm" style="margin-bottom:16px;">
           <div class="section-title">Quick Actions</div>
@@ -1431,8 +1460,8 @@
             html += `<div style="background:linear-gradient(135deg,rgba(108,99,255,.1),rgba(108,99,255,.05));border:1px solid var(--border);border-radius:var(--radius);padding:16px;margin-top:16px;text-align:center;">
               <div style="font-size:14px;font-weight:600;margin-bottom:12px;">👉 Start by recording a money interaction</div>
               <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;">
-                <button class="btn sm" onclick="openNewEntryModal('toy')">They Owe You</button>
-                <button class="bs sm" onclick="openNewEntryModal('yot')" style="border-color:var(--red);color:var(--red);">You Owe Them</button>
+                <button class="btn sm" onclick="openNewEntryModal('toy')">They Owe Me</button>
+                <button class="bs sm" onclick="openNewEntryModal('yot')" style="border-color:var(--red);color:var(--red);">I Owe Them</button>
               </div>
             </div></div>`;
           }
@@ -1695,8 +1724,8 @@
         <div class="fg"><label>Address</label><textarea id="naddr" rows="2"></textarea></div>
         <div class="fg"><label>Notes</label><textarea id="nnotes" rows="2"></textarea></div>
         <div class="fg"><label>Tags (comma-separated)</label><input type="text" id="ntags"></div>
-        <div class="fg"><label>Starting Balance — They Owe You</label><input type="number" id="nstoy" min="0" value="0"></div>
-        <div class="fg"><label>Starting Balance — You Owe Them</label><input type="number" id="nsyot" min="0" value="0"></div>
+        <div class="fg"><label>Starting Balance — They Owe Me</label><input type="number" id="nstoy" min="0" value="0"></div>
+        <div class="fg"><label>Starting Balance — I Owe Them</label><input type="number" id="nsyot" min="0" value="0"></div>
         <div style="display: flex; gap: 8px; justify-content: flex-end;">
           <button class="bs sm" onclick="this.closest('.modal-bg').remove()">Cancel</button>
           <button class="btn sm" onclick="saveNewContact()">Create</button>
@@ -1878,8 +1907,8 @@
         });
         html += '</tbody></table></div></div>';
       } else if (tab === 'ledger') {
-        html += `<div><div class="grid2"><div class="stat-card"><div class="stat-lbl">They Owe You</div><div class="stat-val" style="color: var(--green);">${fmt(l.toy)}</div></div>
-          <div class="stat-card"><div class="stat-lbl">You Owe Them</div><div class="stat-val" style="color: var(--red);">${fmt(l.yot)}</div></div></div>
+        html += `<div><div class="grid2"><div class="stat-card"><div class="stat-lbl">They Owe Me</div><div class="stat-val" style="color: var(--green);">${fmt(l.toy)}</div></div>
+          <div class="stat-card"><div class="stat-lbl">I Owe Them</div><div class="stat-val" style="color: var(--red);">${fmt(l.yot)}</div></div></div>
           <p style="margin-top: 12px; font-weight: 700;">Net Balance: <span style="color: ${l.net > 0 ? 'var(--green)' : l.net < 0 ? 'var(--red)' : 'var(--muted)'}">${fmt(l.net)}</span></p></div>`;
       } else if (tab === 'recurring') {
         const recurring = curRole() === 'admin' ? db.recurring.filter(r => r.cId === cid) : db.recurring.filter(r => r.cId === cid && r.userId === curUser().id);
@@ -2502,7 +2531,7 @@
     let _entryDirection = null; // 'they_owe_you' | 'you_owe_them' — set by direction picker
 
     function txOpts(allowed, sel) {
-      const all = [['they_owe_you','They Owe You'],['they_paid_you','They Settled You'],['you_owe_them','You Owe Them'],['you_paid_them','You Settled Them']];
+      const all = [['they_owe_you','They Owe Me'],['they_paid_you','They Settled Me'],['you_owe_them','I Owe Them'],['you_paid_them','I Settled Them']];
       const list = allowed && allowed.length ? all.filter(([k])=>allowed.includes(k)) : all;
       return list.map(([k,v])=>`<option value="${k}" ${sel===k?'selected':''}>${v}</option>`).join('');
     }
@@ -2706,12 +2735,12 @@
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:8px;">
             <button onclick="selectEntryDirection('they_owe_you')" style="background:rgba(74,222,128,.08);border:2px solid var(--green);border-radius:12px;padding:22px 12px;cursor:pointer;text-align:center;transition:background .15s;">
               <div style="font-size:26px;margin-bottom:10px;">📥</div>
-              <div style="font-size:15px;font-weight:800;color:var(--green);margin-bottom:4px;">They Owe You</div>
+              <div style="font-size:15px;font-weight:800;color:var(--green);margin-bottom:4px;">They Owe Me</div>
               <div style="font-size:11px;color:var(--muted);line-height:1.4;">Invoice, bill, or debt owed to you</div>
             </button>
             <button onclick="selectEntryDirection('you_owe_them')" style="background:rgba(248,113,113,.08);border:2px solid var(--red);border-radius:12px;padding:22px 12px;cursor:pointer;text-align:center;transition:background .15s;">
               <div style="font-size:26px;margin-bottom:10px;">📤</div>
-              <div style="font-size:15px;font-weight:800;color:var(--red);margin-bottom:4px;">You Owe Them</div>
+              <div style="font-size:15px;font-weight:800;color:var(--red);margin-bottom:4px;">I Owe Them</div>
               <div style="font-size:11px;color:var(--muted);line-height:1.4;">A bill or debt you owe to them</div>
             </button>
           </div>
@@ -2727,7 +2756,7 @@
       if (!modal) return;
       const inner = modal.querySelector('.modal');
       if (!inner) return;
-      const dirLabel = dir === 'they_owe_you' ? '📥 They Owe You' : '📤 You Owe Them';
+      const dirLabel = dir === 'they_owe_you' ? '📥 They Owe Me' : '📤 I Owe Them';
       const dirColor = dir === 'they_owe_you' ? 'var(--green)' : 'var(--red)';
       const dirBg    = dir === 'they_owe_you' ? 'rgba(74,222,128,.12)' : 'rgba(248,113,113,.12)';
       inner.style.maxWidth = '580px';
@@ -3479,7 +3508,7 @@
         const data = await res.json();
         if (!data.ok) throw new Error(data.error || 'Failed');
         window._notifyShareUrl = data.shareUrl;
-        const recipientTxLabel = { they_owe_you:'You owe', they_paid_you:'You have settled', you_owe_them:'We owe you', you_paid_them:'We have settled you' }[e.txType] || (TXL[e.txType]||e.txType);
+        const recipientTxLabel = { they_owe_you:'You Owe', they_paid_you:'You Have Settled', you_owe_them:'You Are Owed', you_paid_them:'You Have Been Settled' }[e.txType] || (TXL_EXT[e.txType]||e.txType);
         const shareMsg = `Hi ${c?.name||''},\n\nThis is to inform you that:\n\n${recipientTxLabel}: ${fmt(e.amount)}\n\nView full details here:\n${data.shareUrl}\n\nYour kind attention is requested.`;
         const wrap = document.getElementById('notifyShareWrap');
         if (!wrap) return;
@@ -3781,7 +3810,7 @@
         // Store URL safely so onclick handlers never need to embed it in HTML attributes
         window._shareModalUrl = shareUrl;
         // Recipient-perspective labels (message goes TO the contact)
-        const recipientTxLabel = { they_owe_you:'You owe', they_paid_you:'You have settled', you_owe_them:'We owe you', you_paid_them:'We have settled you' }[e.txType] || (TXL[e.txType]||e.txType);
+        const recipientTxLabel = { they_owe_you:'You Owe', they_paid_you:'You Have Settled', you_owe_them:'You Are Owed', you_paid_them:'You Have Been Settled' }[e.txType] || (TXL_EXT[e.txType]||e.txType);
         const defaultMsg = `Hi ${contact?.name||''},\n\nThis is to inform you that:\n\n${recipientTxLabel}: ${fmt(e.amount)}\n\nView full details here:\n${shareUrl}\n\nYour kind attention is requested.`;
 
         const wrap = document.getElementById('shareLinkWrap');
@@ -3818,8 +3847,8 @@
     const _isTextField    = f => !_isNumericField(f) && !_isPairedField(f);
     // A field that can appear in calculators / aggregation
     const _isCalcField    = f => _isNumericField(f) || _isPairedField(f) || (f.calculators||[]).length > 0;
-    const LEDGER_FX   = { '':'No ledger effect', they_owe_you:'They Owe You (+)', they_paid_you:'They Settled You (−)',
-                          you_owe_them:'You Owe Them (+)', you_paid_them:'You Settled Them (−)' };
+    const LEDGER_FX   = { '':'No ledger effect', they_owe_you:'They Owe Me (+)', they_paid_you:'They Settled Me (−)',
+                          you_owe_them:'I Owe Them (+)', you_paid_them:'I Settled Them (−)' };
     const CALC_OPS    = { multiply:'Multiply by factor', add:'Add to field', subtract:'Subtract from field', aggregate:'Run Aggregate (all non-excluded)', select_aggregate:'Run Selection Aggregate (choose fields)' };
 
     function renderTemplates() {
@@ -4018,10 +4047,10 @@
             <select id="tpltxtype">
               <option value="invoice"      ${(t.txType||'invoice')==='invoice'      ?'selected':''}>Invoice — they owe you</option>
               <option value="bill"         ${t.txType==='bill'         ?'selected':''}>Bill — they owe you</option>
-              <option value="they_owe_you" ${t.txType==='they_owe_you' ?'selected':''}>They Owe You</option>
-              <option value="they_paid_you"${t.txType==='they_paid_you'?'selected':''}>They Settled You</option>
-              <option value="you_owe_them" ${t.txType==='you_owe_them' ?'selected':''}>You Owe Them</option>
-              <option value="you_paid_them"${t.txType==='you_paid_them'?'selected':''}>You Settled Them</option>
+              <option value="they_owe_you" ${t.txType==='they_owe_you' ?'selected':''}>They Owe Me</option>
+              <option value="they_paid_you"${t.txType==='they_paid_you'?'selected':''}>They Settled Me</option>
+              <option value="you_owe_them" ${t.txType==='you_owe_them' ?'selected':''}>I Owe Them</option>
+              <option value="you_paid_them"${t.txType==='you_paid_them'?'selected':''}>I Settled Them</option>
             </select>
           </div>
         </div>
@@ -4652,10 +4681,10 @@
         <div class="fg"><label>Transaction Type *</label>
           <select id="rtx">
             <option value="">Select Type...</option>
-            <option value="they_owe_you" ${r?.txType==='they_owe_you'?'selected':''}>They Owe You</option>
-            <option value="they_paid_you" ${r?.txType==='they_paid_you'?'selected':''}>They Settled You</option>
-            <option value="you_owe_them" ${r?.txType==='you_owe_them'?'selected':''}>You Owe Them</option>
-            <option value="you_paid_them" ${r?.txType==='you_paid_them'?'selected':''}>You Settled Them</option>
+            <option value="they_owe_you" ${r?.txType==='they_owe_you'?'selected':''}>They Owe Me</option>
+            <option value="they_paid_you" ${r?.txType==='they_paid_you'?'selected':''}>They Settled Me</option>
+            <option value="you_owe_them" ${r?.txType==='you_owe_them'?'selected':''}>I Owe Them</option>
+            <option value="you_paid_them" ${r?.txType==='you_paid_them'?'selected':''}>I Settled Them</option>
           </select>
         </div>
         <div class="fg"><label>Amount *</label><input type="number" id="ramt" value="${r?.amount||''}" min="0" max="9999999" step="0.01" placeholder="0.00"></div>
@@ -6157,11 +6186,11 @@
             <p style="color:var(--muted);font-size:13px;margin-bottom:20px;">Record your first money interaction. Is this someone who owes you, or do you owe them?</p>
             <div style="display:flex;flex-direction:column;gap:10px;">
               <button class="btn" style="width:100%;padding:14px;" onclick="document.getElementById('firstEntryModalBg').remove();openNewEntryModal('toy')">
-                <div style="font-weight:700;">💚 They Owe You</div>
+                <div style="font-weight:700;">💚 They Owe Me</div>
                 <div style="font-size:12px;color:rgba(255,255,255,0.8);margin-top:2px;">Someone owes you money</div>
               </button>
               <button class="bs" style="width:100%;padding:14px;border-color:var(--red);color:var(--red);" onclick="document.getElementById('firstEntryModalBg').remove();openNewEntryModal('yot')">
-                <div style="font-weight:700;">❤️ You Owe Them</div>
+                <div style="font-weight:700;">❤️ I Owe Them</div>
                 <div style="font-size:12px;color:rgba(255,255,255,0.8);margin-top:2px;">You owe someone money</div>
               </button>
             </div>
@@ -6182,7 +6211,7 @@
       const directionMap = { 'toy': 'they_owe_you', 'yot': 'you_owe_them' };
       _entryDirection = directionMap[direction] || 'they_owe_you';
 
-      const dirLabel = _entryDirection === 'they_owe_you' ? '📥 They Owe You' : '📤 You Owe Them';
+      const dirLabel = _entryDirection === 'they_owe_you' ? '📥 They Owe Me' : '📤 I Owe Them';
       const dirColor = _entryDirection === 'they_owe_you' ? 'var(--green)' : 'var(--red)';
       const dirBg    = _entryDirection === 'they_owe_you' ? 'rgba(74,222,128,.12)' : 'rgba(248,113,113,.12)';
 
@@ -6452,16 +6481,20 @@
       _pendingShareEntry = e; // store for auto-contact creation on accept
       // Direction from RECIPIENT's perspective (opposite of sender's txType)
       const recipDir = {
-        they_owe_you:'You Owe',  invoice:'Invoice Due',  bill:'Bill Due',
-        you_owe_them:'Owed To You',
-        lend:'You Borrowed',     borrow:'Owed To You',
-        they_paid_you:'Settled', you_paid_them:'Settled',
+        they_owe_you:'You Owe',  invoice:'You Owe',  bill:'You Owe',
+        you_owe_them:'You Are Owed',
+        lend:'You Borrowed',     borrow:'You Are Owed',
+        they_paid_you:'You Have Settled', you_paid_them:'You Have Been Settled',
         gift:'Gift Recorded'
       }[e.txType] || 'Record Shared';
       const dirColor = (e.txType==='they_owe_you'||e.txType==='invoice'||e.txType==='bill'||e.txType==='lend') ? '#dc2626' : '#16a34a';
       const amt     = e.amount != null ? `$${parseFloat(e.amount).toFixed(2)}` : '—';
       const dt      = e.date ? new Date(e.date).toLocaleDateString() : '—';
       const noteHtml = e.note ? `<p style="margin:0;font-size:13px;color:#333;background:#f5f5ff;border-left:3px solid var(--accent,#6c63ff);padding:10px 14px;border-radius:4px;">${esc(e.note)}</p>` : '';
+      const _scStatusMap = { settled:'Settled', partially_settled:'Partially Settled', voided:'Voided', pending:'Pending' };
+      const statusBadge = (e.status && e.status !== 'pending')
+        ? `<span style="display:inline-block;margin-left:8px;font-size:11px;font-weight:700;padding:2px 8px;border-radius:20px;background:#f0f0ff;color:#6c63ff;">${_scStatusMap[e.status]||e.status}</span>`
+        : '';
       const d = document.createElement('div');
       d.id = 'shareConsentBg';
       d.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:2000;display:flex;align-items:center;justify-content:center;padding:16px;';
@@ -6476,7 +6509,7 @@
               <div>
                 <div style="font-size:11px;font-weight:700;letter-spacing:.06em;color:#aaa;text-transform:uppercase;margin-bottom:3px;">Amount</div>
                 <div style="font-size:28px;font-weight:900;color:#1a1a2e;">${esc(amt)}</div>
-                <div style="font-size:13px;font-weight:700;color:${dirColor};margin-top:4px;">${esc(recipDir)}</div>
+                <div style="font-size:13px;font-weight:700;color:${dirColor};margin-top:4px;">${esc(recipDir)}${statusBadge}</div>
               </div>
               <div style="text-align:right;">
                 <div style="font-size:11px;font-weight:700;letter-spacing:.06em;color:#aaa;text-transform:uppercase;margin-bottom:3px;">Date</div>
