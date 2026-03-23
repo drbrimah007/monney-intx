@@ -1491,6 +1491,7 @@
                   ${!r.confirmed && !e?.dismissed ? `<button onclick="doConfirmShared('${esc(r.token)}')">✅ Confirm &amp; Track</button>` : ''}
                   ${!r.confirmed && !e?.dismissed ? `<button onclick="doDismissShared('${esc(r.token)}')">✕ Dismiss</button>` : ''}
                   ${!isSettled ? `<button onclick="_sharedMarkPaid('${esc(r.token)}')" style="color:var(--green);font-weight:700;">✅ Mark Settled</button>` : ''}
+                  ${(e?.txType === 'you_owe_them' || e?.txType === 'borrow') && !isSettled ? `<button onclick="openSharedRemindModal('${esc(r.token)}')" style="color:var(--accent);font-weight:700;">🔔 Remind</button>` : ''}
                   <button onclick="_sharedExpire('${esc(r.token)}')">⏰ Expire</button>
                 </div></div></td>
               </tr>`;
@@ -2111,6 +2112,9 @@
               }
               if (!isSettledCP) {
                 html += '<button onclick="_sharedMarkPaid(\'' + esc(r.token) + '\')" style="color:var(--green);font-weight:700;">✅ Mark Settled</button>';
+              }
+              if ((txType === 'you_owe_them' || txType === 'borrow') && !isSettledCP) {
+                html += '<button onclick="openSharedRemindModal(\'' + esc(r.token) + '\')" style="color:var(--accent);font-weight:700;">🔔 Remind</button>';
               }
               html += '<button onclick="_sharedExpire(\'' + esc(r.token) + '\')">⏰ Expire</button>';
               html += '</div></div></td></tr>';
@@ -2842,6 +2846,7 @@
               <a href="${esc(siteUrl)}/view?t=${esc(r.token)}" target="_blank" style="display:block;padding:8px 14px;font-size:13px;color:var(--accent);text-decoration:none;font-weight:600;">👁 View</a>
               ${isPending ? `<button onclick="doConfirmShared('${esc(r.token)}')" style="color:#16a34a;font-weight:700;">✅ Confirm &amp; Track</button><button onclick="doDismissShared('${esc(r.token)}')" style="color:var(--red);">✕ Dismiss</button>` : ''}
               ${!isSettledE ? `<button onclick="_sharedMarkPaid('${esc(r.token)}')" style="color:var(--green);font-weight:700;">✅ Mark Settled</button>` : ''}
+              ${(e?.txType === 'you_owe_them' || e?.txType === 'borrow') && !isSettledE ? `<button onclick="openSharedRemindModal('${esc(r.token)}')" style="color:var(--accent);font-weight:700;">🔔 Remind</button>` : ''}
               ${_sNoLedger
                 ? `<button onclick="_sharedNoLedger.delete('${esc(r.token)}');_saveSharedPrefs();toast('📊 Restored to ledger');renderEntries();">📊 Restore to Ledger</button>`
                 : `<button onclick="_sharedNoLedger.add('${esc(r.token)}');_saveSharedPrefs();toast('⊘ Removed from ledger');renderEntries();">⊘ Rm Ledger</button>`}
@@ -4179,6 +4184,105 @@
       } catch(err) {
         console.error('send-reminder error:', err);
         toast('⚠️ Saved but email failed — check console');
+      }
+    }
+
+    // ── Shared-with-me Reminder ────────────────────────────────────────────
+    // Only valid when recipient's perspective is "They Owe Me":
+    //   sender txType 'you_owe_them' → "I (sender) owe them (you)" → they owe you → remind them
+    //   sender txType 'borrow'       → "I (sender) borrowed"       → they owe you → remind them
+    async function openSharedRemindModal(token) {
+      const r = (_cachedSharedRecords || []).find(x => x.token === token);
+      if (!r || !r.entry) return toast('Record not found');
+      const e = r.entry;
+      const senderName  = e._resolvedFromName || e.fromName || 'them';
+      const senderEmail = e.fromEmail || '';
+      const rawAmt      = parseFloat(e.amount || 0);
+      const amtFmt      = fmt(rawAmt);
+      const dateStr     = e.date ? new Date(e.date).toLocaleDateString() : '';
+      const u           = curUser();
+      const myName      = u.displayName || u.email || (db.settings?.appName || 'Money IntX');
+      const siteUrl     = e.siteUrl || db.settings?.siteUrl || window.location.origin;
+      const shareLink   = `${siteUrl}/view?t=${token}`;
+      const appName     = db.settings?.appName || 'Money IntX';
+      const tagline     = db.settings?.tagline || 'Making Money Matters Memorable';
+      // Default reminder message — addressed to the sender (the one who owes)
+      const defaultMsg  = `Hi ${senderName},\n\nThis is a friendly reminder that you owe ${amtFmt}${dateStr ? ' (as of ' + dateStr + ')' : ''}.\n\nPlease review the record here:\n${shareLink}\n\nThank you.`;
+
+      const d = document.createElement('div');
+      d.innerHTML = `<div class="modal-bg" id="shRemindBg" onclick="if(event.target===this)this.remove()">
+        <div class="modal" style="max-width:500px;" onclick="event.stopPropagation()">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+            <div class="modal-title" style="margin:0;">Send Reminder</div>
+            <button class="gh sm" onclick="document.getElementById('shRemindBg').remove()">✕</button>
+          </div>
+          <div style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:14px;">
+            <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px;">Reminding</div>
+            <div style="font-weight:700;">${esc(senderName)} — ${amtFmt}</div>
+            ${senderEmail ? `<div style="font-size:12px;color:var(--muted);margin-top:2px;">→ ${esc(senderEmail)}</div>` : `<div style="font-size:12px;color:var(--amber);margin-top:2px;">⚠️ No email on file for this sender</div>`}
+          </div>
+          <div class="fg"><label>Message</label><textarea id="sh_remind_msg" rows="5" style="width:100%;">${esc(defaultMsg)}</textarea></div>
+          ${!senderEmail ? `<div style="background:#fff8e1;border:1px solid #ffe082;border-radius:8px;padding:10px 14px;margin-bottom:10px;">
+            <div style="font-size:13px;color:#795548;margin-bottom:6px;">Enter sender's email to send:</div>
+            <input type="email" id="sh_remind_email" placeholder="sender@email.com"
+              style="width:100%;box-sizing:border-box;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;background:var(--bg2);color:var(--text);" />
+          </div>` : ''}
+          <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;border-top:1px solid var(--border);padding-top:14px;">
+            <button class="bs sm" onclick="document.getElementById('shRemindBg').remove()">Cancel</button>
+            <button class="btn sm" onclick="_sendSharedReminder('${esc(token)}','${esc(senderEmail)}','${esc(senderName)}',${rawAmt})">Send Reminder</button>
+          </div>
+          <div style="border-top:1px solid var(--border);margin-top:14px;padding-top:14px;">
+            <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px;">Or share directly</div>
+            <div style="display:flex;gap:8px;align-items:center;background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:8px 12px;">
+              <span style="font-size:12px;color:var(--accent);flex:1;word-break:break-all;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(shareLink)}</span>
+              <button class="bs sm" onclick="navigator.clipboard.writeText('${esc(shareLink)}');toast('Link copied!')">📋</button>
+              ${'share' in navigator ? `<button class="bs sm" onclick="navigator.share({title:'Reminder',url:'${esc(shareLink)}'}).catch(()=>{})">📤</button>` : ''}
+            </div>
+          </div>
+        </div></div>`;
+      document.body.appendChild(d.firstChild);
+      setTimeout(() => document.getElementById('sh_remind_msg')?.focus(), 80);
+    }
+
+    async function _sendSharedReminder(token, senderEmail, senderName, rawAmt) {
+      const message = document.getElementById('sh_remind_msg')?.value.trim() || '';
+      if (!message) return alert('Message required');
+      const toEmail = senderEmail || document.getElementById('sh_remind_email')?.value.trim() || '';
+      if (!toEmail) return alert('Sender email required to send reminder');
+      const r = (_cachedSharedRecords || []).find(x => x.token === token);
+      const e = r?.entry;
+      const u = curUser();
+      const siteUrl  = e?.siteUrl || db.settings?.siteUrl || window.location.origin;
+      const appName  = db.settings?.appName || 'Money IntX';
+      const tagline  = db.settings?.tagline || 'Making Money Matters Memorable';
+      const shareLink = `${siteUrl}/view?t=${token}`;
+      document.getElementById('shRemindBg')?.remove();
+      try {
+        await fetch('/api/email', {
+          method: 'POST', credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'send-reminder',
+            recipientEmail: toEmail,
+            fromName: u.displayName || u.email || appName,
+            fromEmail: u.email || '',
+            message,
+            invoiceNumber: e?.invoiceNumber || null,
+            amount: rawAmt,
+            totalAmt: rawAmt,
+            paidAmt: 0,
+            entryStatus: e?.status || 'posted',
+            txType: 'you_owe_them',   // recipient's perspective: they owe me → "you owe them" label shown to sender
+            viewUrl: shareLink,
+            siteUrl,
+            appName,
+            tagline,
+            logoData: db.settings?.logoData || ''
+          })
+        });
+        toast('✅ Reminder sent to ' + senderName);
+      } catch(err) {
+        toast('⚠️ Reminder failed — check connection');
       }
     }
 
