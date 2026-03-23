@@ -426,9 +426,7 @@
 
 <!-- TOP BAR -->
 <header class="topbar">
-  <a class="topbar-brand" href="/" id="brandLink">
-    <span id="siteNameEl">Money Intx</span>
-  </a>
+  <span></span>
   <a class="topbar-login" href="/" id="loginLink">Log In</a>
 </header>
 
@@ -574,16 +572,15 @@
   }
 
   function statusLabel(status) {
-    const map = { posted:'Due', sent:'Sent', paid:'Paid', settled:'Settled', void:'Void', partial:'Partially Settled', draft:'Draft' };
+    const map = { posted:'Owed', sent:'Sent', paid:'Paid', settled:'Settled', void:'Void', partial:'Partially Settled', draft:'Draft' };
     return map[(status||'').toLowerCase()] || (status ? status.charAt(0).toUpperCase() + status.slice(1) : 'Due');
   }
 
-  function amountDirection(txType, isRecipient) {
-    // isRecipient = the person viewing (the contact) — flip perspective
-    if (txType === 'they_owe_you' || txType === 'invoice' || txType === 'bill') return 'You owe';
-    if (txType === 'you_owe_them') return 'You are owed';
-    if (txType === 'they_paid_you') return 'Payment made';
-    if (txType === 'you_paid_them') return 'Payment received';
+  function amountDirection(txType) {
+    if (txType === 'they_owe_you' || txType === 'invoice' || txType === 'bill') return 'You are owed';
+    if (txType === 'you_owe_them') return 'You owe';
+    if (txType === 'they_paid_you') return 'Payment received';
+    if (txType === 'you_paid_them') return 'You paid';
     return 'Amount';
   }
 
@@ -614,7 +611,6 @@
 
     // Update branding
     const siteName = e.appName || 'Money Intx';
-    document.getElementById('siteNameEl').textContent = siteName;
     document.getElementById('disclaimerName').textContent = siteName;
     document.getElementById('footerBrand').textContent = siteName + ' — ' + (e.tagline || 'Making Money Matters Memorable');
     document.title = 'Money Interaction Notice — ' + siteName;
@@ -626,7 +622,6 @@
       window.location.href = url;
     }
     document.getElementById('loginLink').onclick  = e => { e.preventDefault(); _goWithToken(_siteUrl + '?login=1'); };
-    document.getElementById('brandLink').href      = _siteUrl;
     document.getElementById('signupLink').onclick  = e => { e.preventDefault(); _goWithToken(_siteUrl + '?register=1'); };
     document.getElementById('loginBtn').onclick    = e => { e.preventDefault(); _goWithToken(_siteUrl + '?login=1'); };
 
