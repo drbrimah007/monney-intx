@@ -75,6 +75,20 @@
     @media(max-width:640px) { .hide-mobile { display: none; } }
     .mobile-label { display: none; }
     @media(max-width:640px) { .mobile-label { display: block; } }
+    /* ── Bulk selection ─────────────────────────────────────────────── */
+    .sel-cb { width:16px;height:16px;cursor:pointer;accent-color:var(--accent); }
+    th.sel-col, td.sel-col { width:36px;text-align:center;padding:6px 4px; }
+    tr.row-selected td { background:rgba(108,99,255,.1) !important; }
+    .bulk-bar { position:fixed;bottom:0;left:0;right:0;z-index:500;background:var(--bg2);border-top:2px solid var(--accent);
+      padding:10px 16px;display:none;align-items:center;gap:10px;flex-wrap:wrap;box-shadow:0 -4px 20px rgba(0,0,0,.25); }
+    .bulk-bar.visible { display:flex; }
+    .bulk-bar .bulk-count { font-weight:700;font-size:13px;color:var(--accent);min-width:90px; }
+    .bulk-bar button { font-size:12px;font-weight:600;padding:6px 12px;border-radius:7px;border:1px solid var(--border);
+      background:var(--bg3);color:var(--text);cursor:pointer;white-space:nowrap; }
+    .bulk-bar button:hover { background:var(--accent);color:#fff;border-color:var(--accent); }
+    .bulk-bar .bulk-del { border-color:var(--red);color:var(--red); }
+    .bulk-bar .bulk-del:hover { background:var(--red);color:#fff; }
+    .bulk-bar .bulk-cancel { margin-left:auto; }
     /* ── Mobile modal: pin to top so keyboard doesn't push form off screen ── */
     @media(max-width:640px) {
       .modal-bg { align-items: flex-start; padding: 10px 8px; overflow-y: auto; overflow-x: hidden; }
@@ -997,7 +1011,7 @@
       const c = db.contacts.find(x => x.id === cid);
       if (!c) return { toy: 0, yot: 0, net: 0 };
       let toy = c.startToy || 0, yot = c.startYot || 0;
-      db.entries.filter(e => e.cId === cid && e.status !== 'voided').forEach(e => {
+      db.entries.filter(e => e.cId === cid && e.status !== 'voided' && !e.noLedger).forEach(e => {
         const a = Math.abs(parseFloat(e.amount) || 0);
         const dir = TX_LEDGER[e.txType] || '';
         if      (dir === 'toy')        toy += a;
@@ -1289,6 +1303,8 @@
 
     function nav(page, _skipHash) {
       if (document.getElementById('nav').classList.contains('open')) toggleMobileNav();
+      // Clean up bulk bar + select mode when navigating away from entries
+      if (page !== 'entries') { document.getElementById('_bulkBar')?.remove(); window._selectMode = false; window._selectedEntries = new Set(); }
       const role = curRole();
       if (page === 'dash' && (role === 'admin' || role === 'standard' || role === 'contact')) { _curPage = 'dash'; renderDash(); }
       else if (page === 'contacts' && (role === 'admin' || role === 'standard')) { _curPage = 'contacts'; renderContacts(); }
@@ -2802,12 +2818,20 @@
         </div>`;
       }
 
+      const _sm = window._selectMode || false;
+      // Collect IDs of all own-entry rows visible on this page (for select-all)
+      const _selPageIds = p.items.filter(item => !item.token).map(item => item.id);
+
       html += `<div class="card">
         <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;flex-wrap:wrap;">
           <input type="search" id="entries_search_input" placeholder="Search entries…" value="${esc(window._search_entries||'')}" style="flex:1;min-width:180px;max-width:340px;">
           <button class="bs sm${sortDesc?' on':''}" onclick="window._sort_entries=!${sortDesc};renderEntries()" title="Sort order">${sortDesc?'↓ Latest first':'↑ Oldest first'}</button>
+          <button class="bs sm${_sm?' on':''}" onclick="_toggleSelectMode()" title="Select entries for bulk actions" style="${_sm?'background:var(--accent);color:#fff;border-color:var(--accent);':''}">☑ Select</button>
         </div>
-        <div class="tbl-wrap"><table><thead><tr><th>Contact</th><th class="hide-mobile">Doc #</th><th>Amount</th><th class="hide-mobile">Type</th><th>Date</th><th>Status</th><th style="width:80px;">Action</th></tr></thead><tbody>`;
+        <div class="tbl-wrap"><table><thead><tr>
+          ${_sm ? `<th class="sel-col"><input type="checkbox" class="sel-cb" id="_selAllCb" title="Select all" onchange="_selectAllEntries(${JSON.stringify(_selPageIds)})"></th>` : ''}
+          <th>Contact</th><th class="hide-mobile">Doc #</th><th>Amount</th><th class="hide-mobile">Type</th><th>Date</th><th>Status</th><th style="width:80px;">Action</th>
+        </tr></thead><tbody>`;
 
       p.items.forEach(item => {
         // Determine if this is a shared record (from _cachedSharedRecords) or own entry
@@ -2840,7 +2864,9 @@
             ? `<span style="font-size:10px;background:rgba(251,191,36,.18);color:#d97706;border-radius:4px;padding:1px 5px;margin-left:3px;">⏳ Pending</span>`
             : `<span style="font-size:10px;background:rgba(108,99,255,.12);color:var(--accent);border-radius:4px;padding:1px 5px;margin-left:3px;">🔗 Shared</span>`;
           const isSettledE = e?.status === 'settled' || e?.status === 'paid';
-          html += `<tr style="background:${isPending?'rgba(251,191,36,.05)':'rgba(108,99,255,.04)'};">
+          const _selSharedId = r.token; // use token as id for shared rows
+          html += `<tr style="background:${isPending?'rgba(251,191,36,.05)':'rgba(108,99,255,.04)'};"${_sm&&window._selectedEntries.has(_selSharedId)?' class="row-selected"':''}>
+            ${_sm ? `<td class="sel-col"><input type="checkbox" class="sel-cb entry-sel-cb" data-id="${esc(_selSharedId)}" ${window._selectedEntries.has(_selSharedId)?'checked':''} onchange="_toggleEntrySelect('${esc(_selSharedId)}')"></td>` : ''}
             <td>${nameHtmlE} ${sharedPill}</td>
             <td class="hide-mobile"><span style="color:var(--muted);">—</span></td>
             <td><strong>${fmt(rawAmt)}</strong><div class="mobile-label" style="font-size:11px;font-weight:700;color:${dirColor};margin-top:2px;">${esc(dirLabel)}</div></td>
@@ -2858,8 +2884,11 @@
           // ── Own entry row ───────────────────────────────────────────────
           const e = item;
           const c = db.contacts.find(x => x.id === e.cId);
-          html += `<tr>
-            <td>${cLink(e.cId, c?.name || '—')}</td>
+          const _isSel = _sm && window._selectedEntries.has(e.id);
+          const _noLedgPill = e.noLedger ? `<span title="Excluded from ledger balance" style="font-size:9px;background:rgba(245,158,11,.15);color:#b45309;border-radius:3px;padding:1px 4px;margin-left:3px;font-weight:700;">⊘ Ledger</span>` : '';
+          html += `<tr${_isSel?' class="row-selected"':''}>
+            ${_sm ? `<td class="sel-col"><input type="checkbox" class="sel-cb entry-sel-cb" data-id="${e.id}" ${_isSel?'checked':''} onchange="_toggleEntrySelect('${e.id}')"></td>` : ''}
+            <td>${cLink(e.cId, c?.name || '—')}${_noLedgPill}</td>
             <td class="hide-mobile">${(()=>{ const lbl = e.invoiceNumber || (e.entryNum ? '#'+String(e.entryNum).padStart(4,'0') : null); return lbl ? `<button class="gh sm" style="font-size:12px;font-weight:700;color:var(--accent);padding:2px 6px;" onclick="openEntryInvoice('${e.id}')" title="View record">${esc(lbl)}</button>` : '<span style="color:var(--muted);">—</span>'; })()}</td>
             <td>${_fmtAmtCell(e.id,`<div class="mobile-label" style="font-size:11px;font-weight:700;color:${txTypeColor(e.txType)};margin-top:2px;">${esc(TXL[e.txType]||e.txType)}</div>`)}</td>
             <td class="hide-mobile"><button class="gh sm" style="font-size:13px;padding:2px 6px;font-weight:700;color:${txTypeColor(e.txType)};" onclick="openEntryInvoice('${e.id}')" title="View record">${esc(TXL[e.txType]||e.txType)}</button></td>
@@ -2874,6 +2903,7 @@
               <button onclick="toggleArchiveEntry('${e.id}')">${e.archived ? '📤 Unarchive' : '📥 Archive'}</button>
               ${e.status !== 'voided' ? `<button onclick="voidEntry('${e.id}')" style="color:var(--amber);">🚫 Void</button>` : ''}
               <button onclick="${e.status==='closed' ? 'reopenEntry' : 'openCloseModal'}('${e.id}')">${e.status==='closed' ? '🔓 Reopen' : '🔒 Close Record'}</button>
+              ${e.noLedger ? `<button onclick="(function(){var _e=db.entries.find(x=>x.id==='${e.id}');if(_e){delete _e.noLedger;save();toast('Restored to ledger');renderEntries();}})()">📊 Restore to Ledger</button>` : `<button onclick="(function(){var _e=db.entries.find(x=>x.id==='${e.id}');if(_e){_e.noLedger=true;save();toast('Removed from ledger');renderEntries();}})()">⊘ Remove from Ledger</button>`}
               <button onclick="delEntry('${e.id}')" style="color: var(--red);">🗑 Delete</button>
             </div></div></td>
           </tr>`;
@@ -2887,11 +2917,30 @@
           <button class="bs sm" onclick="PG['entries'] = Math.min(${p.pages}, (PG['entries']||1)+1); renderEntries()" ${p.page === p.pages ? 'disabled' : ''}>Next →</button>
         </div>`;
       html += '</div>';
+
       // Placeholder for Shared With You section below entries (dashboard-style)
       if (isStd) {
         html += `<div id="entries-shared-with-me" style="margin-top:0;"></div>`;
       }
       document.getElementById('content').innerHTML = html;
+
+      // ── Floating bulk action bar — injected to body so it's truly fixed ──
+      document.getElementById('_bulkBar')?.remove();
+      if (_sm) {
+        const _bulkEl = document.createElement('div');
+        const _initVis = window._selectedEntries.size > 0 ? ' visible' : '';
+        _bulkEl.innerHTML = `<div id="_bulkBar" class="bulk-bar${_initVis}">
+          <span class="bulk-count" id="_bulkCount">${window._selectedEntries.size} selected</span>
+          <button onclick="_bulkAction('archive')">📥 Archive</button>
+          <button onclick="_bulkAction('unarchive')">📤 Unarchive</button>
+          <button onclick="_bulkAction('void')" style="color:var(--amber);border-color:var(--amber);">🚫 Void</button>
+          <button onclick="_bulkAction('noledger')">⊘ Rm Ledger</button>
+          <button onclick="_bulkAction('ledger')">📊 Restore Ledger</button>
+          <button onclick="_bulkAction('delete')" class="bulk-del">🗑 Delete</button>
+          <button onclick="_toggleSelectMode()" class="bulk-cancel">✕ Cancel</button>
+        </div>`;
+        document.body.appendChild(_bulkEl.firstElementChild);
+      }
       // Load/refresh shared-with-me data (updates both tab counts and the section below)
       // Skip if we were called FROM _loadSharedWithMe to prevent infinite loop
       if (isStd && !window._sharedLoadInProgress) {
@@ -3793,6 +3842,113 @@
       logAudit('reopen_entry', { eid });
       toast('Record reopened');
       refreshCurPage();
+    }
+
+    /* ══════════════════════════════════════════════════════════════════
+       BULK SELECTION — state, toggle helpers, bulk action dispatcher
+       ══════════════════════════════════════════════════════════════════ */
+    window._selectedEntries = window._selectedEntries || new Set();
+    window._selectMode      = window._selectMode      || false;
+
+    function _toggleSelectMode() {
+      window._selectMode = !window._selectMode;
+      if (!window._selectMode) window._selectedEntries = new Set();
+      renderEntries();
+    }
+
+    // Called by each row's checkbox — updates selection and refreshes bar only
+    function _toggleEntrySelect(id) {
+      if (window._selectedEntries.has(id)) window._selectedEntries.delete(id);
+      else window._selectedEntries.add(id);
+      _updateBulkBar();
+    }
+
+    // Select / deselect all ids on current page
+    function _selectAllEntries(ids) {
+      const allSel = ids.length > 0 && ids.every(id => window._selectedEntries.has(id));
+      ids.forEach(id => allSel ? window._selectedEntries.delete(id) : window._selectedEntries.add(id));
+      // Sync checkboxes without full re-render
+      document.querySelectorAll('.entry-sel-cb').forEach(cb => {
+        cb.checked = window._selectedEntries.has(cb.dataset.id);
+        cb.closest('tr')?.classList.toggle('row-selected', cb.checked);
+      });
+      const selAllCb = document.getElementById('_selAllCb');
+      if (selAllCb) selAllCb.checked = !allSel;
+      _updateBulkBar();
+    }
+
+    // Refresh bulk bar without re-rendering the whole table
+    function _updateBulkBar() {
+      const n = window._selectedEntries.size;
+      const bar = document.getElementById('_bulkBar');
+      if (!bar) return;
+      document.getElementById('_bulkCount').textContent = n + ' selected';
+      bar.classList.toggle('visible', n > 0);
+      // Keep checkboxes and row highlight in sync
+      document.querySelectorAll('.entry-sel-cb').forEach(cb => {
+        const sel = window._selectedEntries.has(cb.dataset.id);
+        cb.checked = sel;
+        cb.closest('tr')?.classList.toggle('row-selected', sel);
+      });
+      const allCbs = [...document.querySelectorAll('.entry-sel-cb')];
+      const selAllCb = document.getElementById('_selAllCb');
+      if (selAllCb) selAllCb.checked = allCbs.length > 0 && allCbs.every(cb => cb.checked);
+    }
+
+    // Bulk action dispatcher
+    function _bulkAction(action) {
+      const ids = [...window._selectedEntries];
+      if (ids.length === 0) return toast('No entries selected');
+      // Only own (non-shared) entries support most bulk actions
+      const ownIds = ids.filter(id => db.entries.find(e => e.id === id));
+
+      if (action === 'delete') {
+        if (!confirm('Delete ' + ownIds.length + ' entr' + (ownIds.length === 1 ? 'y' : 'ies') + '? This cannot be undone.')) return;
+        ownIds.forEach(id => {
+          const e = db.entries.find(x => x.id === id);
+          if (e?.linkedInvoiceId) { _syncInvoiceStatus(e.linkedInvoiceId); _pushShareStatus(e.linkedInvoiceId); }
+          db.entries = db.entries.filter(x => x.id !== id);
+        });
+        logAudit('bulk_delete', { count: ownIds.length });
+        toast('🗑 ' + ownIds.length + ' entries deleted');
+
+      } else if (action === 'archive') {
+        ownIds.forEach(id => { const e = db.entries.find(x => x.id === id); if (e) e.archived = true; });
+        logAudit('bulk_archive', { count: ownIds.length });
+        toast('📥 ' + ownIds.length + ' entries archived');
+
+      } else if (action === 'unarchive') {
+        ownIds.forEach(id => { const e = db.entries.find(x => x.id === id); if (e) e.archived = false; });
+        logAudit('bulk_unarchive', { count: ownIds.length });
+        toast('📤 ' + ownIds.length + ' entries unarchived');
+
+      } else if (action === 'void') {
+        if (!confirm('Void ' + ownIds.length + ' entr' + (ownIds.length === 1 ? 'y' : 'ies') + '?')) return;
+        ownIds.forEach(id => {
+          const e = db.entries.find(x => x.id === id);
+          if (e) {
+            e.status = 'voided';
+            if (e.linkedInvoiceId) { _syncInvoiceStatus(e.linkedInvoiceId); _pushShareStatus(e.linkedInvoiceId); }
+          }
+        });
+        logAudit('bulk_void', { count: ownIds.length });
+        toast('🚫 ' + ownIds.length + ' entries voided');
+
+      } else if (action === 'noledger') {
+        ownIds.forEach(id => { const e = db.entries.find(x => x.id === id); if (e) e.noLedger = true; });
+        logAudit('bulk_noledger', { count: ownIds.length });
+        toast('📊 ' + ownIds.length + ' entries removed from ledger balance');
+
+      } else if (action === 'ledger') {
+        ownIds.forEach(id => { const e = db.entries.find(x => x.id === id); if (e) delete e.noLedger; });
+        logAudit('bulk_restore_ledger', { count: ownIds.length });
+        toast('📊 ' + ownIds.length + ' entries restored to ledger');
+      }
+
+      save();
+      window._selectedEntries = new Set();
+      window._selectMode = false;
+      renderEntries();
     }
 
     function delEntry(eid) {
