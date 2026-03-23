@@ -1458,6 +1458,39 @@
         }
         const records = data.shared;
         _cachedSharedRecords = records; // cache for getLedger contact balance calculations
+
+        // ── Auto-add senders as contacts (catch-up) ───────────────────────
+        // Runs every time shared records load — ensures senders are always in contacts
+        // even if the initial _acceptShare save failed or was lost on reload.
+        if (!_impersonatingDataUserId) {
+          const u = curUser();
+          if (u) {
+            let contactAdded = false;
+            for (const r of records) {
+              const e = r.entry;
+              if (!e?.fromName) continue;
+              const nameLower = (e.fromName || '').toLowerCase().trim();
+              const exists = db.contacts.find(c =>
+                c.userId === u.id && (c.name || '').toLowerCase().trim() === nameLower
+              );
+              if (!exists) {
+                db.contacts.push({
+                  id: uuid(), userId: u.id,
+                  name: e.fromName,
+                  email: e.fromEmail || '',
+                  phone: '', address: '', notes: 'Added from shared record',
+                  tags: [], archived: false, photo: '', linkedUserId: null,
+                  createdAt: Date.now()
+                });
+                contactAdded = true;
+              }
+            }
+            if (contactAdded) {
+              saveNow().catch(() => {}); // non-blocking, best-effort
+            }
+          }
+        }
+
         // If contacts page is open, refresh it so balances reflect shared records
         if (_curPage === 'contacts') renderContacts();
         // If there are shared records, hide the onboarding CTA
@@ -6337,8 +6370,8 @@
         });
         sessionStorage.removeItem('pendingShareToken');
         sessionStorage.setItem('justLinkedShare', '1');
-        // Auto-add sender as contact if not already present
-        if (_pendingShareEntry?.fromName) {
+        // Auto-add sender as contact (immediate) — also runs as catch-up in _loadSharedWithMe
+        if (_pendingShareEntry?.fromName && !_impersonatingDataUserId) {
           const u = curUser();
           if (u) {
             const nameLower = (_pendingShareEntry.fromName || '').toLowerCase().trim();
@@ -6354,7 +6387,7 @@
                 tags: [], archived: false, photo: '', linkedUserId: null,
                 createdAt: Date.now()
               });
-              await saveNow();
+              try { await saveNow(); } catch(saveErr) { console.warn('[acceptShare] contact save failed:', saveErr); }
             }
           }
         }
