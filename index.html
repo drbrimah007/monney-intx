@@ -2821,6 +2821,8 @@
       const _sm = window._selectMode || false;
       // Collect IDs of all own-entry rows visible on this page (for select-all)
       const _selPageIds = p.items.filter(item => !item.token).map(item => item.id);
+      // Store page IDs in window so the onchange handler can reference without quote conflicts
+      window._entryPageIds = _selPageIds;
 
       html += `<div class="card">
         <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;flex-wrap:wrap;">
@@ -2829,7 +2831,7 @@
           <button class="bs sm${_sm?' on':''}" onclick="_toggleSelectMode()" title="Select entries for bulk actions" style="${_sm?'background:var(--accent);color:#fff;border-color:var(--accent);':''}">☑ Select</button>
         </div>
         <div class="tbl-wrap"><table><thead><tr>
-          ${_sm ? `<th class="sel-col"><input type="checkbox" class="sel-cb" id="_selAllCb" title="Select all" onchange="_selectAllEntries(${JSON.stringify(_selPageIds)})"></th>` : ''}
+          ${_sm ? `<th class="sel-col"><input type="checkbox" class="sel-cb" id="_selAllCb" title="Select all" onchange="_selectAllEntries(window._entryPageIds)"></th>` : ''}
           <th>Contact</th><th class="hide-mobile">Doc #</th><th>Amount</th><th class="hide-mobile">Type</th><th>Date</th><th>Status</th><th style="width:80px;">Action</th>
         </tr></thead><tbody>`;
 
