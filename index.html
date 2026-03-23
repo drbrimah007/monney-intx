@@ -3394,14 +3394,30 @@
     let _editTid = null; // template being edited
 
     // ── PUBLIC TEMPLATE DB ─────────────────────────────────────────────
-    function renderTemplateDB() {
-      if (!db.templates) db.templates = [];
+    // Cache fetched templates so re-renders during search don't re-fetch
+    window._tdbCache = window._tdbCache || null;
+
+    async function renderTemplateDB() {
+      const content = document.getElementById('content');
+
+      // Skeleton while loading
+      if (!window._tdbCache) {
+        content.innerHTML = `<div class="page-header"><div><button class="gh sm" onclick="nav('templates')" style="margin-bottom:6px;">← Back to Templates</button><h2>🌐 Public Template DB</h2></div></div>
+          <div class="card"><p style="color:var(--muted);text-align:center;padding:32px;">Loading templates…</p></div>`;
+        try {
+          const res = await fetch('/api/templates', { credentials: 'include' });
+          const data = await res.json();
+          if (data.ok) window._tdbCache = data.templates || [];
+          else window._tdbCache = [];
+        } catch (_) { window._tdbCache = []; }
+      }
+
       const q = (window._search_tdb||'').toLowerCase().trim();
-      const allPublic = db.templates.filter(t => t.isPublic && !t.archived);
-      const listed = q ? allPublic.filter(t => (t.name||'').toLowerCase().includes(q) || (t.desc||'').toLowerCase().includes(q) || (t.creatorName||'').toLowerCase().includes(q)) : allPublic;
-      const sorted = [...listed].sort((a,b) => (b.createdAt||0)-(a.createdAt||0));
       const u = curUser();
-      const myIds = new Set(db.templates.filter(t => t.copiedFrom && t.userId === u.id).map(t => t.copiedFrom));
+      const myIds = new Set((db.templates||[]).filter(t => t.copiedFrom).map(t => t.copiedFrom));
+      const listed = q
+        ? window._tdbCache.filter(t => (t.name||'').toLowerCase().includes(q) || (t.desc||'').toLowerCase().includes(q) || (t.creatorName||'').toLowerCase().includes(q))
+        : window._tdbCache;
 
       let html = `<div class="page-header">
         <div>
@@ -3414,11 +3430,11 @@
         <input type="search" placeholder="Search by name, description, or creator…" value="${esc(window._search_tdb||'')}" oninput="window._search_tdb=this.value;renderTemplateDB()" style="max-width:420px;width:100%;">
       </div>`;
 
-      if (sorted.length === 0) {
+      if (listed.length === 0) {
         html += `<div class="card"><p style="color:var(--muted);text-align:center;padding:32px;">${q ? 'No templates match your search.' : 'No public templates yet. Share your templates to the DB from the Template editor.'}</p></div>`;
       } else {
         html += `<div style="display:flex;flex-direction:column;gap:12px;">`;
-        sorted.forEach(t => {
+        listed.forEach(t => {
           const alreadyCopied = myIds.has(t.id);
           const fCount = (t.fields||[]).length;
           const txLabel = TXL[t.txType] || t.txType || '';
@@ -3432,15 +3448,15 @@
                   <span class="badge badge-gray">${fCount} field${fCount!==1?'s':''}</span>
                   ${t.creatorName ? `<span style="font-size:12px;color:var(--muted);">by <strong>${esc(t.creatorName)}</strong></span>` : ''}
                 </div>
-                ${(t.fields||[]).length > 0 ? `<div style="margin-top:10px;display:flex;flex-wrap:wrap;gap:5px;">
+                ${fCount > 0 ? `<div style="margin-top:10px;display:flex;flex-wrap:wrap;gap:5px;">
                   ${(t.fields||[]).slice(0,6).map(f=>`<span style="background:var(--bg3);border:1px solid var(--border);border-radius:5px;padding:2px 8px;font-size:11px;">${esc(f.label||'?')}</span>`).join('')}
-                  ${(t.fields||[]).length > 6 ? `<span style="font-size:11px;color:var(--muted);">+${(t.fields||[]).length-6} more</span>` : ''}
+                  ${fCount > 6 ? `<span style="font-size:11px;color:var(--muted);">+${fCount-6} more</span>` : ''}
                 </div>` : ''}
               </div>
               <div style="flex-shrink:0;">
                 <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;">
                   ${alreadyCopied ? `<span class="badge badge-green" style="padding:5px 10px;">✓ Copied</span>` : ''}
-                  <button class="btn sm" onclick="loadPublicTemplate('${t.id}')">${alreadyCopied ? '📋 Load Again' : '📋 Load Template'}</button>
+                  <button class="btn sm" onclick="loadPublicTemplate('${esc(t.id)}','${esc(t.name)}')">${alreadyCopied ? '📋 Load Again' : '📋 Load Template'}</button>
                 </div>
               </div>
             </div>
@@ -3448,11 +3464,12 @@
         });
         html += `</div>`;
       }
-      document.getElementById('content').innerHTML = html;
+      content.innerHTML = html;
     }
 
-    function loadPublicTemplate(tid) {
-      const src = db.templates.find(x => x.id === tid);
+    function loadPublicTemplate(tid, tname) {
+      // Find in server cache first, fall back to local db
+      const src = (window._tdbCache||[]).find(x => x.id === tid) || db.templates.find(x => x.id === tid);
       if (!src) return;
       if (!confirm(`Copy "${src.name}" to your templates?\nYou will get your own editable copy. The original will not be changed.`)) return;
       const u = curUser();
@@ -3648,6 +3665,7 @@
         t.creatorName = u.displayName || u.username || 'Unknown';
       }
       save(); logAudit('edit_template', { tid: t.id, name: meta.name, isPublic }); toast('Template saved');
+      window._tdbCache = null; // invalidate Template DB cache so it re-fetches on next visit
       renderTemplateBuilder(t);
     }
 
