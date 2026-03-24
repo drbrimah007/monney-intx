@@ -7130,18 +7130,17 @@
       if (!silent) { save(); logAudit('update_notif_defaults', {}); toast('Notification defaults saved'); }
     }
 
-    function saveProfile() {
+    async function saveProfile() {
       const u = curUser();
-      u.displayName = document.getElementById('pdisplayname').value.trim() || u.displayName;
+      const displayName = document.getElementById('pdisplayname').value.trim() || u.displayName;
       const newUsername = (document.getElementById('pusername')?.value||'').trim().replace(/\s+/g,'_');
+      const newEmail = (document.getElementById('pemail')?.value||'').trim();
+      if (!displayName) { alert('Display name is required.'); return; }
+      if (!newEmail || !newEmail.includes('@')) { alert('A valid email is required.'); return; }
+      // Update local state
+      u.displayName = displayName;
       if (newUsername) u.username = newUsername;
-      // Unique email check for profile save
-      const newEmail = document.getElementById('pemail')?.value.trim()||'';
-      if (newEmail) {
-        const conflict = db.users.find(x=>x.email&&x.email.toLowerCase()===newEmail.toLowerCase()&&x.id!==u.id);
-        if (conflict) { alert('This email is already in use. Use a different email address.'); return; }
-      }
-      u.email = document.getElementById('pemail').value;
+      u.email = newEmail;
       u.phone = document.getElementById('pphone').value;
       u.address = document.getElementById('paddr').value;
       u.notifPrefs = {
@@ -7153,7 +7152,25 @@
       save();
       updateUserInfo();
       logAudit('update_profile', { uid: u.id });
-      toast('Profile saved');
+      // Also update the server users table so changes persist across reloads
+      if (_IS_SERVER) {
+        try {
+          const _tok = localStorage.getItem('mxi_token');
+          const _headers = { 'Content-Type': 'application/json' };
+          if (_tok) _headers['Authorization'] = 'Bearer ' + _tok;
+          const res = await fetch('/api/auth/profile', {
+            method: 'POST', credentials: 'include', headers: _headers,
+            body: JSON.stringify({ displayName, username: newUsername || u.username, email: newEmail })
+          });
+          const data = await res.json();
+          if (!data.ok) { toast('⚠️ ' + (data.error || 'Profile sync failed'), 4000); return; }
+          toast('Profile saved');
+        } catch (e) {
+          toast('⚠️ Saved locally but server sync failed', 4000);
+        }
+      } else {
+        toast('Profile saved');
+      }
     }
 
     // ============ AUTH HELPERS ============
