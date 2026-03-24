@@ -7503,8 +7503,60 @@
       if (_curPage === 'contacts') renderContacts();
     }
 
-    // Mark a received shared record as paid/settled
-    async function _sharedMarkPaid(token) {
+    // Mark a received shared record as paid/settled — opens confirmation modal first
+    function _sharedMarkPaid(token) {
+      // Look up the record to show amount context
+      const r   = (_cachedSharedRecords || []).find(x => x.token === token);
+      const _se = db.entries.find(e => e.shareToken === token);
+      const rawAmt = parseFloat(r?.entry?.amount || _se?.amount || 0);
+      const fromName = r?.entry?._resolvedFromName || r?.entry?.fromName || _se?.fromName || 'sender';
+
+      document.getElementById('shMarkPaidBg')?.remove();
+      const d = document.createElement('div');
+      d.innerHTML = `<div id="shMarkPaidBg" style="position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:2000;display:flex;align-items:center;justify-content:center;padding:16px;" onclick="if(event.target===this)this.remove()">
+        <div style="background:var(--card);border-radius:14px;max-width:400px;width:100%;padding:24px;box-shadow:0 20px 60px rgba(0,0,0,.25);" onclick="event.stopPropagation()">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
+            <h3 style="margin:0;font-size:16px;">✅ Record Settlement</h3>
+            <button class="gh sm" onclick="document.getElementById('shMarkPaidBg').remove()">✕</button>
+          </div>
+          <div style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:12px 14px;margin-bottom:14px;font-size:13px;line-height:1.8;">
+            <div style="display:flex;justify-content:space-between;"><span style="color:var(--muted);">From</span><strong>${esc(fromName)}</strong></div>
+            <div style="display:flex;justify-content:space-between;border-top:1px solid var(--border);margin-top:6px;padding-top:6px;font-weight:700;"><span>Amount</span><span>${fmt(rawAmt)}</span></div>
+          </div>
+          <div class="fg" style="margin-bottom:4px;">
+            <label>Amount settled</label>
+            <input type="number" id="shMarkPaidAmt" step="0.01" min="0.01"
+              placeholder="Leave blank for full amount (${fmt(rawAmt)})"
+              style="width:100%;box-sizing:border-box;">
+          </div>
+          <div id="shMarkPaidErr" style="color:var(--red);font-size:12px;margin-bottom:12px;display:none;"></div>
+          <div style="background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.3);border-radius:6px;padding:10px 12px;font-size:12px;color:#b45309;margin-bottom:14px;">
+            ⚠️ This records that the balance has been settled outside this app. Money IntX does not process payments.
+          </div>
+          <div style="display:flex;gap:8px;justify-content:flex-end;border-top:1px solid var(--border);padding-top:14px;">
+            <button class="bs sm" onclick="document.getElementById('shMarkPaidBg').remove()">Cancel</button>
+            <button class="btn sm" id="shMarkPaidBtn" onclick="_sharedMarkPaidSubmit('${token}', ${rawAmt})">✅ Confirm Settled</button>
+          </div>
+        </div>
+      </div>`;
+      document.body.appendChild(d.firstChild);
+      setTimeout(() => document.getElementById('shMarkPaidAmt')?.focus(), 80);
+      document.getElementById('shMarkPaidAmt')?.addEventListener('keydown', ev => {
+        if (ev.key === 'Enter') document.getElementById('shMarkPaidBtn')?.click();
+      });
+    }
+
+    async function _sharedMarkPaidSubmit(token, fullAmt) {
+      const rawVal = (document.getElementById('shMarkPaidAmt')?.value || '').trim();
+      const errEl  = document.getElementById('shMarkPaidErr');
+      const btn    = document.getElementById('shMarkPaidBtn');
+      const amt    = rawVal === '' ? fullAmt : parseFloat(rawVal);
+      if (isNaN(amt) || amt <= 0) {
+        if (errEl) { errEl.textContent = 'Enter a valid amount greater than zero.'; errEl.style.display = 'block'; }
+        return;
+      }
+      if (errEl) errEl.style.display = 'none';
+      if (btn) { btn.disabled = true; btn.textContent = '⏳ Saving…'; }
       try {
         const res = await fetch('/api/share', {
           method: 'POST', credentials: 'include',
@@ -7513,19 +7565,25 @@
         });
         const data = await res.json();
         if (data.ok) {
-          // Update in-memory cache so UI reflects immediately
+          document.getElementById('shMarkPaidBg')?.remove();
+          // Update in-memory cache
           const r = (_cachedSharedRecords || []).find(x => x.token === token);
           if (r && r.entry) r.entry.status = 'settled';
-          // ── Sync unified record layer: update status on db.entries entry ─
+          // Sync unified record layer
           const _se = db.entries.find(e => e.shareToken === token);
           if (_se) { _se.status = 'settled'; save(); }
-          toast('Marked as paid');
+          toast(`Settlement of ${fmt(amt)} recorded`);
           _loadSharedWithMe();
           if (_curPage === 'entries') renderEntries();
+          if (_curPage === 'dash') renderDash();
         } else {
-          toast('Failed to mark paid');
+          toast('Failed to record settlement');
+          if (btn) { btn.disabled = false; btn.textContent = '✅ Confirm Settled'; }
         }
-      } catch(_) { toast('Failed to mark paid'); }
+      } catch(_) {
+        toast('Failed to record settlement');
+        if (btn) { btn.disabled = false; btn.textContent = '✅ Confirm Settled'; }
+      }
     }
 
     function _sharedDepreciateModal(token, fromName, currentAmt) {
