@@ -1780,7 +1780,9 @@
         // This is idempotent (_insertSharedEntry checks for existing shareToken).
         if (!_impersonatingDataUserId) {
           let migrated = false;
+          let _dbgTotal = 0, _dbgConfirmed = 0, _dbgInserted = 0, _dbgUpdated = 0, _dbgSkipped = 0;
           for (const mr of records) {
+            _dbgTotal++;
             // Auto-confirm SELLER-initiated settlement receipts only.
             // Buyer-initiated (settledByRecipient) already have credit entries from mark-paid.
             if (!mr.confirmed && mr.entry && !mr.entry.settledByRecipient && (
@@ -1788,6 +1790,7 @@
               mr.entry.txType === 'they_paid_you' || mr.entry.txType === 'you_paid_them'
             )) { mr.confirmed = true; }
             if (mr.confirmed && !mr.recipientClosed && !(mr.entry?.dismissed)) {
+              _dbgConfirmed++;
               const _existingE = db.entries.find(e => e.shareToken === mr.token);
               // Run _insertSharedEntry if:
               //   (a) entry doesn't exist yet — initial migration
@@ -1795,6 +1798,7 @@
               //   (c) entry exists but cId is null — auto-contact creation missed it
               if (!_existingE || _existingE.noLedger || !_existingE.cId) {
                 _insertSharedEntry(mr);
+                _dbgInserted++;
                 migrated = true;
               } else if (_existingE && mr.entry) {
                 // ── Status + amount sync: keep recipient's isShared entry in sync with token ──
@@ -1816,9 +1820,11 @@
               }
             }
           }
+          console.log(`[loadSharedWithMe] total=${_dbgTotal} confirmed=${_dbgConfirmed} inserted=${_dbgInserted} dbEntries=${db.entries.length}`);
           if (migrated) {
-            console.log('[loadSharedWithMe] Inserted/updated entries, count now:', db.entries.length);
+            console.log('[loadSharedWithMe] Saving', db.entries.length, 'entries to server…');
             try { await saveNow(); } catch(_) { save(); }
+            console.log('[loadSharedWithMe] Save done, entries:', db.entries.length);
           }
         }
 
