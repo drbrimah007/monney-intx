@@ -845,6 +845,9 @@
           if (!e.isReceipt) e.isReceipt = true;
         }
       });
+      // Fix isShared credit entries that have unflipped txType (from old backfill bugs)
+      // Also remove stale backfill "Settlement by sender" entries — auto-confirm handles these now
+      db.entries = db.entries.filter(e => !(e.isReceipt && e.note === 'Settlement by sender' && !e.isShared));
       // Backfill linkedInvoiceId for settlement entries created before this feature
       // They have notes like "Settlement for INV-0001" or "Settlement for #0001"
       db.entries.forEach(e => {
