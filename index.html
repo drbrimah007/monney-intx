@@ -1137,11 +1137,15 @@
       let toy = c.startToy || 0, yot = c.startYot || 0;
       db.entries.filter(e => e.cId === cid && e.status !== 'voided' && !e.noLedger).forEach(e => {
         const a = Math.abs(parseFloat(e.amount) || 0);
+        // For shared invoices with settlement data, use remaining amount
+        const effectiveAmt = (e.isShared && parseFloat(e.settledAmt) > 0)
+          ? Math.max(0, a - Math.abs(parseFloat(e.settledAmt) || 0))
+          : a;
         const dir = TX_LEDGER[e.txType] || '';
-        if      (dir === 'toy')        toy += a;
-        else if (dir === 'toy_credit') toy = Math.max(0, toy - a);
-        else if (dir === 'yot')        yot += a;
-        else if (dir === 'yot_credit') yot = Math.max(0, yot - a);
+        if      (dir === 'toy')        toy += effectiveAmt;
+        else if (dir === 'toy_credit') toy = Math.max(0, toy - effectiveAmt);
+        else if (dir === 'yot')        yot += effectiveAmt;
+        else if (dir === 'yot_credit') yot = Math.max(0, yot - effectiveAmt);
       });
       // Confirmed shared records (isShared:true, noLedger not set) ARE included —
       // they were confirmed by the user and count toward the contact's balance.
@@ -1750,6 +1754,45 @@
         // from appearing as fake "Shared With You" records or causing wrong-direction reminders.
         const records = data.shared.filter(r => !r.entry?.isShared);
         _cachedSharedRecords = records; // cache for UI rendering — confirmed records are in db.entries (isShared:true)
+
+        // ── Compute settled amounts from receipt tokens ──────────────────────
+        // Receipt share tokens (they_paid_you/you_paid_them) from the same sender
+        // represent actual settlements. Sum them per sender and update the parent
+        // invoice's settledAmt so the ledger stays in sync.
+        if (!_impersonatingDataUserId) {
+          const _receiptsBySender = {};
+          const _invoicesBySender = {};
+          for (const r of records) {
+            const e = r.entry; if (!e) continue;
+            const sender = r.ownerEmail || '';
+            if (e.txType === 'they_paid_you' || e.txType === 'you_paid_them' || e.linkedInvoiceId || e.settledByRecipient) {
+              if (!_receiptsBySender[sender]) _receiptsBySender[sender] = [];
+              _receiptsBySender[sender].push(parseFloat(e.amount || 0));
+            } else if (e.txType === 'invoice' || e.txType === 'bill' || e.txType === 'they_owe_you' || e.txType === 'you_owe_them' || e.txType === 'lend' || e.txType === 'borrow') {
+              if (!_invoicesBySender[sender]) _invoicesBySender[sender] = [];
+              _invoicesBySender[sender].push(r);
+            }
+          }
+          // Update each invoice's settledAmt from receipt totals
+          for (const sender in _receiptsBySender) {
+            const totalReceipts = _receiptsBySender[sender].reduce((s, a) => s + a, 0);
+            const invoices = _invoicesBySender[sender] || [];
+            // Distribute receipts across invoices (simple: apply to first non-settled)
+            let remaining = totalReceipts;
+            for (const inv of invoices) {
+              if (remaining <= 0) break;
+              const invAmt = parseFloat(inv.entry.amount || 0);
+              const currentSettled = parseFloat(inv.entry.settledAmt || 0);
+              const newSettled = Math.min(invAmt, Math.max(currentSettled, remaining));
+              if (newSettled > currentSettled) {
+                inv.entry.settledAmt = newSettled;
+                inv.entry.remaining = Math.max(0, invAmt - newSettled);
+                inv.entry.status = newSettled >= invAmt - 0.005 ? 'settled' : 'partially_settled';
+              }
+              remaining -= newSettled;
+            }
+          }
+        }
 
         // ── Migration: Unified Record Layer ──────────────────────────────────
         // For any already-confirmed shared records not yet in db.entries, insert them now.
