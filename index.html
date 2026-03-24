@@ -3403,7 +3403,7 @@
               <button onclick="${e.status==='closed' ? 'reopenEntry' : 'openCloseModal'}('${e.id}')">${e.status==='closed' ? '🔓 Reopen' : '🔒 Close Record'}</button>
               ${e.noLedger ? `<button onclick="(function(){var _e=db.entries.find(x=>x.id==='${e.id}');if(_e){delete _e.noLedger;save();toast('Restored to ledger');renderEntries();}})()">📊 Restore to Ledger</button>` : `<button onclick="(function(){var _e=db.entries.find(x=>x.id==='${e.id}');if(_e){_e.noLedger=true;save();toast('Removed from ledger');renderEntries();}})()">⊘ Remove from Ledger</button>`}
               <button onclick="delEntry('${e.id}')" style="color: var(--red);">🗑 Delete</button>
-            </div></div></td>
+            </div></div>`}</td>
           </tr>`;
         }
       });
