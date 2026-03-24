@@ -81,6 +81,7 @@
     tr.row-selected td { background:rgba(108,99,255,.1) !important; }
     .bulk-bar { position:fixed;bottom:0;left:0;right:0;z-index:500;background:var(--bg2);border-top:2px solid var(--accent);
       padding:10px 16px;display:none;align-items:center;gap:10px;flex-wrap:wrap;box-shadow:0 -4px 20px rgba(0,0,0,.25); }
+    @media(max-width:640px) { .bulk-bar { bottom:calc(56px + env(safe-area-inset-bottom));padding:8px 12px;gap:6px; } .bulk-bar button { font-size:11px;padding:5px 8px; } }
     .bulk-bar.visible { display:flex; }
     .bulk-bar .bulk-count { font-weight:700;font-size:13px;color:var(--accent);min-width:90px; }
     .bulk-bar button { font-size:12px;font-weight:600;padding:6px 12px;border-radius:7px;border:1px solid var(--border);
@@ -213,7 +214,7 @@
     .nav-dropdown-item:hover { background: var(--bg3); }
     .action-menu { position: relative; display: inline-block; }
     .action-menu-btn { background: var(--bg3); border: 1px solid var(--border); color: var(--text); border-radius: 6px; padding: 4px 10px; cursor: pointer; font-size: 18px; }
-    .action-dropdown { display: none; position: fixed; background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; min-width: 150px; z-index: 9000; box-shadow: var(--shadow); }
+    .action-dropdown { display: none; position: fixed; background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; min-width: 150px; z-index: 9000; box-shadow: var(--shadow); max-height: 70vh; overflow-y: auto; }
     .action-dropdown.open { display: block; }
     .action-dropdown button { display: block; width: 100%; text-align: left; background: none; border: none; color: var(--text); padding: 10px 16px; cursor: pointer; font-size: 13px; }
     .action-dropdown button:hover { background: var(--bg3); }
@@ -1516,9 +1517,14 @@
               const _dashRecipClr = {they_owe_you:'var(--red)',invoice:'var(--red)',bill:'var(--red)',lend:'var(--red)',you_owe_them:'var(--green)',borrow:'var(--green)',they_paid_you:'#0d9488',you_paid_them:'#0d9488',gift:'var(--green)'};
               const dashTypeLabel = _dashRecipLbl[e?.txType] || (TXL[e?.txType] || 'Shared');
               const dashTypeColor = _dashRecipClr[e?.txType] || 'var(--accent)';
+              const _dpPaid = parseFloat(e?.settledAmt||0);
+              const _dpRem = e?.remaining!=null ? parseFloat(e.remaining) : Math.max(0,rawAmt-_dpPaid);
+              const _dpSettleHtml = _dpPaid > 0
+                ? `<div style="font-size:11px;color:var(--muted);margin-top:1px;">Settled&nbsp;${fmt(_dpPaid)}</div><div style="font-size:11px;font-weight:700;color:${_dpRem<=0?'var(--green)':'var(--amber)'};">Bal&nbsp;${fmt(_dpRem)}</div>`
+                : '';
               return `<tr style="background:rgba(251,191,36,.04);">
                 <td>${sLink}${pill}</td>
-                <td><strong>${fmt(rawAmt)}</strong><div class="mobile-label" style="font-size:11px;font-weight:700;color:${dashTypeColor};margin-top:2px;">${esc(dashTypeLabel)}</div></td>
+                <td><strong>${fmt(rawAmt)}</strong><div class="mobile-label" style="font-size:11px;font-weight:700;color:${dashTypeColor};margin-top:2px;">${esc(dashTypeLabel)}</div>${_dpSettleHtml}</td>
                 <td class="hide-mobile"><span style="font-weight:700;color:${dashTypeColor};">${esc(dashTypeLabel)}</span></td>
                 <td>${e?.date ? new Date(e.date).toLocaleDateString() : '—'}</td>
                 <td>${statusBadge(e?.status||'posted')}</td>
@@ -1545,9 +1551,14 @@
               const isSettled2 = e.status === 'settled' || e.status === 'paid' || e.status === 'fulfilled' || e.status === 'cancelled';
               const viewUrl2 = `${e.fromSiteUrl||'https://moneyinteractions.com'}/view?t=${esc(e.shareToken)}`;
               const isRemindable2 = (e.senderTxType === 'you_owe_them' || e.senderTxType === 'borrow') && !isSettled2;
+              const _dcPaid = parseFloat(e.settledAmt||0);
+              const _dcRem = e.remaining!=null ? parseFloat(e.remaining) : Math.max(0,rawAmt2-_dcPaid);
+              const _dcSettleHtml = _dcPaid > 0
+                ? `<div style="font-size:11px;color:var(--muted);margin-top:1px;">Settled&nbsp;${fmt(_dcPaid)}</div><div style="font-size:11px;font-weight:700;color:${_dcRem<=0?'var(--green)':'var(--amber)'};">Bal&nbsp;${fmt(_dcRem)}</div>`
+                : '';
               return `<tr style="background:rgba(108,99,255,.03);">
                 <td>${sLink2}${sharedPill2}</td>
-                <td><strong>${fmt(rawAmt2)}</strong><div class="mobile-label" style="font-size:11px;font-weight:700;color:${dirColor2};margin-top:2px;">${esc(dirLabel2)}</div></td>
+                <td><strong>${fmt(rawAmt2)}</strong><div class="mobile-label" style="font-size:11px;font-weight:700;color:${dirColor2};margin-top:2px;">${esc(dirLabel2)}</div>${_dcSettleHtml}</td>
                 <td class="hide-mobile"><span style="font-weight:700;color:${dirColor2};">${esc(dirLabel2)}</span></td>
                 <td>${e.date ? new Date(e.date).toLocaleDateString() : '—'}</td>
                 <td>${statusBadge(e.status||'posted')}</td>
@@ -2213,8 +2224,13 @@
               var bgColor = isPendingCP ? 'rgba(251,191,36,.04)' : 'rgba(108,99,255,.03)';
               html += '<tr style="background:' + bgColor + ';">';
               html += '<td><span style="font-weight:700;color:' + dirColor + ';">' + esc(dirLabel) + '</span>' + pill + '</td>';
-              // Amount only — Type is always visible in col 1 of this table
-              html += '<td><strong>' + fmt(rawAmt) + '</strong></td>';
+              // Amount with settlement breakdown
+              var _cpPaid = parseFloat((e && e.settledAmt) || 0);
+              var _cpRem  = (e && e.remaining != null) ? parseFloat(e.remaining) : Math.max(0, rawAmt - _cpPaid);
+              var _cpAmtHtml = _cpPaid > 0
+                ? '<strong>' + fmt(rawAmt) + '</strong><div style="font-size:11px;color:var(--muted);margin-top:1px;">Settled&nbsp;' + fmt(_cpPaid) + '</div><div style="font-size:11px;font-weight:700;color:' + (_cpRem<=0?'var(--green)':'var(--amber)') + ';">Bal&nbsp;' + fmt(_cpRem) + '</div>'
+                : '<strong>' + fmt(rawAmt) + '</strong>';
+              html += '<td>' + _cpAmtHtml + '</td>';
               html += '<td>' + (e && e.date ? new Date(e.date).toLocaleDateString() : '—') + '</td>';
               html += '<td>' + statusBadge((e && e.status) || 'posted') + '</td>';
               html += '<td><div class="action-menu"><button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button><div class="action-dropdown">';
