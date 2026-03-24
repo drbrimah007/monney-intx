@@ -1005,6 +1005,73 @@
       return parseFloat(db.entries.find(x=>x.id===eid)?.amount||0);
     }
 
+    // ── CSV EXPORT HELPERS ─────────────────────────────────────────────
+    function _csvEscape(val) {
+      const s = String(val == null ? '' : val);
+      if (s.includes(',') || s.includes('"') || s.includes('\n') || s.includes('\r')) {
+        return '"' + s.replace(/"/g, '""') + '"';
+      }
+      return s;
+    }
+
+    function _exportCSV(entries, filename) {
+      const header = ['Contact','Doc #','Amount','Type','Date','Status','Notes','Settled','Remaining'];
+      const rows = [header.map(_csvEscape).join(',')];
+      entries.forEach(function(e) {
+        const contact = db.contacts.find(c => c.id === e.cId);
+        const contactName = contact ? contact.name : '';
+        const docNum = e.invoiceNumber || ('#' + String(e.entryNum || 0).padStart(4, '0'));
+        const amount = fmt(e.amount);
+        const type = TXL[e.txType] || e.txType || '';
+        const date = e.date ? new Date(e.date).toLocaleDateString() : '';
+        const status = ENTRY_STATUS[e.status] || e.status || '';
+        const notes = e.note || '';
+        let settled = '', remaining = '';
+        if (e.linkedInvoiceId || e.txType === 'invoice' || e.txType === 'bill') {
+          const st = _getInvoiceSettlement(e.id);
+          if (st.settled > 0 || st.remaining > 0) {
+            settled = fmt(st.settled);
+            remaining = fmt(st.remaining);
+          }
+        }
+        rows.push([contactName, docNum, amount, type, date, status, notes, settled, remaining].map(_csvEscape).join(','));
+      });
+      const csv = rows.join('\r\n');
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename || 'export.csv';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }
+
+    function _exportLedgerCSV() {
+      const header = ['Contact','They Owe Me','I Owe Them','Net'];
+      const rows = [header.map(_csvEscape).join(',')];
+      let totalToy = 0, totalYot = 0, totalNet = 0;
+      db.contacts.filter(c => !c.archived).forEach(function(c) {
+        const l = getLedger(c.id);
+        totalToy += l.toy;
+        totalYot += l.yot;
+        totalNet += l.net;
+        rows.push([c.name, fmt(l.toy), fmt(l.yot), fmt(l.net)].map(_csvEscape).join(','));
+      });
+      rows.push(['TOTAL', fmt(totalToy), fmt(totalYot), fmt(totalNet)].map(_csvEscape).join(','));
+      const csv = rows.join('\r\n');
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'ledger-summary.csv';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }
+
     // Recompute invoice status after any linked settlement changes
     function _syncInvoiceStatus(eid) {
       const e = db.entries.find(x => x.id === eid); if (!e) return;
@@ -2195,8 +2262,11 @@
           ..._sharedSorted.map(r => ({ _isShared: true,  _ts: r.lastActivityAt||(r.sharedAt ? new Date(r.sharedAt).getTime() : 0), _data: r }))
         ].sort((a,b) => b._ts - a._ts);
 
+        // Store CP entries for CSV export (only real db entries, not pending shared)
+        window._cpExportEntries = _allCPItems.filter(i => !i._isShared).map(i => i._data);
+        window._cpExportName = c.name || 'contact';
         html += '<div>';
-        html += `<button class="btn sm" style="margin-bottom:12px;" onclick="openNewEntry('${cid}');this.closest('.modal-bg').remove()">+ Add Entry</button>`;
+        html += `<div style="display:flex;gap:8px;margin-bottom:12px;align-items:center;flex-wrap:wrap;"><button class="btn sm" onclick="openNewEntry('${cid}');this.closest('.modal-bg').remove()">+ Add Entry</button><button class="bs sm" onclick="_exportCSV(window._cpExportEntries||[],window._cpExportName+'-entries.csv')" title="Export this contact's entries as CSV">📥 CSV</button></div>`;
         if (_allCPItems.length === 0) {
           html += '<p style="color:var(--muted);font-size:14px;padding:8px 0;">No entries yet.</p>';
         } else {
@@ -2605,6 +2675,7 @@
       const canSettle = (invSt.remaining > 0 && e.status !== 'voided');
       const actionBar = `
         ${canSettle ? `<button onclick="recordSettlement('${e.id}')" style="background:#065f46;color:#fff;border:none;border-radius:6px;padding:9px 18px;font-size:13px;font-weight:700;cursor:pointer;">✅ Record Settlement</button>` : ''}
+        <button onclick="_downloadEntryPDF('${e.id}')" style="background:#4a45a8;color:#fff;border:none;border-radius:6px;padding:9px 18px;font-size:13px;font-weight:700;cursor:pointer;">📄 PDF</button>
         <button onclick="window.print()" style="background:#111;color:#fff;border:none;border-radius:6px;padding:9px 18px;font-size:13px;font-weight:700;cursor:pointer;">🖨 Print</button>
         <button onclick="document.getElementById('invoicePrintWrap').remove()" style="background:#fff;color:#111;border:1px solid #ccc;border-radius:6px;padding:9px 18px;font-size:13px;font-weight:600;cursor:pointer;">Close</button>`;
 
@@ -2747,6 +2818,7 @@
                          (e.txType==='they_owe_you' || e.txType==='you_owe_them'));
       const actionBar = `
         ${canSettle ? `<button onclick="recordSettlement('${e.id}')" style="background:#065f46;color:#fff;border:none;border-radius:6px;padding:9px 18px;font-size:13px;font-weight:700;cursor:pointer;">✅ Record Settlement</button>` : ''}
+        <button onclick="_downloadEntryPDF('${e.id}')" style="background:#4a45a8;color:#fff;border:none;border-radius:6px;padding:9px 18px;font-size:13px;font-weight:700;cursor:pointer;">📄 PDF</button>
         <button onclick="window.print()" style="background:#111;color:#fff;border:none;border-radius:6px;padding:9px 18px;font-size:13px;font-weight:700;cursor:pointer;">🖨 Print</button>
         <button onclick="document.getElementById('invoicePrintWrap').remove()" style="background:#fff;color:#111;border:1px solid #ccc;border-radius:6px;padding:9px 18px;font-size:13px;font-weight:600;cursor:pointer;">Close</button>`;
 
@@ -2764,6 +2836,171 @@
       } else {
         _renderTransactionDoc(e);
       }
+    }
+
+    /* ── Download Entry as PDF (opens print-ready window) ────────────── */
+    function _downloadEntryPDF(eid) {
+      const e = db.entries.find(x => x.id === eid);
+      if (!e) return;
+      const isInv = isInvoiceMode(e);
+      const docId = e.invoiceNumber || (e.entryNum ? '#'+String(e.entryNum).padStart(4,'0') : null);
+
+      // Build the document HTML by temporarily capturing _showDocPopup output
+      let capturedDoc = '';
+      const origShowDocPopup = _showDocPopup;
+      _showDocPopup = function(docHtml, actionBarHtml) { capturedDoc = docHtml; };
+      try {
+        if (isInv) { _renderInvoiceDoc(e); } else { _renderTransactionDoc(e); }
+      } finally {
+        _showDocPopup = origShowDocPopup;
+      }
+      if (!capturedDoc) return;
+
+      const title = (isInv ? (e.txType === 'bill' ? 'Bill' : 'Invoice') : 'Transaction') +
+        ' - ' + (docId || 'Record');
+
+      const printWin = window.open('', '_blank');
+      if (!printWin) { toast('Popup blocked — please allow popups for this site.'); return; }
+      printWin.document.write(`<!DOCTYPE html><html><head>
+        <meta charset="utf-8">
+        <title>${esc(title)}</title>
+        <style>
+          * { box-sizing: border-box; }
+          body { font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, Arial, sans-serif; margin: 0; padding: 2rem; color: #111; background: #fff; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+          img { max-width: 100%; }
+          @media print {
+            body { margin: 0; padding: 1rem; }
+            .no-print { display: none !important; }
+            @page { margin: 1cm; }
+          }
+          .no-print { text-align: center; margin-top: 2rem; padding-top: 1.5rem; border-top: 1px solid #e5e5e5; }
+        </style>
+      </head><body>
+        ${capturedDoc}
+        <div class="no-print">
+          <button onclick="window.print()" style="padding:12px 28px;font-size:15px;border-radius:8px;border:none;background:#6c5ce7;color:#fff;cursor:pointer;font-weight:700;margin-right:8px;">🖨 Print / Save as PDF</button>
+          <button onclick="window.close()" style="padding:12px 28px;font-size:15px;border-radius:8px;border:1px solid #ccc;background:#fff;color:#333;cursor:pointer;font-weight:600;">Close</button>
+        </div>
+      </body></html>`);
+      printWin.document.close();
+    }
+
+    /* ── Print Entries Table as PDF ───────────────────────────────────── */
+    function _printEntriesTable() {
+      const u = curUser();
+      const role = curRole();
+      const allEntries = role === 'admin' ? db.entries : (role === 'standard' ? db.entries.filter(e => e.userId === u.id) : db.entries.filter(e => e.shared && e.cId));
+      const q = (window._search_entries||'').toLowerCase().trim();
+      let listed = allEntries.filter(e => e.status !== 'voided');
+      if (q) listed = listed.filter(e => {
+        const c = db.contacts.find(x => x.id === e.cId);
+        const docNum = e.invoiceNumber || (e.entryNum ? '#'+String(e.entryNum).padStart(4,'0') : '');
+        return (c?.name||'').toLowerCase().includes(q) || docNum.toLowerCase().includes(q) ||
+               (TXL[e.txType]||'').toLowerCase().includes(q) || (ENTRY_STATUS[e.status]||'').toLowerCase().includes(q);
+      });
+      listed = [...listed].sort((a,b) => (b.lastActivityAt||b.createdAt||new Date(b.date||0).getTime()||0)-(a.lastActivityAt||a.createdAt||new Date(a.date||0).getTime()||0));
+
+      if (!listed.length) { toast('No entries to export.'); return; }
+
+      const appName = db.settings.appName || 'Money IntX';
+      const co = db.settings.company || {};
+      const logoSrc = db.settings.logoData || '';
+      const now = new Date().toLocaleString();
+      const title = q ? `Entries — "${q}"` : 'All Entries';
+
+      // Date range
+      const dates = listed.map(e => new Date(e.date).getTime()).filter(t => t > 0);
+      const dateRange = dates.length
+        ? new Date(Math.min(...dates)).toLocaleDateString() + ' — ' + new Date(Math.max(...dates)).toLocaleDateString()
+        : '';
+
+      // Status color mapping for print
+      const _stColor = (s) => {
+        if (s==='settled') return {bg:'#d1fae5',c:'#065f46'};
+        if (s==='overdue'||s==='disputed') return {bg:'#fee2e2',c:'#991b1b'};
+        if (s==='partially_settled') return {bg:'#fef3c7',c:'#92400e'};
+        if (s==='voided'||s==='draft') return {bg:'#f3f4f6',c:'#6b7280'};
+        return {bg:'#dbeafe',c:'#1e40af'};
+      };
+
+      let rows = '';
+      listed.forEach((e, i) => {
+        const c = db.contacts.find(x => x.id === e.cId);
+        const docNum = e.invoiceNumber || (e.entryNum ? '#'+String(e.entryNum).padStart(4,'0') : '—');
+        const txLabel = TXL[e.txType] || e.txType;
+        const txColor = (e.txType==='they_owe_you'||e.txType==='invoice') ? '#059669' :
+                        (e.txType==='you_owe_them'||e.txType==='bill') ? '#dc2626' :
+                        (e.txType==='they_paid_you'||e.txType==='you_paid_them') ? '#0d9488' : '#6c63ff';
+        const dt = e.date ? new Date(e.date).toLocaleDateString() : '—';
+        const stLbl = ENTRY_STATUS[e.status] || e.status || 'Posted';
+        const stCol = _stColor(e.status);
+
+        // Settlement info
+        const invSt = _getInvoiceSettlement(e.id);
+        let amtHtml = `<strong>${fmt(e.amount)}</strong>`;
+        if (invSt.settled > 0) {
+          amtHtml += `<br><span style="font-size:10px;color:#059669;">Settled ${fmt(invSt.settled)}</span>`;
+          amtHtml += `<br><span style="font-size:10px;font-weight:700;color:${invSt.remaining<=0?'#059669':'#b45309'};">Bal ${fmt(invSt.remaining)}</span>`;
+        }
+
+        rows += `<tr style="background:${i%2===0?'#fff':'#f9fafb'};">
+          <td style="padding:8px 10px;border-bottom:1px solid #e5e7eb;font-size:12px;color:#666;">${i+1}</td>
+          <td style="padding:8px 10px;border-bottom:1px solid #e5e7eb;font-weight:600;">${esc(c?.name||'—')}</td>
+          <td style="padding:8px 10px;border-bottom:1px solid #e5e7eb;font-size:12px;color:#555;">${esc(docNum)}</td>
+          <td style="padding:8px 10px;border-bottom:1px solid #e5e7eb;text-align:right;">${amtHtml}</td>
+          <td style="padding:8px 10px;border-bottom:1px solid #e5e7eb;font-weight:600;color:${txColor};font-size:12px;">${esc(txLabel)}</td>
+          <td style="padding:8px 10px;border-bottom:1px solid #e5e7eb;font-size:12px;">${dt}</td>
+          <td style="padding:8px 10px;border-bottom:1px solid #e5e7eb;"><span style="display:inline-block;background:${stCol.bg};color:${stCol.c};border-radius:4px;padding:2px 8px;font-size:10px;font-weight:700;text-transform:uppercase;">${esc(stLbl)}</span></td>
+        </tr>`;
+      });
+
+      const printWin = window.open('', '_blank');
+      if (!printWin) { toast('Popup blocked — please allow popups for this site.'); return; }
+      printWin.document.write(`<!DOCTYPE html><html><head>
+        <meta charset="utf-8">
+        <title>${esc(title)} - ${esc(appName)}</title>
+        <style>
+          * { box-sizing: border-box; }
+          body { font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, Arial, sans-serif; margin: 0; padding: 2rem; color: #111; background: #fff; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+          table { width: 100%; border-collapse: collapse; }
+          th { background: #111; color: #fff; padding: 10px; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; text-align: left; }
+          th:nth-child(4) { text-align: right; }
+          img { max-width: 100%; }
+          @media print {
+            body { margin: 0; padding: 0.5rem; }
+            .no-print { display: none !important; }
+            @page { margin: 1cm; size: landscape; }
+          }
+          .no-print { text-align: center; margin-top: 2rem; padding-top: 1.5rem; border-top: 1px solid #e5e5e5; }
+        </style>
+      </head><body>
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:20px;padding-bottom:16px;border-bottom:3px solid #111;">
+          <div>
+            ${logoSrc ? `<img src="${logoSrc}" style="height:40px;max-width:140px;object-fit:contain;margin-bottom:6px;display:block;">` : ''}
+            <div style="font-size:20px;font-weight:900;">${esc(title)}</div>
+            ${co.name ? `<div style="font-size:12px;color:#555;margin-top:2px;">${esc(co.name)}</div>` : ''}
+            ${dateRange ? `<div style="font-size:11px;color:#888;margin-top:4px;">${dateRange}</div>` : ''}
+          </div>
+          <div style="text-align:right;">
+            <div style="font-size:12px;color:#888;">${listed.length} entries</div>
+          </div>
+        </div>
+        <table>
+          <thead><tr>
+            <th style="width:36px;">#</th><th>Contact</th><th>Doc #</th><th style="text-align:right;">Amount</th><th>Type</th><th>Date</th><th>Status</th>
+          </tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+        <div style="margin-top:20px;padding-top:12px;border-top:1px solid #e5e5e5;display:flex;justify-content:space-between;align-items:center;font-size:10px;color:#aaa;">
+          <span>Generated ${esc(now)}</span>
+          <span>${esc(appName)}</span>
+        </div>
+        <div class="no-print">
+          <button onclick="window.print()" style="padding:12px 28px;font-size:15px;border-radius:8px;border:none;background:#6c5ce7;color:#fff;cursor:pointer;font-weight:700;margin-right:8px;">🖨 Print / Save as PDF</button>
+          <button onclick="window.close()" style="padding:12px 28px;font-size:15px;border-radius:8px;border:1px solid #ccc;background:#fff;color:#333;cursor:pointer;font-weight:600;">Close</button>
+        </div>
+      </body></html>`);
+      printWin.document.close();
     }
 
     /* ── Record Settlement: modal-based (replaces native prompt/alert) ─ */
@@ -2946,6 +3183,8 @@
           ? ownListed
           : [...ownListed, ...isSharedList, ...confirmedShared].sort(_sortFn);
       const p = paginate(tabListed, 'entries');
+      // Store exportable entries (real db entries only, not pending shared tokens)
+      window._exportableEntries = tabListed.filter(item => !item.token);
 
       // ── Header + tabs ────────────────────────────────────────────────────
       const tabBtnStyle = (t) => `padding:7px 14px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;border:none;` +
@@ -2976,6 +3215,9 @@
           <input type="search" id="entries_search_input" placeholder="Search entries…" value="${esc(window._search_entries||'')}" style="flex:1;min-width:180px;max-width:340px;">
           <button class="bs sm${sortDesc?' on':''}" onclick="window._sort_entries=!${sortDesc};renderEntries()" title="Sort order">${sortDesc?'↓ Latest first':'↑ Oldest first'}</button>
           <button class="bs sm${_sm?' on':''}" onclick="_toggleSelectMode()" title="Select entries for bulk actions" style="${_sm?'background:var(--accent);color:#fff;border-color:var(--accent);':''}">☑ Select</button>
+          <button class="bs sm" onclick="_exportCSV(window._exportableEntries||[],'entries-export.csv')" title="Export filtered entries as CSV">📥 Export CSV</button>
+          <button class="bs sm" onclick="_printEntriesTable()" title="Export entries as PDF">📄 Export PDF</button>
+          <button class="bs sm" onclick="_exportLedgerCSV()" title="Export ledger summary as CSV">📥 Export Ledger</button>
         </div>
         <div class="tbl-wrap"><table><thead><tr>
           ${_sm ? `<th class="sel-col"><input type="checkbox" class="sel-cb" id="_selAllCb" title="Select all" onchange="_selectAllEntries(window._entryPageIds)"></th>` : ''}
