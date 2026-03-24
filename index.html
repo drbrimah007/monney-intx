@@ -625,8 +625,21 @@
               '| serverEntries:', data?.entries?.length);
 
             if (serverHasData) {
-              // Server is authoritative — use it
+              // Server is authoritative — but preserve isShared entries from localStorage
+              // that may have been added by _loadSharedWithMe between syncs
+              const _localShared = localBelongsToUser && _localData?.entries
+                ? _localData.entries.filter(e => e.isShared && e.shareToken)
+                : [];
               db = data;
+              // Merge back any isShared entries that exist locally but not on server
+              if (_localShared.length > 0 && db.entries) {
+                const _srvTokens = new Set(db.entries.filter(e => e.shareToken).map(e => e.shareToken));
+                const _missing = _localShared.filter(e => !_srvTokens.has(e.shareToken));
+                if (_missing.length > 0) {
+                  db.entries.push(..._missing);
+                  console.log('[load] Merged', _missing.length, 'isShared entries from localStorage');
+                }
+              }
               console.log('[load] Using server data (' + (data.entries?.length||0) + ' entries)');
             } else if (localHasData) {
               // Server blob is empty but this device has data for this user.
@@ -1789,7 +1802,10 @@
               }
             }
           }
-          if (migrated) { try { await saveNow(); } catch(_) { save(); } }
+          if (migrated) {
+            console.log('[loadSharedWithMe] Inserted/updated entries, count now:', db.entries.length);
+            try { await saveNow(); } catch(_) { save(); }
+          }
         }
 
         // ── Auto-add senders as contacts (catch-up) ───────────────────────
