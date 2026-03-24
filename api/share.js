@@ -887,52 +887,10 @@ module.exports = async function handler(req, res) {
                   let changed = false;
                   if (recipEntry.status !== status) { recipEntry.status = status; changed = true; }
 
-                  // When seller records settlement, create a matching credit entry on buyer's blob
-                  // so both sides use the same ledger logic (amount + credit entries)
-                  if (settledAmt !== undefined) {
-                    const priorSettled = parseFloat(recipEntry.settledAmt || 0);
-                    const newSettled   = parseFloat(settledAmt || 0);
-                    const diff         = newSettled - priorSettled;
-                    if (diff > 0.005) {
-                      // Determine credit type (opposite direction of the shared entry)
-                      const recipTx = recipEntry.txType || recipEntry.senderTxType || '';
-                      const creditType = (recipTx === 'you_owe_them' || recipTx === 'borrow')
-                        ? 'you_paid_them' : 'they_paid_you';
-                      recipData.settings = recipData.settings || {};
-                      recipData.settings.entryCounter = (recipData.settings.entryCounter || 0) + 1;
-                      if (!recipData.entries) recipData.entries = [];
-                      // Idempotency: check if credit already exists for this amount+token combo
-                      const alreadyHas = recipData.entries.some(s =>
-                        s.linkedInvoiceId === recipEntry.id && s.isReceipt &&
-                        Math.abs((parseFloat(s.amount) || 0) - diff) < 0.01 &&
-                        s.createdAt && (Date.now() - s.createdAt) < 300000
-                      );
-                      if (!alreadyHas) {
-                        recipData.entries.push({
-                          id:              'x' + Math.random().toString(36).substr(2, 9),
-                          userId:          row.linked_user_id,
-                          cId:             recipEntry.cId,
-                          txType:          creditType,
-                          amount:          diff,
-                          note:            `Settlement by sender`,
-                          date:            Date.now(),
-                          status:          'settled',
-                          archived:        false,
-                          shared:          false,
-                          responses:       [],
-                          templateId:      null,
-                          templateData:    {},
-                          invoiceNumber:   null,
-                          entryNum:        recipData.settings.entryCounter,
-                          createdAt:       Date.now(),
-                          linkedInvoiceId: recipEntry.id,
-                          isReceipt:       true,
-                          noLedger:        false  // COUNTS in ledger as credit
-                        });
-                        changed = true;
-                      }
-                    }
-                    if (recipEntry.settledAmt !== settledAmt) { recipEntry.settledAmt = settledAmt; changed = true; }
+                  // Settlement credits are handled by auto-confirmed receipt share tokens
+                  // on the buyer's client side — no server-side credit creation needed.
+                  if (settledAmt !== undefined && recipEntry.settledAmt !== settledAmt) {
+                    recipEntry.settledAmt = settledAmt; changed = true;
                   }
                   if (remaining !== undefined && recipEntry.remaining !== remaining) { recipEntry.remaining = remaining; changed = true; }
                   if (changed) {
