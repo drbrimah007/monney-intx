@@ -3098,8 +3098,24 @@
       return list.map(([k,v])=>`<option value="${k}" ${sel===k?'selected':''}>${v}</option>`).join('');
     }
 
-    function statusOpts(sel) {
-      return Object.entries(ENTRY_STATUS).map(([k,v])=>`<option value="${k}" ${sel===k?'selected':''}>${v}</option>`).join('');
+    // Settlement-only statuses — must only be reached via recordSettlement(), never via direct dropdown
+    const _SETTLEMENT_STATUSES = new Set(['settled','paid','partially_settled']);
+
+    function statusOpts(sel, excludeSettlement) {
+      // excludeSettlement=true: hide settled/paid/partially_settled from dropdowns in entry forms
+      // so the only path to those statuses is the recordSettlement() payment flow.
+      // If the current status IS a settlement status, show it as a disabled read-only option
+      // so the user can see the state but cannot manually toggle it back.
+      let opts = '';
+      if (excludeSettlement && _SETTLEMENT_STATUSES.has(sel)) {
+        const label = ENTRY_STATUS[sel] || sel;
+        opts += `<option value="${sel}" selected disabled>🔒 ${label} (via settlement flow)</option>`;
+      }
+      Object.entries(ENTRY_STATUS).forEach(([k,v]) => {
+        if (excludeSettlement && _SETTLEMENT_STATUSES.has(k)) return; // block manual selection
+        opts += `<option value="${k}" ${sel===k?'selected':''}>${v}</option>`;
+      });
+      return opts;
     }
 
     function entryFormBody(cid, tpl, existingEntry, direction) {
@@ -3169,7 +3185,7 @@
         html += `<div class="fg"><label>Amount *</label><input type="number" id="neamt" value="${e?.amount||''}" min="0" max="9999999" step="0.01" placeholder="0.00"></div>`;
       }
       html += `<div class="grid2"><div class="fg"><label>Date</label><input type="date" id="nedate" value="${dateVal}"></div>
-        <div class="fg"><label>Status</label><select id="nests">${statusOpts(e?.status||'posted')}</select></div></div>`;
+        <div class="fg"><label>Status</label><select id="nests">${statusOpts(e?.status||'posted', true)}</select></div></div>`;
       html += `<div class="fg"><textarea id="ne_notify_msg" rows="2" style="width:100%;box-sizing:border-box;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg2);color:var(--text);font-size:14px;resize:vertical;" placeholder="For your attention.">${esc(e?.notifyMsg||'For your attention.')}</textarea></div>`;
       // ── Template-driven fields ────────────────────────────────────────
       if (tpl && tpl.fields && tpl.fields.length > 0) {
@@ -3567,7 +3583,9 @@
     async function saveNewEntry() {
       const cid    = document.getElementById('necon')?.value.trim();
       const note   = document.getElementById('nenote')?.value.trim()||'';
-      const status = document.getElementById('nests')?.value.trim()||'posted';
+      const _rawStatus = document.getElementById('nests')?.value.trim()||'posted';
+      // Settlement statuses must only be set via recordSettlement() — block direct form submission
+      const status = _SETTLEMENT_STATUSES.has(_rawStatus) ? 'posted' : _rawStatus;
       const dateStr = document.getElementById('nedate')?.value;
       const date   = dateStr ? new Date(dateStr).getTime() : Date.now();
       if (!cid) return alert('Contact required');
@@ -3730,7 +3748,7 @@
             <div class="fg"><label>Amount *</label><input type="number" id="eeamt" value="${e.amount}" min="0" max="9999999" step="0.01"></div>
             <div class="grid2">
               <div class="fg"><label>Date</label><input type="date" id="eedate" value="${dateVal}"></div>
-              <div class="fg"><label>Status</label><select id="eests">${statusOpts(e.status)}</select></div>
+              <div class="fg"><label>Status</label><select id="eests">${statusOpts(e.status, true)}</select></div>
             </div>
             <div class="fg"><label>Note</label><textarea id="eenote" rows="2">${esc(e.note||'')}</textarea></div>
             <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;border-top:1px solid var(--border);padding-top:14px;">
@@ -3750,7 +3768,8 @@
         // ── Template entry save ───────────────────────────────────────────
         const cid    = document.getElementById('necon')?.value.trim();
         const note   = document.getElementById('nenote')?.value.trim()||'';
-        const status = document.getElementById('nests')?.value.trim()||'posted';
+        const _rawStatus2 = document.getElementById('nests')?.value.trim()||'posted';
+        const status = _SETTLEMENT_STATUSES.has(_rawStatus2) ? 'posted' : _rawStatus2;
         const dateStr = document.getElementById('nedate')?.value;
         if (!cid) return alert('Contact required');
 
@@ -3810,7 +3829,9 @@
         const txType = document.getElementById('eetx')?.value.trim();
         const amt    = document.getElementById('eeamt')?.value.trim();
         const note   = document.getElementById('eenote')?.value.trim()||'';
-        const status = document.getElementById('eests')?.value.trim()||'posted';
+        const _rawStatusE = document.getElementById('eests')?.value.trim()||'posted';
+        // Settlement statuses are read-only — only reachable via recordSettlement()
+        const status = _SETTLEMENT_STATUSES.has(_rawStatusE) ? (e.status||'posted') : _rawStatusE;
         const dateStr = document.getElementById('eedate')?.value;
         const amtErr = valAmt(amt);
         if (amtErr) return alert(amtErr);
