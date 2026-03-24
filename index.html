@@ -1585,7 +1585,12 @@
           let migrated = false;
           for (const mr of records) {
             if (mr.confirmed && !mr.recipientClosed && !(mr.entry?.dismissed)) {
-              if (!db.entries.find(e => e.shareToken === mr.token)) {
+              const _existingE = db.entries.find(e => e.shareToken === mr.token);
+              // Run _insertSharedEntry if:
+              //   (a) entry doesn't exist yet — initial migration
+              //   (b) entry exists but still has noLedger:true — needs cleanup from old code
+              //   (c) entry exists but cId is null — auto-contact creation missed it
+              if (!_existingE || _existingE.noLedger || !_existingE.cId) {
                 _insertSharedEntry(mr);
                 migrated = true;
               }
