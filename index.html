@@ -3375,7 +3375,7 @@
             <td><div class="action-menu"><button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button><div class="action-dropdown">
               <button onclick="openEntryInvoice('${e.id}')">📄 View</button>
               <button onclick="editEntry('${e.id}')">✏️ Edit</button>
-              ${window._pendingSettlements?.[e.id] ? `<button onclick="_reviewSettlement('${window._pendingSettlements[e.id]}')" style="color:#d97706;font-weight:700;">⏳ Review Payment</button>` : ''}
+              ${window._pendingSettlements?.[e.id] ? `<button onclick="_reviewSettlement('${window._pendingSettlements[e.id]}')" style="color:#d97706;font-weight:700;">⏳ Review Payment</button>` : (window._settlementProofs?.[e.id] ? `<button onclick="_reviewSettlement('${window._settlementProofs[e.id]}')">📎 View Proof</button>` : '')}
               ${(isInvoiceMode(e) || e.txType === 'they_owe_you' || e.txType === 'you_owe_them') && e.status !== 'settled' && e.status !== 'voided' && e.status !== 'fulfilled' && e.status !== 'cancelled' ? `<button onclick="recordSettlement('${e.id}')">💰 Settle</button>` : ''}
               ${isInvoiceMode(e) && e.status !== 'fulfilled' && e.status !== 'voided' && e.status !== 'cancelled' ? `<button onclick="markFulfilled('${e.id}')" style="color:#16a34a;font-weight:700;">✅ Mark Fulfilled</button>` : ''}
               <button onclick="openNotifyModal('${e.id}')">🔔 Send Reminder</button>
@@ -4179,7 +4179,7 @@
         cId: orig.cId,
         txType: orig.txType,
         amount: orig.amount,
-        note: orig.note || '',
+        note: '', // fresh note — don't copy old references
         templateId: orig.templateId || null,
         templateData: orig.templateData ? JSON.parse(JSON.stringify(orig.templateData)) : {},
         templateSnapshot: orig.templateSnapshot ? JSON.parse(JSON.stringify(orig.templateSnapshot)) : null,
@@ -4187,12 +4187,16 @@
         status: 'draft',
         createdAt: Date.now(),
         entryNum: db.settings.entryCounter,
+        invoiceNumber: null, // new invoice gets its own number
         archived: false,
         shared: false,
-        responses: []
+        responses: [],
+        reminderCount: 0,
+        lastReminderAt: null
       };
       db.entries.push(newEntry);
       save();
+      logAudit('duplicate_entry', { from: eid, to: newId });
       toast('Entry duplicated as draft');
       editEntry(newId);
     }
@@ -6341,12 +6345,12 @@
             ? n.sentTo.join(', ')
             : (n.who ? whoLabel(n.who) : '—');
           const dateStr = n.createdAt ? new Date(n.createdAt).toLocaleDateString() : '—';
-          const isClickable = n.type === 'settlement_pending' && n.shareToken;
+          const isClickable = (n.type === 'settlement_pending' || n.type === 'settlement_confirmed' || n.type === 'settlement_rejected') && n.shareToken;
           const rowClick = isClickable ? `onclick="_reviewSettlement('${esc(n.shareToken)}')" style="cursor:pointer;"` : '';
           html += `<tr ${rowClick}>
             <td>${c ? cLink(c.id, c.name) : '<span style="color:var(--muted)">—</span>'}</td>
             <td style="font-size:13px;font-weight:600;white-space:nowrap;">${esc(amtStr)}</td>
-            <td class="hide-mobile" style="max-width:200px;"><span style="display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;" title="${esc(n.msg)}">${esc(n.msg)}</span>${isClickable ? ' <span style="color:var(--accent);font-size:11px;font-weight:600;">Click to review</span>' : ''}</td>
+            <td class="hide-mobile" style="max-width:200px;"><span style="display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;" title="${esc(n.msg)}">${esc(n.msg)}</span>${isClickable ? ` <span style="color:var(--accent);font-size:11px;font-weight:600;">${n.type === 'settlement_pending' ? 'Click to review' : 'View details'}</span>` : ''}</td>
             <td class="hide-mobile" style="font-size:12px;">${esc(sentTo)}</td>
             <td class="hide-mobile" style="font-size:12px;color:var(--muted);">${dateStr}</td>
             <td>${eventBadge(n.type)}</td>
@@ -8394,14 +8398,18 @@
         if (!data.ok) { toast('Could not load settlement details.'); return; }
         const entry   = data.entry || {};
         const pending = entry.pendingSettlement;
-        if (!pending && !entry.settlementPending) { toast('No pending settlement to review.'); return; }
+        const isPending = pending || entry.settlementPending;
+        const isConfirmed = entry.settlementConfirmed;
+        // Allow viewing proof even after confirmed/rejected
+        if (!isPending && !isConfirmed && !entry.settlementProof) { toast('No settlement details to review.'); return; }
 
-        const paymentAmt = pending ? parseFloat(pending.amount || 0) : 0;
+        const paymentAmt = pending ? parseFloat(pending.amount || 0) : parseFloat(entry.settledAmt || 0);
         const recipientName = pending?.recipientName || entry.contactName || 'Recipient';
         const proof     = entry.settlementProof || null;
         const totalAmt  = parseFloat(entry.amount || 0);
         const cumSettled = parseFloat(entry.settledAmt || 0);
         const remaining = parseFloat(entry.remaining || 0);
+        const viewOnly  = !isPending; // already confirmed/rejected — view mode only
 
         // Build proof preview HTML
         let proofHtml = '<p style="color:var(--muted);font-size:13px;">No proof uploaded.</p>';
@@ -8420,29 +8428,36 @@
           }
         }
 
+        const statusLabel = isConfirmed ? '<span style="color:var(--green);font-weight:700;">✅ Confirmed</span>'
+          : entry.settlementPending === false && !isConfirmed ? '<span style="color:var(--red);font-weight:700;">❌ Rejected</span>'
+          : '<span style="color:#d97706;font-weight:700;">⏳ Pending</span>';
+
         document.getElementById('reviewSettlementBg')?.remove();
         const d = document.createElement('div');
         d.innerHTML = `<div id="reviewSettlementBg" style="position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:2000;display:flex;align-items:center;justify-content:center;padding:16px;" onclick="if(event.target===this)this.remove()">
           <div style="background:var(--card);border-radius:14px;max-width:440px;width:100%;padding:24px;box-shadow:0 20px 60px rgba(0,0,0,.25);max-height:90vh;overflow-y:auto;" onclick="event.stopPropagation()">
             <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
-              <h3 style="margin:0;font-size:16px;">Review Payment</h3>
+              <h3 style="margin:0;font-size:16px;">${viewOnly ? 'Payment Details' : 'Review Payment'}</h3>
               <button class="gh sm" onclick="document.getElementById('reviewSettlementBg').remove()">✕</button>
             </div>
+            ${viewOnly ? `<div style="margin-bottom:14px;">${statusLabel}</div>` : ''}
             <div style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:12px 14px;margin-bottom:14px;font-size:13px;line-height:1.8;">
               <div style="display:flex;justify-content:space-between;"><span style="color:var(--muted);">Paid by</span><strong>${esc(recipientName)}</strong></div>
               <div style="display:flex;justify-content:space-between;"><span style="color:var(--muted);">Payment amount</span><span style="font-weight:700;color:var(--green);">${fmt(paymentAmt)}</span></div>
               <div style="display:flex;justify-content:space-between;"><span style="color:var(--muted);">Total</span><span>${fmt(totalAmt)}</span></div>
-              <div style="display:flex;justify-content:space-between;border-top:1px solid var(--border);margin-top:6px;padding-top:6px;"><span style="color:var(--muted);">Remaining after</span><span style="font-weight:600;">${fmt(remaining)}</span></div>
+              <div style="display:flex;justify-content:space-between;border-top:1px solid var(--border);margin-top:6px;padding-top:6px;"><span style="color:var(--muted);">Remaining</span><span style="font-weight:600;">${fmt(remaining)}</span></div>
             </div>
             <div style="margin-bottom:14px;">
               <label style="font-size:13px;font-weight:600;display:block;margin-bottom:8px;">Proof of Payment</label>
               ${proofHtml}
             </div>
             <div id="reviewSettlementErr" style="color:var(--red);font-size:12px;margin-bottom:12px;display:none;"></div>
-            <div style="display:flex;gap:8px;justify-content:flex-end;border-top:1px solid var(--border);padding-top:14px;">
+            ${viewOnly ? `<div style="display:flex;gap:8px;justify-content:flex-end;border-top:1px solid var(--border);padding-top:14px;">
+              <button class="bs sm" onclick="document.getElementById('reviewSettlementBg').remove()">Close</button>
+            </div>` : `<div style="display:flex;gap:8px;justify-content:flex-end;border-top:1px solid var(--border);padding-top:14px;">
               <button class="bs sm" id="reviewSettlementRejectBtn" onclick="_reviewSettlementAction('${token}','reject')" style="color:var(--red);">Reject</button>
               <button class="btn sm" id="reviewSettlementConfirmBtn" onclick="_reviewSettlementAction('${token}','confirm')">Confirm Settlement</button>
-            </div>
+            </div>`}
           </div>
         </div>`;
         document.body.appendChild(d.firstChild);
@@ -8474,12 +8489,23 @@
         const data = await res.json();
         if (data.ok) {
           document.getElementById('reviewSettlementBg')?.remove();
+          // Update the notification type so badge changes from "Review Payment"
+          const newType = action === 'confirm' ? 'settlement_confirmed' : 'settlement_rejected';
+          (db.notifs || []).forEach(n => {
+            if (n.shareToken === token && n.type === 'settlement_pending') n.type = newType;
+          });
+          // Clear from pending settlements tracker
+          for (const eid in window._pendingSettlements) {
+            if (window._pendingSettlements[eid] === token) delete window._pendingSettlements[eid];
+          }
           if (action === 'confirm') {
             toast('Settlement confirmed');
           } else {
             toast('Settlement rejected — payer has been notified');
           }
+          save();
           _loadSharedWithMe();
+          _syncSentShareStatuses();
           if (_curPage === 'entries') renderEntries();
           if (_curPage === 'dash') renderDash();
           if (_curPage === 'notifs') renderNotifs();
@@ -8822,9 +8848,14 @@
           const entry = db.entries.find(e => e.id === tok.entryId && e.userId === u.id);
           if (!entry) return;
           // Track pending settlements so we can show review buttons on entries
+          // Also track confirmed settlements with proof for "view proof" access
           const ed = tok.entry || {};
           if (ed.settlementPending && ed.pendingSettlement) {
             window._pendingSettlements[tok.entryId] = tok.token;
+          } else if (ed.settlementProof && !window._pendingSettlements[tok.entryId]) {
+            // Store for "View Proof" button (non-pending, has proof)
+            window._settlementProofs = window._settlementProofs || {};
+            window._settlementProofs[tok.entryId] = tok.token;
           }
           // Determine target status from share token state
           let targetStatus = null;
