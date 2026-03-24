@@ -34,6 +34,7 @@ module.exports = async function handler(req, res) {
 
     return res.json({
       ok: true,
+      token,
       user: { id: user.id, displayName: user.display_name, email: user.email, role: user.role }
     });
   } catch (e) {

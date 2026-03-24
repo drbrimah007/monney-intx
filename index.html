@@ -696,9 +696,9 @@
     }
 
     // forceSyncNow: manually triggered by user — push full db to server and confirm
-    async function forceSyncNow() {
+    async function forceSyncNow(evt) {
       if (!_IS_SERVER) return toast('Only available in online mode.');
-      const btn = event?.target;
+      const btn = evt?.target || event?.target;
       if (btn) { btn.disabled = true; btn.textContent = '⏳ Syncing…'; }
       try {
         await saveNow();
@@ -832,12 +832,12 @@
         });
       }
     }
-    function toast(msg, type = 'info') {
+    function toast(msg, duration = 3000) {
       const t = document.createElement('div');
       t.className = 'toast';
       t.textContent = msg;
       document.body.appendChild(t);
-      setTimeout(() => t.remove(), 3000);
+      setTimeout(() => t.remove(), typeof duration === 'number' ? duration : 3000);
     }
     function logAudit(action, detail) {
       db.audit.push({ id: uuid(), action, userId: curUser().id, ts: Date.now(), detail });
@@ -951,7 +951,7 @@
       const status =
         e.status === 'voided' ? 'voided' :
         e.status === 'overdue' && settled <= 0 ? 'overdue' :
-        settled <= 0 ? (e.status === 'draft' ? 'draft' : 'posted') :
+        settled <= 0 ? (e.status === 'draft' ? 'draft' : (e.status === 'overdue' ? 'overdue' : 'posted')) :
         remaining <= 0 ? 'settled' : 'partially_settled';
       return { settled, remaining, status, total };
     }
@@ -986,7 +986,7 @@
     function _syncInvoiceStatus(eid) {
       const e = db.entries.find(x => x.id === eid); if (!e) return;
       // Preserve terminal/manual statuses — don't overwrite with computed value
-      if (e.status === 'voided' || e.status === 'fulfilled' || e.status === 'cancelled') return;
+      if (e.status === 'voided' || e.status === 'fulfilled' || e.status === 'cancelled' || e.status === 'closed') return;
       const st = _getInvoiceSettlement(eid);
       e.status = st.status;
     }
@@ -2080,6 +2080,18 @@
 
     function delContact(cid) {
       if (!confirm('Delete this contact and all associated entries?')) return;
+      // Dismiss any shared-with-me entries linked to this contact on the server
+      db.entries.filter(e => e.cId === cid && e.isShared && e.shareToken).forEach(e => {
+        if (_IS_SERVER) {
+          fetch('/api/share', {
+            method: 'POST', credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'dismiss-shared', token: e.shareToken })
+          }).catch(() => {});
+        }
+        const _cr = (_cachedSharedRecords || []).find(x => x.token === e.shareToken);
+        if (_cr && _cr.entry) _cr.entry.dismissed = true;
+      });
       db.contacts = db.contacts.filter(x => x.id !== cid);
       db.entries = db.entries.filter(e => e.cId !== cid);
       save();
@@ -3739,7 +3751,7 @@
       closeEntryModal();
       toast(`Entry saved${invoiceNumber ? ' — ' + invoiceNumber : ''}`);
       // Always navigate to dashboard so Recent Entries refreshes (fixes mobile stale view)
-      nav('home');
+      nav('dash');
     }
 
     function editEntry(eid) {
@@ -3855,7 +3867,7 @@
           id: _entryTpl.id, name: _entryTpl.name, txType: _entryTpl.txType,
           invoicePrefix: _entryTpl.invoicePrefix, fields: _entryTpl.fields
         }));
-        save(); logAudit('edit_entry', {eid, cid, amount: aggVal, tpl: _entryTpl.name});
+        saveNow(); logAudit('edit_entry', {eid, cid, amount: aggVal, tpl: _entryTpl.name});
         document.getElementById('editEntryBg')?.remove();
         toast('Entry updated');
         refreshCurPage();
@@ -3876,7 +3888,7 @@
         e.cId = cid; e.txType = txType; e.amount = parseFloat(amt);
         e.note = note; e.status = safeStatus(status);
         e.date = dateStr ? new Date(dateStr).getTime() : e.date;
-        save(); logAudit('edit_entry', {eid, cid, txType, amount: amt});
+        saveNow(); logAudit('edit_entry', {eid, cid, txType, amount: amt});
         document.getElementById('editEntryBg')?.remove();
         toast('Entry updated');
         refreshCurPage();
@@ -3930,7 +3942,7 @@
           </div>
           <div style="display:flex;gap:10px;margin-top:4px;">
             <button class="bs" style="flex:1;" onclick="document.getElementById('closeModalBg').remove()">Cancel</button>
-            <button class="bp" style="flex:1;" onclick="doCloseEntry('${eid}')">🔒 Close Record</button>
+            <button class="btn" style="flex:1;" onclick="doCloseEntry('${eid}')">🔒 Close Record</button>
           </div>
         </div>
       </div>`;
@@ -3961,6 +3973,7 @@
         try {
           await fetch('/api/share', {
             method: 'POST',
+            credentials: 'include',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               action: 'owner-close',
@@ -4552,7 +4565,7 @@
           </div>` : ''}
           <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;border-top:1px solid var(--border);padding-top:14px;">
             <button class="bs sm" onclick="document.getElementById('shRemindBg').remove()">Cancel</button>
-            <button class="btn sm" onclick="_sendSharedReminder('${esc(token)}','${esc(_displayEmail)}','${esc(senderName)}',${rawAmt})">Send Reminder</button>
+            <button class="btn sm" onclick="_sendSharedReminder('${esc(token)}','${esc(_displayEmail)}',this.dataset.sn,${rawAmt})" data-sn="${esc(senderName)}">Send Reminder</button>
           </div>
           <div style="border-top:1px solid var(--border);margin-top:14px;padding-top:14px;">
             <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px;">Or share directly</div>
@@ -5678,7 +5691,7 @@
         html += `<tr>
           <td>${cLink(r.cId, c?.name || '—')}</td>
           <td>${esc(r.name)}</td>
-          <td class="hide-mobile">${fmt(r.amount)}</td>
+          <td>${fmt(r.amount)}</td>
           <td class="hide-mobile">${esc(r.freq)}</td>
           <td><span class="badge badge-blue">${esc(r.status)}</span></td>
           <td><div class="action-menu"><button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button><div class="action-dropdown">
@@ -6785,6 +6798,8 @@
           });
           const json = await res.json();
           if (json.ok && json.user) {
+            // Store Bearer token for sync fallback
+            if (json.token) localStorage.setItem('mxi_token', json.token);
             // Ensure the returned user is in our local db
             db.settings = db.settings || {};
             db.settings.sessionUserId = json.user.id;
@@ -6821,6 +6836,7 @@
           });
           const json = await res.json();
           if (json.ok && json.user) {
+            if (json.token) localStorage.setItem('mxi_token', json.token);
             db.settings = db.settings || {};
             db.settings.sessionUserId = json.user.id;
             if (!db.users) db.users = [];
@@ -6836,6 +6852,7 @@
       async logout() {
         db.settings.sessionUserId = null;
         localStorage.removeItem('mxi_v2');
+        localStorage.removeItem('mxi_token');
         if (!_IS_SERVER) return { ok: true };
         try {
           await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
@@ -7648,18 +7665,20 @@
           document.getElementById('shMarkPaidBg')?.remove();
           const newStatus  = data.status || (amt >= fullAmt ? 'settled' : 'partially_settled');
           const remaining  = data.remaining != null ? data.remaining : Math.max(0, fullAmt - amt);
-          // Update in-memory cache
+          // Update in-memory cache — accumulate settled amount, not overwrite
+          const _prevPaidCache = parseFloat(data.totalSettled || 0);
+          const accumulatedAmt = _prevPaidCache > 0 ? _prevPaidCache : (totalAmt - remaining);
           const r = (_cachedSharedRecords || []).find(x => x.token === token);
           if (r && r.entry) {
             r.entry.status     = newStatus;
-            r.entry.settledAmt = amt;
+            r.entry.settledAmt = accumulatedAmt;
             r.entry.remaining  = remaining;
           }
           // Sync unified record layer
           const _se = db.entries.find(e => e.shareToken === token);
           if (_se) {
             _se.status     = newStatus;
-            _se.settledAmt = amt;
+            _se.settledAmt = accumulatedAmt;
             _se.remaining  = remaining;
             save();
           }
