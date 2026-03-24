@@ -8068,28 +8068,27 @@
     }
 
     // ── Notification polling ──────────────────────────────────────────────
-    // Silently fetches the latest server blob every 30 s and merges any new
-    // notifications (view alerts, close alerts, etc.) into db.notifs without
-    // touching the rest of the local state.
+    // Uses lightweight /api/notifs?since= endpoint instead of fetching the
+    // entire data blob. Only returns new notifications since last poll.
     let _lastPollAt = 0;
+    let _lastNotifTs = 0; // timestamp of newest known notification
     async function _pollNotifs() {
       if (!_IS_SERVER || !curUser()) return;
       try {
-        const res = await fetch('/api/data/load', { credentials: 'include' });
+        const res = await fetch(`/api/notifs?since=${_lastNotifTs}`, { credentials: 'include' });
         if (!res.ok) return;
-        const { data } = await res.json();
-        if (!data || !Array.isArray(data.notifs)) return;
-        const uid       = curUser().id;
-        const existing  = new Set((db.notifs || []).map(n => n.id));
-        const incoming  = data.notifs.filter(n => n.userId === uid && !existing.has(n.id));
+        const { notifs, count } = await res.json();
+        if (!Array.isArray(notifs) || notifs.length === 0) return;
+        const existing = new Set((db.notifs || []).map(n => n.id));
+        const incoming = notifs.filter(n => !existing.has(n.id));
         if (incoming.length === 0) return;
+        // Track newest timestamp for next poll
+        incoming.forEach(n => { if ((n.createdAt || 0) > _lastNotifTs) _lastNotifTs = n.createdAt; });
         db.notifs = [...(db.notifs || []), ...incoming];
-        // Persist merged notifs locally and refresh badge + page if on Notifs
         save();
         renderNav();
         if (_curPage === 'notifs') renderNotifs();
         else {
-          // Flash badge attention
           const badge = document.querySelector('.nav-badge');
           if (badge) badge.classList.add('badge-pulse');
           setTimeout(() => badge?.classList.remove('badge-pulse'), 2000);
@@ -8137,6 +8136,8 @@
 
     function _startNotifPolling() {
       if (!_IS_SERVER) return;
+      // Seed _lastNotifTs from existing notifs so first poll only fetches new ones
+      (db.notifs || []).forEach(n => { if ((n.createdAt || 0) > _lastNotifTs) _lastNotifTs = n.createdAt; });
       // Poll every 30 seconds
       setInterval(_pollNotifs, 30_000);
       // Sync sent-share statuses every 60 seconds (less frequent — less critical)
