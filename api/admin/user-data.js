@@ -26,6 +26,25 @@ module.exports = async function handler(req, res) {
     `;
     if (!user) return res.status(404).json({ ok: false, error: 'User not found.' });
 
+    // Also fetch confirmed share tokens linked to this user so admin
+    // impersonation can display and migrate the user's incoming shared records.
+    const shareRows = await sql`
+      SELECT token, confirmed, recipient_closed, shared_at, entry_data
+      FROM share_tokens
+      WHERE linked_user_id = ${userId}
+        AND confirmed = true
+        AND (recipient_closed IS NULL OR recipient_closed = false)
+      ORDER BY shared_at DESC
+      LIMIT 100
+    `;
+    const sharedRecords = shareRows.map(r => ({
+      token:           r.token,
+      confirmed:       r.confirmed,
+      recipientClosed: r.recipient_closed || false,
+      sharedAt:        r.shared_at,
+      entry:           r.entry_data || {}
+    }));
+
     return res.json({
       ok: true,
       data: row?.data || {},
@@ -35,7 +54,8 @@ module.exports = async function handler(req, res) {
         email: user.email,
         username: user.username,
         role: user.role
-      }
+      },
+      sharedRecords
     });
   } catch (e) {
     console.error('[admin/user-data]', e.message);

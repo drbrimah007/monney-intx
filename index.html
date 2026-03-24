@@ -1211,13 +1211,28 @@
             credentials: 'include', headers
           });
           if (r.ok) {
-            const { data } = await r.json();
+            const { data, sharedRecords } = await r.json();
             // Merge their entries/contacts/templates into db in-memory only (NOT saved)
             (data.entries   || []).forEach(e => { if (!db.entries.find(x=>x.id===e.id))   db.entries.push(e); });
             (data.contacts  || []).forEach(c => { if (!db.contacts.find(x=>x.id===c.id))  db.contacts.push(c); });
             (data.templates || []).forEach(t => { if (!db.templates.find(x=>x.id===t.id)) db.templates.push(t); });
             (data.recurring || []).forEach(r => { if (!db.recurring.find(x=>x.id===r.id)) db.recurring.push(r); });
             _impersonatingDataUserId = userId;
+
+            // Load confirmed shared records for the impersonated user and run
+            // the same migration _loadSharedWithMe would run — ensures admin
+            // sees the user's incoming shared entries in Entries and balance totals.
+            if (sharedRecords && sharedRecords.length > 0) {
+              _cachedSharedRecords = sharedRecords;
+              for (const mr of sharedRecords) {
+                if (mr.confirmed && !mr.recipientClosed && !(mr.entry?.dismissed)) {
+                  const _existingE = db.entries.find(e => e.shareToken === mr.token);
+                  if (!_existingE || _existingE.noLedger || !_existingE.cId) {
+                    _insertSharedEntry(mr);
+                  }
+                }
+              }
+            }
           }
         } catch(_) { /* non-critical — fall back to empty view */ }
       }
