@@ -8240,10 +8240,11 @@
       if (existing) {
         delete existing.noLedger;
         if (!existing.cId && contact) existing.cId = contact.id;
-        save();
+        // Don't save() here — caller batches all updates then saves once
         return;
       }
 
+      const isSettlementReceipt = entry.txType === 'they_paid_you' || entry.txType === 'you_paid_them' || entry.linkedInvoiceId;
       const newEntry = {
         id:           uuid(),
         userId:       u.id,
@@ -8256,6 +8257,7 @@
         notes:        entry.note || '',
         invoiceNumber:entry.invoiceNumber || '',
         isShared:     true,          // KEY: unified record layer
+        isReceipt:    isSettlementReceipt || false,
         shareToken:   r.token,       // link back to share_tokens
         fromName:     dispName,
         fromEmail:    entry.fromEmail || '',
@@ -8266,7 +8268,7 @@
         createdAt:    r.sharedAt ? new Date(r.sharedAt).getTime() : Date.now()
       };
       db.entries.push(newEntry);
-      save();
+      // Don't save() here — caller batches all inserts then saves once
     }
 
     async function _sharedExpire(token) {
