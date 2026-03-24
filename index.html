@@ -1760,7 +1760,10 @@
       const el = document.getElementById('shared-with-me');
       // Note: el may be null if we're on the entries page — that's fine, we still load the data
       try {
-        const res  = await fetch('/api/share?linked=1', { credentials: 'include' });
+        const _swmHeaders = {};
+        const _swmTok = localStorage.getItem('mxi_token');
+        if (_swmTok) _swmHeaders['Authorization'] = 'Bearer ' + _swmTok;
+        const res  = await fetch('/api/share?linked=1', { credentials: 'include', headers: _swmHeaders });
         const data = await res.json();
         if (!data.ok || !data.shared || data.shared.length === 0) {
           // Populate entries-page placeholder with empty state if it exists
@@ -8875,10 +8878,15 @@
     // entire data blob. Only returns new notifications since last poll.
     let _lastPollAt = 0;
     let _lastNotifTs = 0; // timestamp of newest known notification
+    let _authFailed = false; // stop polling on auth failure
     async function _pollNotifs() {
-      if (!_IS_SERVER || !curUser()) return;
+      if (!_IS_SERVER || !curUser() || _authFailed) return;
       try {
-        const res = await fetch(`/api/notifs?since=${_lastNotifTs}`, { credentials: 'include' });
+        const _pollHeaders = {};
+        const _pollTok = localStorage.getItem('mxi_token');
+        if (_pollTok) _pollHeaders['Authorization'] = 'Bearer ' + _pollTok;
+        const res = await fetch(`/api/notifs?since=${_lastNotifTs}`, { credentials: 'include', headers: _pollHeaders });
+        if (res.status === 401) { _authFailed = true; return; }
         if (!res.ok) return;
         const { notifs, count } = await res.json();
         if (!Array.isArray(notifs) || notifs.length === 0) return;
@@ -8909,10 +8917,14 @@
     window._pendingSettlements = {};
 
     async function _syncSentShareStatuses() {
-      if (!_IS_SERVER || _impersonatingDataUserId) return;
+      if (!_IS_SERVER || _impersonatingDataUserId || _authFailed) return;
       const u = curUser(); if (!u) return;
       try {
-        const res = await fetch('/api/share?sent=1', { credentials: 'include' });
+        const _sstHeaders = {};
+        const _sstTok = localStorage.getItem('mxi_token');
+        if (_sstTok) _sstHeaders['Authorization'] = 'Bearer ' + _sstTok;
+        const res = await fetch('/api/share?sent=1', { credentials: 'include', headers: _sstHeaders });
+        if (res.status === 401) { _authFailed = true; return; }
         if (!res.ok) return;
         const { sent } = await res.json();
         if (!Array.isArray(sent)) return;
