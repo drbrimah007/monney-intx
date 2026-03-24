@@ -977,7 +977,9 @@ module.exports = async function handler(req, res) {
             entryNum:        ownerData.settings.entryCounter,
             createdAt:       Date.now(),
             linkedInvoiceId: entryId,
-            settledByRecipient: true
+            settledByRecipient: true,
+            noLedger:        true,  // receipt only — balance tracked on parent invoice
+            isReceipt:       true   // informational, no flags/badges/actions needed
           });
           // Recompute invoice status from all linked settlement entries
           const allSettledSum = ownerData.entries

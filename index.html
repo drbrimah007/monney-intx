@@ -832,6 +832,13 @@
       }
       // Retype old notification events as 'notification' if they lack a type
       db.notifs.forEach(n => { if (!n.type) n.type = 'notification'; });
+      // Mark settlement receipt entries as noLedger + isReceipt (backfill)
+      db.entries.forEach(e => {
+        if (e.settledByRecipient && e.linkedInvoiceId) {
+          if (!e.noLedger) e.noLedger = true;
+          if (!e.isReceipt) e.isReceipt = true;
+        }
+      });
       // Backfill linkedInvoiceId for settlement entries created before this feature
       // They have notes like "Settlement for INV-0001" or "Settlement for #0001"
       db.entries.forEach(e => {
@@ -3369,16 +3376,18 @@
           const e = item;
           const c = db.contacts.find(x => x.id === e.cId);
           const _isSel = _sm && window._selectedEntries.has(e.id);
-          const _noLedgPill = e.noLedger ? `<span title="Excluded from ledger balance" style="font-size:9px;background:rgba(245,158,11,.15);color:#b45309;border-radius:3px;padding:1px 4px;margin-left:3px;font-weight:700;">⊘ Ledger</span>` : '';
+          const _isRcpt = e.isReceipt || (e.settledByRecipient && e.linkedInvoiceId);
+          const _noLedgPill = (e.noLedger && !_isRcpt) ? `<span title="Excluded from ledger balance" style="font-size:9px;background:rgba(245,158,11,.15);color:#b45309;border-radius:3px;padding:1px 4px;margin-left:3px;font-weight:700;">⊘ Ledger</span>` : '';
+          const _rcptPill = _isRcpt ? `<span style="font-size:9px;background:rgba(22,163,74,.1);color:#16a34a;border-radius:3px;padding:1px 4px;margin-left:3px;font-weight:700;">📋 Receipt</span>` : '';
           html += `<tr${_isSel?' class="row-selected"':''}>
             ${_sm ? `<td class="sel-col"><input type="checkbox" class="sel-cb entry-sel-cb" data-id="${e.id}" ${_isSel?'checked':''} onchange="_toggleEntrySelect('${e.id}')"></td>` : ''}
-            <td>${cLink(e.cId, c?.name || '—')}${_noLedgPill}</td>
+            <td>${cLink(e.cId, c?.name || '—')}${_noLedgPill}${_rcptPill}</td>
             <td class="hide-mobile">${(()=>{ const lbl = e.invoiceNumber || (e.entryNum ? '#'+String(e.entryNum).padStart(4,'0') : null); return lbl ? `<button class="gh sm" style="font-size:12px;font-weight:700;color:var(--accent);padding:2px 6px;" onclick="openEntryInvoice('${e.id}')" title="View record">${esc(lbl)}</button>` : '<span style="color:var(--muted);">—</span>'; })()}</td>
             <td>${_fmtAmtCell(e.id,`<div class="mobile-label" style="font-size:11px;font-weight:700;color:${txTypeColor(e.txType)};margin-top:2px;">${esc(TXL[e.txType]||e.txType)}</div>`)}</td>
             <td class="hide-mobile"><button class="gh sm" style="font-size:13px;padding:2px 6px;font-weight:700;color:${txTypeColor(e.txType)};" onclick="openEntryInvoice('${e.id}')" title="View record">${esc(TXL[e.txType]||e.txType)}</button></td>
             <td>${new Date(e.date).toLocaleDateString()}</td>
-            <td>${statusBadge(e.status)}${_reminderBadge(e.reminderCount, e.id)}${window._pendingSettlements?.[e.id] ? `<span class="badge" style="background:rgba(245,158,11,.12);color:#d97706;font-size:10px;margin-left:4px;cursor:pointer;" onclick="_reviewSettlement('${window._pendingSettlements[e.id]}')">⏳ Review Payment</span>` : ''}</td>
-            <td><div class="action-menu"><button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button><div class="action-dropdown">
+            <td>${statusBadge(e.status)}${_isRcpt ? '' : _reminderBadge(e.reminderCount, e.id)}${!_isRcpt && window._pendingSettlements?.[e.id] ? `<span class="badge" style="background:rgba(245,158,11,.12);color:#d97706;font-size:10px;margin-left:4px;cursor:pointer;" onclick="_reviewSettlement('${window._pendingSettlements[e.id]}')">⏳ Review Payment</span>` : ''}</td>
+            <td>${_isRcpt ? `<div class="action-menu"><button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button><div class="action-dropdown"><button onclick="openEntryInvoice('${e.id}')">📄 View</button><button onclick="delEntry('${e.id}')" style="color:var(--red);">🗑 Delete</button></div></div>` : `<div class="action-menu"><button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button><div class="action-dropdown">
               <button onclick="openEntryInvoice('${e.id}')">📄 View</button>
               <button onclick="editEntry('${e.id}')">✏️ Edit</button>
               ${window._pendingSettlements?.[e.id] ? `<button onclick="_reviewSettlement('${window._pendingSettlements[e.id]}')" style="color:#d97706;font-weight:700;">⏳ Review Payment</button>` : (window._settlementProofs?.[e.id] ? `<button onclick="_reviewSettlement('${window._settlementProofs[e.id]}')">📎 View Proof</button>` : '')}
