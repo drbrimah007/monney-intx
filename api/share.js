@@ -104,11 +104,14 @@ module.exports = async function handler(req, res) {
       try {
         await ensureTable();
         const rows = await sql`
-          SELECT token, entry_data, acknowledged, acknowledged_at, linked_at, created_at,
-                 recipient_closed, confirmed
-          FROM share_tokens
-          WHERE linked_user_id = ${payload.id}
-          ORDER BY linked_at DESC NULLS LAST
+          SELECT st.token, st.entry_data, st.acknowledged, st.acknowledged_at, st.linked_at,
+                 st.created_at, st.recipient_closed, st.confirmed,
+                 u.email AS owner_email
+          FROM share_tokens st
+          LEFT JOIN users u ON u.id = st.user_id
+          WHERE st.linked_user_id = ${payload.id}
+            AND (st.entry_data->>'isShared') IS DISTINCT FROM 'true'
+          ORDER BY st.linked_at DESC NULLS LAST
         `;
         return res.json({ ok: true, shared: rows.map(r => ({
           token:           r.token,
@@ -118,7 +121,8 @@ module.exports = async function handler(req, res) {
           linkedAt:        r.linked_at,
           sharedAt:        r.created_at,
           recipientClosed: r.recipient_closed,
-          confirmed:       r.confirmed
+          confirmed:       r.confirmed,
+          ownerEmail:      r.owner_email || ''   // actual account email of the share creator
         }))});
       } catch (e) {
         console.error('[share/linked]', e.message);
@@ -765,6 +769,63 @@ module.exports = async function handler(req, res) {
       } catch (e) {
         console.error('[share/confirm-settlement]', e.message);
         return res.status(500).json({ ok: false, error: 'Failed to confirm settlement.' });
+      }
+    }
+
+    // ── log-reminder: recipient sent a reminder to the original sender ────────
+    // Updates the sender's original entry reminderCount + pushes in-app notification.
+    // Called by the recipient after successfully emailing the reminder.
+    if (action === 'log-reminder') {
+      const payload = requireAuth(req, res);
+      if (!payload) return;
+      const { token: lrToken, recipientName } = req.body;
+      if (!lrToken) return res.status(400).json({ ok: false, error: 'token required' });
+      try {
+        await ensureTable();
+        const [tokenRow] = await sql`
+          SELECT user_id, entry_id, entry_data FROM share_tokens WHERE token = ${lrToken} LIMIT 1
+        `;
+        if (!tokenRow) return res.json({ ok: true, updated: false }); // token not found — non-fatal
+        const ownerId = tokenRow.user_id;
+        const entryId = tokenRow.entry_id;
+        const entryData = tokenRow.entry_data;
+        // Safety: recipient should not be same as owner (prevents self-flag)
+        if (ownerId === payload.id) return res.json({ ok: true, updated: false });
+        const [blobRow] = await sql`SELECT data FROM user_data WHERE user_id = ${ownerId} LIMIT 1`;
+        if (!blobRow) return res.json({ ok: true, updated: false });
+        const ownerData = await _decompress(blobRow.data || {});
+        const entry   = (ownerData.entries  || []).find(e => e.id === entryId);
+        const contact = entry ? (ownerData.contacts || []).find(c => c.id === entry.cId) : null;
+        const remName = recipientName || contact?.name || entryData?.contactName || 'Your contact';
+        // Increment reminder count on sender's original entry
+        if (entry) {
+          entry.reminderCount    = (entry.reminderCount || 0) + 1;
+          entry.lastReminderAt   = Date.now();
+          entry.lastActivityAt   = Date.now();
+        }
+        // Push in-app notification to sender
+        if (!ownerData.notifs) ownerData.notifs = [];
+        ownerData.notifs.push({
+          id:        'n' + Math.random().toString(36).substr(2, 9),
+          userId:    ownerId,
+          cId:       entry?.cId || null,
+          eid:       entryId,
+          shareToken: lrToken,
+          type:      'reminder',
+          msg:       `${remName} sent you a reminder about a shared record.`,
+          channel:   'in-app',
+          sent:      true,
+          who:       'them',
+          sentTo:    '',
+          read:      false,
+          createdAt: Date.now()
+        });
+        const recompressed = await _compress(ownerData);
+        await sql`UPDATE user_data SET data = ${recompressed}, updated_at = now() WHERE user_id = ${ownerId}`;
+        return res.json({ ok: true, updated: true });
+      } catch (e) {
+        console.error('[share/log-reminder]', e.message);
+        return res.json({ ok: true, updated: false }); // non-fatal — reminder was already sent
       }
     }
 

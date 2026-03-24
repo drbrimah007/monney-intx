@@ -1596,7 +1596,11 @@
           if (entriesEl) entriesEl.innerHTML = '';
           return;
         }
-        const records = data.shared;
+        // Filter out any reverse backfill tokens (entry_data.isShared === true).
+        // These are artifacts from an old backfill bug that processed received isShared entries,
+        // creating tokens pointing back to the original sender. Filtering here prevents them
+        // from appearing as fake "Shared With You" records or causing wrong-direction reminders.
+        const records = data.shared.filter(r => !r.entry?.isShared);
         _cachedSharedRecords = records; // cache for UI rendering — confirmed records are in db.entries (isShared:true)
 
         // ── Migration: Unified Record Layer ──────────────────────────────────
@@ -4467,7 +4471,15 @@
       // Build a unified data object from whichever source has the data
       const e = r?.entry || {};
       const senderName  = e._resolvedFromName || e.fromName || dbEntry?.fromName || 'them';
-      const senderEmail = e.fromEmail || dbEntry?.fromEmail || '';
+      // ownerEmail: the ACTUAL account email of the person who originally created the share.
+      // This is the authoritative fallback: even if fromEmail was empty at share-creation time,
+      // the server now includes the owner's real account email so reminders always reach the right person.
+      const ownerEmail  = r?.ownerEmail || '';
+      const senderEmail = e.fromEmail || dbEntry?.fromEmail || ownerEmail;
+      // Self-send guard: if senderEmail somehow resolves to the current user's own email,
+      // the reminder would loop back. Warn and clear so user must enter the correct address.
+      const _myEmail = (curUser()?.email || '').toLowerCase().trim();
+      const _isSelfSend = senderEmail && senderEmail.toLowerCase().trim() === _myEmail;
       const rawAmt      = parseFloat(e.amount || dbEntry?.amount || 0);
       const amtFmt      = fmt(rawAmt);
       const dateStr     = (e.date || dbEntry?.date) ? new Date(e.date || dbEntry?.date).toLocaleDateString() : '';
@@ -4480,6 +4492,9 @@
       // Default reminder message — addressed to the sender (the one who owes)
       const defaultMsg  = `Hi ${senderName},\n\nThis is a friendly reminder that you owe ${amtFmt}${dateStr ? ' (as of ' + dateStr + ')' : ''}.\n\nPlease review the record here:\n${shareLink}\n\nThank you.`;
 
+      // Use the resolved email — prefer non-self email; warn user if self-send detected
+      const _displayEmail = _isSelfSend ? '' : (senderEmail || '');
+
       const d = document.createElement('div');
       d.innerHTML = `<div class="modal-bg" id="shRemindBg" onclick="if(event.target===this)this.remove()">
         <div class="modal" style="max-width:500px;" onclick="event.stopPropagation()">
@@ -4487,20 +4502,24 @@
             <div class="modal-title" style="margin:0;">Send Reminder</div>
             <button class="gh sm" onclick="document.getElementById('shRemindBg').remove()">✕</button>
           </div>
+          ${_isSelfSend ? `<div style="background:#fff3cd;border:1px solid #ffc107;border-radius:8px;padding:10px 14px;margin-bottom:12px;">
+            <div style="font-size:13px;color:#856404;font-weight:600;">⚠️ Self-send detected</div>
+            <div style="font-size:12px;color:#856404;margin-top:3px;">The email on file matches your own account. Please enter the correct recipient email below.</div>
+          </div>` : ''}
           <div style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:14px;">
-            <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px;">Reminding</div>
+            <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px;">Sending Reminder To</div>
             <div style="font-weight:700;">${esc(senderName)} — ${amtFmt}</div>
-            ${senderEmail ? `<div style="font-size:12px;color:var(--muted);margin-top:2px;">→ ${esc(senderEmail)}</div>` : `<div style="font-size:12px;color:var(--amber);margin-top:2px;">⚠️ No email on file for this sender</div>`}
+            ${_displayEmail ? `<div style="font-size:12px;color:var(--muted);margin-top:2px;">→ ${esc(_displayEmail)}</div>` : `<div style="font-size:12px;color:var(--amber);margin-top:2px;">⚠️ No email on file — enter below</div>`}
           </div>
           <div class="fg"><label>Message</label><textarea id="sh_remind_msg" rows="5" style="width:100%;">${esc(defaultMsg)}</textarea></div>
-          ${!senderEmail ? `<div style="background:#fff8e1;border:1px solid #ffe082;border-radius:8px;padding:10px 14px;margin-bottom:10px;">
-            <div style="font-size:13px;color:#795548;margin-bottom:6px;">Enter sender's email to send:</div>
-            <input type="email" id="sh_remind_email" placeholder="sender@email.com"
+          ${(!_displayEmail) ? `<div style="background:#fff8e1;border:1px solid #ffe082;border-radius:8px;padding:10px 14px;margin-bottom:10px;">
+            <div style="font-size:13px;color:#795548;margin-bottom:6px;">Enter ${esc(senderName)}'s email to send:</div>
+            <input type="email" id="sh_remind_email" placeholder="Enter their email address"
               style="width:100%;box-sizing:border-box;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;background:var(--bg2);color:var(--text);" />
           </div>` : ''}
           <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;border-top:1px solid var(--border);padding-top:14px;">
             <button class="bs sm" onclick="document.getElementById('shRemindBg').remove()">Cancel</button>
-            <button class="btn sm" onclick="_sendSharedReminder('${esc(token)}','${esc(senderEmail)}','${esc(senderName)}',${rawAmt})">Send Reminder</button>
+            <button class="btn sm" onclick="_sendSharedReminder('${esc(token)}','${esc(_displayEmail)}','${esc(senderName)}',${rawAmt})">Send Reminder</button>
           </div>
           <div style="border-top:1px solid var(--border);margin-top:14px;padding-top:14px;">
             <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px;">Or share directly</div>
@@ -4519,7 +4538,12 @@
       const message = document.getElementById('sh_remind_msg')?.value.trim() || '';
       if (!message) return alert('Message required');
       const toEmail = senderEmail || document.getElementById('sh_remind_email')?.value.trim() || '';
-      if (!toEmail) return alert('Sender email required to send reminder');
+      if (!toEmail) return alert(`Enter ${senderName || 'the sender'}'s email to send the reminder`);
+      // Final self-send guard: never allow sending to your own email
+      const _myEmailFinal = (curUser()?.email || '').toLowerCase().trim();
+      if (toEmail.toLowerCase().trim() === _myEmailFinal) {
+        return alert('⚠️ The destination email matches your own account. Please enter the correct recipient email.');
+      }
       const r = (_cachedSharedRecords || []).find(x => x.token === token);
       const e = r?.entry;
       const dbEntry = db.entries.find(x => x.shareToken === token);
@@ -4552,22 +4576,36 @@
             logoData: db.settings?.logoData || ''
           })
         });
-        // Update activity metadata on the unified db.entries record (does not change original date/amount/status)
+        // Notify the ORIGINAL SHARE OWNER (sender) — increment their reminderCount and push
+        // an in-app notification so the 🚩 flag appears on THEIR entries, not ours.
+        // Fire-and-forget: non-critical, reminder was already sent via email above.
+        fetch('/api/share', {
+          method: 'POST', credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'log-reminder',
+            token,
+            recipientName: u.displayName || u.email || 'Your contact'
+          })
+        }).catch(() => {});
+
+        // Update local activity metadata on our own isShared entry (timestamps only, no reminderCount
+        // — reminderCount lives on the SENDER's entry so the flag shows on their side)
         const _actNow   = Date.now();
         const _dbEntry  = db.entries.find(x => x.shareToken === token);
         if (_dbEntry) {
           _dbEntry.lastActivityAt     = _actNow;
           _dbEntry.lastReminderAt     = _actNow;
-          _dbEntry.reminderCount      = (_dbEntry.reminderCount || 0) + 1;
           _dbEntry.lastReminderMethod = 'email';
+          // NOTE: do NOT increment _dbEntry.reminderCount here — that would show the 🚩 flag
+          // on the RECIPIENT's page. The flag belongs on the SENDER's page (server-side above).
         }
         // Also update the in-memory cached record so sort is live
         if (r) {
           r.lastActivityAt = _actNow;
           r.lastReminderAt = _actNow;
-          r.reminderCount  = (r.reminderCount || 0) + 1;
         }
-        // Log reminder to db.notifs for history tracking
+        // Log reminder to db.notifs for history tracking (shows in our Notifications page)
         db.notifs.push({
           id: uuid(), userId: u.id,
           cId: _dbEntry?.cId || null,
@@ -5839,8 +5877,10 @@
 
       const whoLabel = w => w === 'them' ? 'Contact' : w === 'you' ? 'You' : w === 'both' ? 'Both' : '—';
       const eventBadge = t => {
-        if (t === 'viewed') return `<span class="badge" style="background:rgba(108,99,255,.12);color:var(--accent);font-size:11px;">👁 Viewed</span>`;
-        if (t === 'closed') return `<span class="badge badge-gray" style="font-size:11px;">🔒 Closed</span>`;
+        if (t === 'viewed')    return `<span class="badge" style="background:rgba(108,99,255,.12);color:var(--accent);font-size:11px;">👁 Viewed</span>`;
+        if (t === 'confirmed') return `<span class="badge" style="background:rgba(22,163,74,.12);color:#16a34a;font-size:11px;">✅ Confirmed</span>`;
+        if (t === 'closed')    return `<span class="badge badge-gray" style="font-size:11px;">🔒 Closed</span>`;
+        if (t === 'reminder')  return `<span class="badge" style="background:rgba(239,68,68,.12);color:#dc2626;font-size:11px;">🚩 Reminder</span>`;
         return `<span class="badge badge-green" style="font-size:11px;">📤 Sent</span>`;
       };
 
