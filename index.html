@@ -1757,6 +1757,11 @@
         if (!_impersonatingDataUserId) {
           let migrated = false;
           for (const mr of records) {
+            // Auto-confirm settlement receipts — they're informational, no manual confirm needed
+            if (!mr.confirmed && mr.entry && (
+              mr.entry.linkedInvoiceId || mr.entry.settledByRecipient ||
+              mr.entry.txType === 'they_paid_you' || mr.entry.txType === 'you_paid_them'
+            )) { mr.confirmed = true; }
             if (mr.confirmed && !mr.recipientClosed && !(mr.entry?.dismissed)) {
               const _existingE = db.entries.find(e => e.shareToken === mr.token);
               // Run _insertSharedEntry if:
