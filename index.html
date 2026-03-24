@@ -611,15 +611,9 @@
             const serverHasData = Object.keys(data).length > 0 &&
               ((data.entries?.length > 0) || (data.contacts?.length > 0) || (data.templates?.length > 0));
             // Only recover local data if it belongs to the same logged-in user.
-            // If sessionUserId is set and doesn't match, discard local data entirely.
+            // Allow recovery when sessionUserId is absent (older data format).
             const localBelongsToUser = _localData && srvUser &&
-              (_localData.settings?.sessionUserId === srvUser.id);
-            // Clear contaminated localStorage if it belongs to a different user
-            if (_localData && srvUser && _localData.settings?.sessionUserId && _localData.settings.sessionUserId !== srvUser.id) {
-              console.warn('[load] localStorage belongs to user', _localData.settings.sessionUserId, '— clearing for', srvUser.id);
-              localStorage.removeItem('mxi_v2');
-              _localData = null;
-            }
+              (!_localData.settings?.sessionUserId || _localData.settings?.sessionUserId === srvUser.id);
             const localHasData = localBelongsToUser &&
               ((_localData.entries?.length > 0) || (_localData.contacts?.length > 0) || (_localData.templates?.length > 0));
 
@@ -7964,20 +7958,6 @@
         errEl.style.display = 'block';
         return;
       }
-      // ── Clear stale data from previous user before loading new user's data ──
-      // Prevents data contamination when switching accounts on the same browser.
-      const prevUserId = db.settings?.sessionUserId;
-      const newUserId  = res.user?.id;
-      if (prevUserId && newUserId && prevUserId !== newUserId) {
-        // Different user logging in — wipe local data so load() starts fresh
-        localStorage.removeItem('mxi_v2');
-        db = defDB();
-        db.settings.sessionUserId = newUserId;
-        if (!db.users) db.users = [];
-        db.users.push({ ...res.user, status: 'active',
-          notifPrefs: { inapp: true, email: true, sms: false },
-          discoverable: true, invoiceShow: {}, logoData: '' });
-      }
       closeAuthModal();
       await load(); // pull their data from server
       await _acceptPendingInvite();
@@ -8206,23 +8186,26 @@
       if (!u) return;
 
       // Resolve contact ID from sender name/email
-      const dispName  = entry._resolvedFromName || entry.fromName || '';
-      const nameLower = dispName.toLowerCase().trim();
-      const emailFb   = (entry.fromEmail || entry.fromName || '').toLowerCase().trim();
+      const senderEmail = (entry.fromEmail || entry.fromName || '').toLowerCase().trim();
+      const senderName  = entry._resolvedFromName || entry.fromName || '';
+      // Prefer a non-email display name — check if fromName looks like an email
+      const _looksLikeEmail = senderName.includes('@');
+      // Try to find existing contact by email first (most reliable), then by name
       let contact = db.contacts.find(c =>
-        c.userId === u.id && (
-          (c.name  || '').toLowerCase().trim() === nameLower ||
-          (emailFb && (c.email || '').toLowerCase().trim() === emailFb)
-        )
+        c.userId === u.id && senderEmail && (c.email || '').toLowerCase().trim() === senderEmail
+      ) || db.contacts.find(c =>
+        c.userId === u.id && !_looksLikeEmail && (c.name || '').toLowerCase().trim() === senderName.toLowerCase().trim()
       );
+      // Use the contact's name (not the email) for display
+      const dispName = contact ? contact.name : (_looksLikeEmail ? senderEmail.split('@')[0] : senderName);
 
       // Auto-create contact if none found — confirming a shared record establishes
       // a relationship; without a cId the entry never appears in getLedger totals
-      if (!contact && dispName) {
+      if (!contact && (dispName || senderEmail)) {
         contact = {
           id: uuid(), userId: u.id,
-          name: dispName,
-          email: entry.fromEmail || '',
+          name: dispName || senderEmail.split('@')[0],
+          email: senderEmail || '',
           notes: 'Auto-created from confirmed shared record',
           tags: [], startToy: 0, startYot: 0,
           createdAt: Date.now()
