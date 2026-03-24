@@ -615,8 +615,14 @@ module.exports = async function handler(req, res) {
     if (action === 'mark-paid') {
       const payload = requireAuth(req, res);
       if (!payload) return;
-      const { token: mpToken, settledAmt: _sAmt, totalAmt: _tAmt } = req.body;
+      const { token: mpToken, settledAmt: _sAmt, totalAmt: _tAmt, proofData, proofFilename } = req.body;
       if (!mpToken) return res.status(400).json({ ok: false, error: 'token required' });
+
+      // Validate proof size (2MB max for base64)
+      if (proofData && proofData.length > 2 * 1024 * 1024 * 1.37) {
+        return res.status(400).json({ ok: false, error: 'Proof file too large (2MB max).' });
+      }
+
       try {
         await ensureTable();
         const [row] = await sql`
@@ -639,20 +645,46 @@ module.exports = async function handler(req, res) {
         const remaining  = Math.max(0, totalAmt - cumulativeSettled);
         const newStatus  = remaining <= 0.005 ? 'settled' : 'partially_settled';
 
+        // Build settlement proof object if proof was uploaded
+        const settlementProof = proofData ? {
+          data:       proofData,
+          filename:   proofFilename || 'proof',
+          uploadedAt: Date.now(),
+          uploadedBy: payload.id
+        } : null;
+
+        // Store pending settlement details — actual settlement entry created on confirm
+        const pendingSettlement = {
+          amount:        thisPayment,
+          totalAmt,
+          cumulativeSettled,
+          remaining,
+          newStatus,
+          proofData:     proofData || null,
+          proofFilename: proofFilename || null,
+          uploadedAt:    Date.now(),
+          recipientId:   payload.id,
+          recipientName: payload.displayName || payload.email || 'recipient'
+        };
+
         // Update share_token entry_data with CUMULATIVE amounts
         const updatedEntry = {
           ...entryData,
+          _preSettlementStatus: entryData.status || 'accepted',
           status:            newStatus,
           settledByRecipient: true,
           settledAmt:        cumulativeSettled,
           remaining:         remaining,
           settledAt:         new Date().toISOString(),
           settlementPending: true,
-          settlementConfirmed: false
+          settlementConfirmed: false,
+          pendingSettlement,
+          ...(settlementProof ? { settlementProof } : {})
         };
         await sql`UPDATE share_tokens SET entry_data = ${updatedEntry} WHERE token = ${mpToken}`;
 
-        // Update sender's data blob: add settlement entry + notify
+        // DO NOT create settlement entry on sender's blob yet — that happens on confirm.
+        // Only push notification to sender asking them to review.
         try {
           const [blobRow] = await sql`SELECT data FROM user_data WHERE user_id = ${ownerId} LIMIT 1`;
           if (blobRow) {
@@ -661,45 +693,7 @@ module.exports = async function handler(req, res) {
             const contact = entry ? (ownerData.contacts || []).find(c => c.id === entry.cId) : null;
             const name    = contact?.name || entryData?.contactName || 'Your contact';
 
-            if (entry && entry.status !== 'voided' && entry.status !== 'fulfilled') {
-              // Create a linked settlement entry in the owner's blob
-              const creditType = (entry.txType === 'they_owe_you' || entry.txType === 'invoice' || entry.txType === 'bill')
-                ? 'they_paid_you' : 'you_paid_them';
-              ownerData.settings = ownerData.settings || {};
-              ownerData.settings.entryCounter = (ownerData.settings.entryCounter || 0) + 1;
-              const docRef = entry.invoiceNumber || ('#' + String(entry.entryNum || '?').padStart(4, '0'));
-              if (!ownerData.entries) ownerData.entries = [];
-              ownerData.entries.push({
-                id:              'x' + Math.random().toString(36).substr(2, 9),
-                userId:          ownerId,
-                cId:             entry.cId,
-                txType:          creditType,
-                amount:          thisPayment,
-                note:            `Payment (by recipient) for ${docRef}`,
-                date:            Date.now(),
-                status:          'settled',
-                archived:        false,
-                shared:          false,
-                responses:       [],
-                templateId:      null,
-                templateData:    {},
-                invoiceNumber:   null,
-                entryNum:        ownerData.settings.entryCounter,
-                createdAt:       Date.now(),
-                linkedInvoiceId: entryId,
-                settledByRecipient: true
-              });
-              // Recompute invoice status from all linked settlement entries
-              const allSettledSum = ownerData.entries
-                .filter(s => s.linkedInvoiceId === entryId && s.status !== 'voided')
-                .reduce((sum, s) => sum + (parseFloat(s.amount) || 0), 0);
-              const totalOrig  = parseFloat(entry.amount) || 0;
-              const allRemain  = Math.max(0, totalOrig - allSettledSum);
-              entry.status = allRemain <= 0.005 ? 'settled' : 'partially_settled';
-              entry.lastActivityAt = Date.now();
-            }
-
-            // Push in-app notification to sender
+            // Push in-app notification to sender — settlement_pending type
             if (!ownerData.notifs) ownerData.notifs = [];
             ownerData.notifs.push({
               id:        'n' + Math.random().toString(36).substr(2, 9),
@@ -707,8 +701,8 @@ module.exports = async function handler(req, res) {
               cId:       entry?.cId || null,
               eid:       entryId,
               shareToken: mpToken,
-              type:      'payment',
-              msg:       `${name} recorded a payment of $${thisPayment.toFixed(2)}${remaining > 0.005 ? ` — $${remaining.toFixed(2)} remaining` : ' — fully settled'}.`,
+              type:      'settlement_pending',
+              msg:       `${name} recorded a payment of $${thisPayment.toFixed(2)} — review proof to confirm`,
               channel:   'in-app',
               sent:      true,
               who:       'them',
@@ -722,7 +716,7 @@ module.exports = async function handler(req, res) {
         } catch (innerErr) {
           console.error('[share/mark-paid] owner update failed:', innerErr.message);
         }
-        return res.json({ ok: true, status: newStatus, remaining, settledAmt: thisPayment, totalSettled: cumulativeSettled });
+        return res.json({ ok: true, status: newStatus, remaining, settledAmt: thisPayment, totalSettled: cumulativeSettled, pending: true });
       } catch (e) {
         console.error('[share/mark-paid]', e.message);
         return res.status(500).json({ ok: false, error: 'Failed to mark paid.' });
@@ -900,20 +894,228 @@ module.exports = async function handler(req, res) {
       }
     }
 
-    // ── confirm-settlement: recipient acknowledges a settlement ──────────────
+    // ── confirm-settlement: sender confirms a pending settlement (with proof review) ──
     if (action === 'confirm-settlement') {
+      const payload = requireAuth(req, res);
+      if (!payload) return;
       const { token: cToken } = req.body;
       if (!cToken) return res.status(400).json({ ok: false, error: 'token required' });
       try {
         await ensureTable();
-        const rows = await sql`SELECT token, entry_data FROM share_tokens WHERE token = ${cToken}`;
-        if (!rows.length) return res.status(404).json({ ok: false, error: 'Token not found' });
-        const updated = { ...rows[0].entry_data, settlementConfirmed: true, settlementPending: false };
-        await sql`UPDATE share_tokens SET entry_data = ${updated} WHERE token = ${cToken}`;
-        return res.json({ ok: true });
+        const [row] = await sql`
+          SELECT user_id, entry_id, entry_data, linked_user_id
+          FROM share_tokens WHERE token = ${cToken} LIMIT 1
+        `;
+        if (!row) return res.status(404).json({ ok: false, error: 'Token not found' });
+        // Only the token owner (sender) can confirm
+        if (row.user_id !== payload.id) return res.status(403).json({ ok: false, error: 'Not authorized.' });
+
+        const entryData = row.entry_data || {};
+        const pending   = entryData.pendingSettlement;
+        if (!pending) return res.status(400).json({ ok: false, error: 'No pending settlement to confirm.' });
+
+        const ownerId  = row.user_id;
+        const entryId  = row.entry_id;
+        const thisPayment     = parseFloat(pending.amount || 0);
+        const cumulativeSettled = parseFloat(pending.cumulativeSettled || thisPayment);
+        const remaining       = parseFloat(pending.remaining || 0);
+        const newStatus       = pending.newStatus || (remaining <= 0.005 ? 'settled' : 'partially_settled');
+
+        // 1. Create the actual settlement entry on the sender's blob
+        const [blobRow] = await sql`SELECT data FROM user_data WHERE user_id = ${ownerId} LIMIT 1`;
+        if (blobRow) {
+          const ownerData = await _decompress(blobRow.data || {});
+          const entry   = (ownerData.entries  || []).find(e => e.id === entryId);
+          const contact = entry ? (ownerData.contacts || []).find(c => c.id === entry.cId) : null;
+
+          if (entry && entry.status !== 'voided' && entry.status !== 'fulfilled') {
+            const creditType = (entry.txType === 'they_owe_you' || entry.txType === 'invoice' || entry.txType === 'bill')
+              ? 'they_paid_you' : 'you_paid_them';
+            ownerData.settings = ownerData.settings || {};
+            ownerData.settings.entryCounter = (ownerData.settings.entryCounter || 0) + 1;
+            const docRef = entry.invoiceNumber || ('#' + String(entry.entryNum || '?').padStart(4, '0'));
+            if (!ownerData.entries) ownerData.entries = [];
+            ownerData.entries.push({
+              id:              'x' + Math.random().toString(36).substr(2, 9),
+              userId:          ownerId,
+              cId:             entry.cId,
+              txType:          creditType,
+              amount:          thisPayment,
+              note:            `Payment (by recipient) for ${docRef}`,
+              date:            Date.now(),
+              status:          'settled',
+              archived:        false,
+              shared:          false,
+              responses:       [],
+              templateId:      null,
+              templateData:    {},
+              invoiceNumber:   null,
+              entryNum:        ownerData.settings.entryCounter,
+              createdAt:       Date.now(),
+              linkedInvoiceId: entryId,
+              settledByRecipient: true
+            });
+            // Recompute invoice status from all linked settlement entries
+            const allSettledSum = ownerData.entries
+              .filter(s => s.linkedInvoiceId === entryId && s.status !== 'voided')
+              .reduce((sum, s) => sum + (parseFloat(s.amount) || 0), 0);
+            const totalOrig  = parseFloat(entry.amount) || 0;
+            const allRemain  = Math.max(0, totalOrig - allSettledSum);
+            entry.status = allRemain <= 0.005 ? 'settled' : 'partially_settled';
+            entry.lastActivityAt = Date.now();
+          }
+          const recompressed = await _compress(ownerData);
+          await sql`UPDATE user_data SET data = ${recompressed}, updated_at = now() WHERE user_id = ${ownerId}`;
+        }
+
+        // 2. Update share_token entry_data
+        const updatedEntry = {
+          ...entryData,
+          settlementConfirmed: true,
+          settlementPending:   false,
+          pendingSettlement:   null
+        };
+        await sql`UPDATE share_tokens SET entry_data = ${updatedEntry} WHERE token = ${cToken}`;
+
+        // 3. Notify recipient that payment was confirmed
+        if (row.linked_user_id) {
+          try {
+            const [recipBlob] = await sql`SELECT data FROM user_data WHERE user_id = ${row.linked_user_id} LIMIT 1`;
+            if (recipBlob) {
+              const recipData = await _decompress(recipBlob.data || {});
+              if (!recipData.notifs) recipData.notifs = [];
+              recipData.notifs.push({
+                id:        'n' + Math.random().toString(36).substr(2, 9),
+                userId:    row.linked_user_id,
+                shareToken: cToken,
+                type:      'settlement_confirmed',
+                msg:       `Your payment of $${thisPayment.toFixed(2)} has been confirmed`,
+                channel:   'in-app',
+                sent:      true,
+                who:       'them',
+                sentTo:    '',
+                read:      false,
+                createdAt: Date.now()
+              });
+              // Update recipient's isShared entry status
+              const recipEntry = (recipData.entries || []).find(e => e.shareToken === cToken);
+              if (recipEntry) {
+                recipEntry.status     = newStatus;
+                recipEntry.settledAmt = cumulativeSettled;
+                recipEntry.remaining  = remaining;
+              }
+              const rRecompressed = await _compress(recipData);
+              await sql`UPDATE user_data SET data = ${rRecompressed}, updated_at = now() WHERE user_id = ${row.linked_user_id}`;
+            }
+          } catch (recipErr) {
+            console.error('[share/confirm-settlement] recipient update failed:', recipErr.message);
+          }
+        }
+
+        return res.json({ ok: true, confirmed: true });
       } catch (e) {
         console.error('[share/confirm-settlement]', e.message);
         return res.status(500).json({ ok: false, error: 'Failed to confirm settlement.' });
+      }
+    }
+
+    // ── reject-settlement: sender rejects a pending settlement ────────────────
+    if (action === 'reject-settlement') {
+      const payload = requireAuth(req, res);
+      if (!payload) return;
+      const { token: rToken } = req.body;
+      if (!rToken) return res.status(400).json({ ok: false, error: 'token required' });
+      try {
+        await ensureTable();
+        const [row] = await sql`
+          SELECT user_id, entry_id, entry_data, linked_user_id
+          FROM share_tokens WHERE token = ${rToken} LIMIT 1
+        `;
+        if (!row) return res.status(404).json({ ok: false, error: 'Token not found' });
+        // Only the token owner (sender) can reject
+        if (row.user_id !== payload.id) return res.status(403).json({ ok: false, error: 'Not authorized.' });
+
+        const entryData = row.entry_data || {};
+        const pending   = entryData.pendingSettlement;
+        if (!pending) return res.status(400).json({ ok: false, error: 'No pending settlement to reject.' });
+
+        const thisPayment = parseFloat(pending.amount || 0);
+
+        // Revert settledAmt and remaining to pre-payment values
+        const priorCumulative = parseFloat(pending.cumulativeSettled || 0) - thisPayment;
+        const totalAmt        = parseFloat(pending.totalAmt || entryData.amount || 0);
+        const revertedSettled = Math.max(0, priorCumulative);
+        const revertedRemaining = Math.max(0, totalAmt - revertedSettled);
+        const revertedStatus  = revertedSettled <= 0.005
+          ? (entryData._preSettlementStatus || 'accepted')
+          : 'partially_settled';
+
+        // Update share_token entry_data — clear pending, revert amounts
+        const updatedEntry = {
+          ...entryData,
+          status:              revertedStatus,
+          settlementPending:   false,
+          settlementConfirmed: false,
+          settledAmt:          revertedSettled > 0 ? revertedSettled : undefined,
+          remaining:           revertedRemaining,
+          pendingSettlement:   null,
+          settlementProof:     null
+        };
+        // Clean up undefined keys
+        if (revertedSettled <= 0) { delete updatedEntry.settledAmt; delete updatedEntry.settledByRecipient; delete updatedEntry.settledAt; }
+        await sql`UPDATE share_tokens SET entry_data = ${updatedEntry} WHERE token = ${rToken}`;
+
+        // Look up sender name for notification
+        let senderName = 'the sender';
+        try {
+          const [blobRow] = await sql`SELECT data FROM user_data WHERE user_id = ${row.user_id} LIMIT 1`;
+          if (blobRow) {
+            const ownerData = await _decompress(blobRow.data || {});
+            const entry = (ownerData.entries || []).find(e => e.id === row.entry_id);
+            const contact = entry ? (ownerData.contacts || []).find(c => c.id === entry.cId) : null;
+            senderName = contact?.name || payload.displayName || payload.email || 'the sender';
+          }
+        } catch (_) {}
+
+        // Notify recipient that payment was rejected
+        if (row.linked_user_id) {
+          try {
+            const [recipBlob] = await sql`SELECT data FROM user_data WHERE user_id = ${row.linked_user_id} LIMIT 1`;
+            if (recipBlob) {
+              const recipData = await _decompress(recipBlob.data || {});
+              if (!recipData.notifs) recipData.notifs = [];
+              recipData.notifs.push({
+                id:        'n' + Math.random().toString(36).substr(2, 9),
+                userId:    row.linked_user_id,
+                shareToken: rToken,
+                type:      'settlement_rejected',
+                msg:       `Your payment of $${thisPayment.toFixed(2)} was not confirmed. Please contact ${senderName}.`,
+                channel:   'in-app',
+                sent:      true,
+                who:       'them',
+                sentTo:    '',
+                read:      false,
+                createdAt: Date.now()
+              });
+              // Revert recipient's isShared entry status
+              const recipEntry = (recipData.entries || []).find(e => e.shareToken === rToken);
+              if (recipEntry) {
+                recipEntry.status     = revertedStatus;
+                recipEntry.settledAmt = revertedSettled > 0 ? revertedSettled : undefined;
+                recipEntry.remaining  = revertedRemaining;
+              }
+              const rRecompressed = await _compress(recipData);
+              await sql`UPDATE user_data SET data = ${rRecompressed}, updated_at = now() WHERE user_id = ${row.linked_user_id}`;
+            }
+          } catch (recipErr) {
+            console.error('[share/reject-settlement] recipient update failed:', recipErr.message);
+          }
+        }
+
+        return res.json({ ok: true, rejected: true });
+      } catch (e) {
+        console.error('[share/reject-settlement]', e.message);
+        return res.status(500).json({ ok: false, error: 'Failed to reject settlement.' });
       }
     }
 
