@@ -8495,27 +8495,16 @@
         const data = await res.json();
         if (data.ok) {
           document.getElementById('reviewSettlementBg')?.remove();
-          // Update the notification type so badge changes from "Review Payment"
-          const newType = action === 'confirm' ? 'settlement_confirmed' : 'settlement_rejected';
-          (db.notifs || []).forEach(n => {
-            if (n.shareToken === token && n.type === 'settlement_pending') n.type = newType;
-          });
-          // Clear from pending settlements tracker
-          for (const eid in window._pendingSettlements) {
-            if (window._pendingSettlements[eid] === token) delete window._pendingSettlements[eid];
-          }
-          // Force refresh everything — both confirm and reject need full sync
-          save();
-          if (action === 'confirm') {
-            toast('Settlement confirmed — reloading data…');
-            await load();
-          } else {
-            toast('Settlement rejected — payer has been notified');
-          }
-          // Clear all pending trackers and re-sync from server
+          const msg = action === 'confirm'
+            ? 'Settlement confirmed — reloading…'
+            : 'Settlement rejected — payer notified';
+          toast(msg);
+          // Server already updated notif types + share token state.
+          // Force full reload from server so everything syncs cleanly.
           window._pendingSettlements = {};
           window._settlementProofs = {};
-          await _syncSentShareStatuses();
+          await load(); // pulls fresh data with updated notifs from server
+          await _syncSentShareStatuses(); // re-reads share tokens
           _loadSharedWithMe();
           initApp();
         } else {

@@ -988,6 +988,16 @@ module.exports = async function handler(req, res) {
           entry.status = allRemain <= 0.005 ? 'settled' : 'partially_settled';
           entry.lastActivityAt = Date.now();
 
+          // Also update sender's own notification from settlement_pending → settlement_confirmed
+          if (ownerData.notifs) {
+            ownerData.notifs.forEach(n => {
+              if (n.shareToken === cToken && n.type === 'settlement_pending') {
+                n.type = 'settlement_confirmed';
+                n.msg = n.msg.replace(/review proof to confirm$/i, 'confirmed');
+              }
+            });
+          }
+
           const recompressed = await _compress(ownerData);
           await sql`UPDATE user_data SET data = ${recompressed}, updated_at = now() WHERE user_id = ${ownerId}`;
           entryCreated = true;
@@ -1090,7 +1100,7 @@ module.exports = async function handler(req, res) {
         if (revertedSettled <= 0) { delete updatedEntry.settledAmt; delete updatedEntry.settledByRecipient; delete updatedEntry.settledAt; }
         await sql`UPDATE share_tokens SET entry_data = ${updatedEntry} WHERE token = ${rToken}`;
 
-        // Look up sender name for notification
+        // Look up sender name for notification + update sender's notif type
         let senderName = 'the sender';
         try {
           const [blobRow] = await sql`SELECT data FROM user_data WHERE user_id = ${row.user_id} LIMIT 1`;
@@ -1099,6 +1109,21 @@ module.exports = async function handler(req, res) {
             const entry = (ownerData.entries || []).find(e => e.id === row.entry_id);
             const contact = entry ? (ownerData.contacts || []).find(c => c.id === entry.cId) : null;
             senderName = contact?.name || payload.displayName || payload.email || 'the sender';
+            // Update sender's notification from settlement_pending → settlement_rejected
+            let senderBlobChanged = false;
+            if (ownerData.notifs) {
+              ownerData.notifs.forEach(n => {
+                if (n.shareToken === rToken && n.type === 'settlement_pending') {
+                  n.type = 'settlement_rejected';
+                  n.msg = n.msg.replace(/review proof to confirm$/i, 'rejected');
+                  senderBlobChanged = true;
+                }
+              });
+            }
+            if (senderBlobChanged) {
+              const recompressed = await _compress(ownerData);
+              await sql`UPDATE user_data SET data = ${recompressed}, updated_at = now() WHERE user_id = ${row.user_id}`;
+            }
           }
         } catch (_) {}
 
