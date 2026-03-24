@@ -1130,12 +1130,14 @@
       if (!c) return { toy: 0, yot: 0, net: 0 };
       let toy = c.startToy || 0, yot = c.startYot || 0;
       db.entries.filter(e => e.cId === cid && e.status !== 'voided' && !e.noLedger).forEach(e => {
-        const a = Math.abs(parseFloat(e.amount) || 0);
+        // For shared entries with settlement data, use remaining amount (not full original)
+        const hasSettlement = e.isShared && e.settledAmt !== undefined && e.settledAmt > 0;
+        const effectiveAmt = hasSettlement ? Math.abs(parseFloat(e.remaining) || 0) : Math.abs(parseFloat(e.amount) || 0);
         const dir = TX_LEDGER[e.txType] || '';
-        if      (dir === 'toy')        toy += a;
-        else if (dir === 'toy_credit') toy = Math.max(0, toy - a);
-        else if (dir === 'yot')        yot += a;
-        else if (dir === 'yot_credit') yot = Math.max(0, yot - a);
+        if      (dir === 'toy')        toy += effectiveAmt;
+        else if (dir === 'toy_credit') toy = Math.max(0, toy - effectiveAmt);
+        else if (dir === 'yot')        yot += effectiveAmt;
+        else if (dir === 'yot_credit') yot = Math.max(0, yot - effectiveAmt);
       });
       // Confirmed shared records (isShared:true, noLedger not set) ARE included —
       // they were confirmed by the user and count toward the contact's balance.

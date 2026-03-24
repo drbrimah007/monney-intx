@@ -868,11 +868,8 @@ module.exports = async function handler(req, res) {
           if (settledAt  !== undefined) updated.settledAt = settledAt;
           if (settledAmt !== undefined) updated.settledAmt = settledAmt;
           if (remaining  !== undefined) updated.remaining  = remaining;
-          // Mark that a new settlement is pending recipient confirmation
-          if (settledAmt !== undefined && settledAmt > 0) {
-            updated.settlementPending = true;
-            updated.settlementConfirmed = updated.settlementConfirmed || false;
-          }
+          // Seller-initiated settlements don't need buyer confirmation.
+          // Only mark-paid (buyer-initiated) sets settlementPending.
           await sql`UPDATE share_tokens SET entry_data = ${updated} WHERE token = ${row.token}`;
 
           // Also update recipient's isShared entry in their blob so their side reflects new status
