@@ -969,6 +969,63 @@ module.exports = async function handler(req, res) {
       }
     }
 
+    // ── sender-notify: sender sent a reminder — flag the RECIPIENT's shared entry ──
+    // Increments reminderCount + lastActivityAt on the recipient's isShared entry
+    // so the 🚩 badge appears on the recipient's Entries page and the item sorts to top.
+    if (action === 'sender-notify') {
+      const payload = requireAuth(req, res);
+      if (!payload) return;
+      const { entryId: snEntryId, senderName } = req.body;
+      if (!snEntryId) return res.status(400).json({ ok: false, error: 'entryId required' });
+      try {
+        await ensureTable();
+        // Find all share tokens for this entry created by this sender
+        const tokens = await sql`
+          SELECT token, linked_user_id, entry_data FROM share_tokens
+          WHERE entry_id = ${snEntryId} AND user_id = ${payload.id} AND linked_user_id IS NOT NULL
+        `;
+        let updated = 0;
+        for (const tok of tokens) {
+          const recipId = tok.linked_user_id;
+          if (!recipId || recipId === payload.id) continue; // skip self
+          const [blobRow] = await sql`SELECT data FROM user_data WHERE user_id = ${recipId} LIMIT 1`;
+          if (!blobRow) continue;
+          const recipData = await _decompress(blobRow.data || {});
+          // Find the recipient's isShared entry by shareToken
+          const recipEntry = (recipData.entries || []).find(e => e.shareToken === tok.token);
+          if (recipEntry) {
+            recipEntry.reminderCount  = (recipEntry.reminderCount || 0) + 1;
+            recipEntry.lastActivityAt = Date.now();
+            recipEntry.lastReminderAt = Date.now();
+            updated++;
+          }
+          // Push in-app notification to recipient
+          if (!recipData.notifs) recipData.notifs = [];
+          recipData.notifs.push({
+            id:        'n' + Math.random().toString(36).substr(2, 9),
+            userId:    recipId,
+            cId:       recipEntry?.cId || null,
+            eid:       recipEntry?.id || null,
+            shareToken: tok.token,
+            type:      'reminder',
+            msg:       `${senderName || 'Someone'} sent you a reminder.`,
+            channel:   'in-app',
+            sent:      true,
+            who:       'them',
+            sentTo:    '',
+            read:      false,
+            createdAt: Date.now()
+          });
+          const recompressed = await _compress(recipData);
+          await sql`UPDATE user_data SET data = ${recompressed}, updated_at = now() WHERE user_id = ${recipId}`;
+        }
+        return res.json({ ok: true, updated });
+      } catch (e) {
+        console.error('[share/sender-notify]', e.message);
+        return res.json({ ok: true, updated: 0 });
+      }
+    }
+
     // ── log-reminder: recipient sent a reminder to the original sender ────────
     // Updates the sender's original entry reminderCount + pushes in-app notification.
     // Called by the recipient after successfully emailing the reminder.

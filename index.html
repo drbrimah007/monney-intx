@@ -4360,10 +4360,10 @@
         who, sentTo: toAddresses,
         read: false, createdAt: _notifNow
       });
-      // Update activity metadata on the entry (does not change original date/amount/status)
+      // Update activity metadata on the sender's own entry — but NOT reminderCount.
+      // The 🚩 flag should appear on the RECIPIENT's shared entry, not the sender's.
       e.lastActivityAt     = _notifNow;
       e.lastReminderAt     = _notifNow;
-      e.reminderCount      = (e.reminderCount || 0) + 1;
       e.lastReminderMethod = 'email';
       save();
       logAudit('send_notification', { eid, to: who });
@@ -4446,6 +4446,18 @@
         // Mark sent
         const notif = db.notifs.find(n => n.eid === eid && n.msg === message);
         if (notif) { notif.sent = true; save(); }
+        // Push reminder flag + lastActivityAt to RECIPIENT's shared entry (fire-and-forget)
+        if (_IS_SERVER) {
+          fetch('/api/share', {
+            method: 'POST', credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              action: 'sender-notify',
+              entryId: eid,
+              senderName: u.displayName || u.email || 'Sender'
+            })
+          }).catch(() => {});
+        }
         toast('✅ Notification emailed');
       } catch(err) {
         console.error('send-reminder error:', err);
