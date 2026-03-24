@@ -663,23 +663,29 @@
     if (!status) return 'pill-default';
     const s = status.toLowerCase();
     const recipientOwes = (txType === 'they_owe_you' || txType === 'invoice' || txType === 'bill');
-    // posted/sent: amber-due when recipient owes, blue-owed when recipient is owed
-    if (s === 'posted' || s === 'sent' || s === 'due') return recipientOwes ? 'pill-due' : 'pill-partial';
-    if (s === 'paid' || s === 'settled' || s === 'voided' || s === 'void') return 'pill-settled';
+    // posted/sent/viewed: amber-due when recipient owes, blue-owed when recipient is owed
+    if (s === 'posted' || s === 'sent' || s === 'due' || s === 'viewed') return recipientOwes ? 'pill-due' : 'pill-partial';
+    // accepted: orange/amber — still outstanding (not yet settled)
+    if (s === 'accepted') return recipientOwes ? 'pill-due' : 'pill-partial';
+    if (s === 'paid' || s === 'settled' || s === 'fulfilled') return 'pill-settled';
+    if (s === 'voided' || s === 'void') return 'pill-settled';
     if (s === 'partial' || s === 'partially_settled') return 'pill-partial';
-    if (s === 'closed') return 'pill-settled';
+    if (s === 'closed' || s === 'cancelled') return 'pill-settled';
     return 'pill-default';
   }
 
   function statusLabel(status, txType) {
-    // For 'posted' the label depends on who owes whom (recipient's perspective)
+    // For 'posted'/'viewed'/'accepted' the label depends on who owes whom (recipient's perspective)
     // they_owe_you / invoice / bill → recipient OWES → "Due" (it's due from them)
     // you_owe_them → recipient is OWED → "Owed"
     const recipientOwes = (txType === 'they_owe_you' || txType === 'invoice' || txType === 'bill');
     const postedLabel   = recipientOwes ? 'Due' : 'Owed';
     const map = {
-      posted: postedLabel, sent: postedLabel,
+      posted: postedLabel, sent: postedLabel, viewed: postedLabel,
+      accepted: recipientOwes ? 'Accepted (Due)' : 'Accepted',
       paid:'Settled', settled:'Settled',
+      fulfilled: 'Fulfilled',
+      cancelled: 'Cancelled',
       void:'Void', voided:'Voided', partial:'Partially Settled',
       partially_settled:'Partially Settled', closed:'Closed', draft:'Draft'
     };

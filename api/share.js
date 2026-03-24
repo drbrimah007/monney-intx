@@ -148,8 +148,11 @@ module.exports = async function handler(req, res) {
 
       // First view — mark viewed and push in-app notification to owner
       if (!row.viewed) {
+        // Also update entry_data.status to 'viewed' so recipient sees correct status
+        const _viewedEntryData = (row.entry_data && (row.entry_data.status === 'posted' || row.entry_data.status === 'sent' || !row.entry_data.status))
+          ? { ...row.entry_data, status: 'viewed' } : row.entry_data;
         await sql`
-          UPDATE share_tokens SET viewed = true, viewed_at = now()
+          UPDATE share_tokens SET viewed = true, viewed_at = now(), entry_data = ${_viewedEntryData}
           WHERE token = ${token}
         `;
         try {
@@ -567,11 +570,17 @@ module.exports = async function handler(req, res) {
                 createdAt: Date.now()
               });
               // Update sender's entry status to 'accepted' so their Entries list reflects confirmation
-              if (entry && entry.status !== 'settled' && entry.status !== 'voided') {
+              if (entry && entry.status !== 'settled' && entry.status !== 'voided' && entry.status !== 'fulfilled') {
                 entry.status = 'accepted';
               }
               const recompressed = await _compress(ownerData);
               await sql`UPDATE user_data SET data = ${recompressed}, updated_at = now() WHERE user_id = ${ownerId}`;
+            }
+            // Also update entry_data.status in the token so recipient sees 'Accepted'
+            const [freshToken] = await sql`SELECT entry_data FROM share_tokens WHERE token = ${cToken} LIMIT 1`;
+            if (freshToken && freshToken.entry_data) {
+              const _acceptedData = { ...freshToken.entry_data, status: 'accepted', acceptedAt: Date.now() };
+              await sql`UPDATE share_tokens SET entry_data = ${_acceptedData} WHERE token = ${cToken}`;
             }
           }
         } catch (innerErr) {
@@ -589,15 +598,110 @@ module.exports = async function handler(req, res) {
     if (action === 'mark-paid') {
       const payload = requireAuth(req, res);
       if (!payload) return;
-      const { token: mpToken } = req.body;
+      const { token: mpToken, settledAmt: _sAmt, totalAmt: _tAmt } = req.body;
       if (!mpToken) return res.status(400).json({ ok: false, error: 'token required' });
       try {
         await ensureTable();
-        const [row] = await sql`SELECT entry_data FROM share_tokens WHERE token = ${mpToken} AND linked_user_id = ${payload.id} LIMIT 1`;
+        const [row] = await sql`
+          SELECT user_id, entry_id, entry_data, linked_user_id
+          FROM share_tokens WHERE token = ${mpToken} AND linked_user_id = ${payload.id} LIMIT 1
+        `;
         if (!row) return res.status(404).json({ ok: false, error: 'Not found.' });
-        const updated = { ...(row.entry_data || {}), status: 'settled', settledByRecipient: true, settledAt: new Date().toISOString() };
-        await sql`UPDATE share_tokens SET entry_data = ${updated} WHERE token = ${mpToken}`;
-        return res.json({ ok: true });
+
+        const ownerId   = row.user_id;
+        const entryId   = row.entry_id;
+        const entryData = row.entry_data || {};
+
+        // Compute amounts
+        const totalAmt   = parseFloat(_tAmt || entryData.amount || 0);
+        const settledAmt = Math.min(Math.max(0, parseFloat(_sAmt || totalAmt)), totalAmt);
+        const remaining  = Math.max(0, totalAmt - settledAmt);
+        const newStatus  = remaining <= 0.005 ? 'settled' : 'partially_settled';
+
+        // Update share_token entry_data with correct status + amounts
+        const updatedEntry = {
+          ...entryData,
+          status:            newStatus,
+          settledByRecipient: true,
+          settledAmt:        settledAmt,
+          remaining:         remaining,
+          settledAt:         new Date().toISOString(),
+          settlementPending: true,
+          settlementConfirmed: false
+        };
+        await sql`UPDATE share_tokens SET entry_data = ${updatedEntry} WHERE token = ${mpToken}`;
+
+        // Update sender's data blob: add settlement entry + notify
+        try {
+          const [blobRow] = await sql`SELECT data FROM user_data WHERE user_id = ${ownerId} LIMIT 1`;
+          if (blobRow) {
+            const ownerData = await _decompress(blobRow.data || {});
+            const entry   = (ownerData.entries  || []).find(e => e.id === entryId);
+            const contact = entry ? (ownerData.contacts || []).find(c => c.id === entry.cId) : null;
+            const name    = contact?.name || entryData?.contactName || 'Your contact';
+
+            if (entry && entry.status !== 'voided' && entry.status !== 'fulfilled') {
+              // Create a linked settlement entry in the owner's blob
+              const creditType = (entry.txType === 'they_owe_you' || entry.txType === 'invoice' || entry.txType === 'bill')
+                ? 'they_paid_you' : 'you_paid_them';
+              ownerData.settings = ownerData.settings || {};
+              ownerData.settings.entryCounter = (ownerData.settings.entryCounter || 0) + 1;
+              const docRef = entry.invoiceNumber || ('#' + String(entry.entryNum || '?').padStart(4, '0'));
+              if (!ownerData.entries) ownerData.entries = [];
+              ownerData.entries.push({
+                id:              'x' + Math.random().toString(36).substr(2, 9),
+                userId:          ownerId,
+                cId:             entry.cId,
+                txType:          creditType,
+                amount:          settledAmt,
+                note:            `Payment (by recipient) for ${docRef}`,
+                date:            Date.now(),
+                status:          'settled',
+                archived:        false,
+                shared:          false,
+                responses:       [],
+                templateId:      null,
+                templateData:    {},
+                invoiceNumber:   null,
+                entryNum:        ownerData.settings.entryCounter,
+                createdAt:       Date.now(),
+                linkedInvoiceId: entryId,
+                settledByRecipient: true
+              });
+              // Recompute invoice status from all linked settlement entries
+              const allSettledSum = ownerData.entries
+                .filter(s => s.linkedInvoiceId === entryId && s.status !== 'voided')
+                .reduce((sum, s) => sum + (parseFloat(s.amount) || 0), 0);
+              const totalOrig  = parseFloat(entry.amount) || 0;
+              const allRemain  = Math.max(0, totalOrig - allSettledSum);
+              entry.status = allRemain <= 0.005 ? 'settled' : 'partially_settled';
+              entry.lastActivityAt = Date.now();
+            }
+
+            // Push in-app notification to sender
+            if (!ownerData.notifs) ownerData.notifs = [];
+            ownerData.notifs.push({
+              id:        'n' + Math.random().toString(36).substr(2, 9),
+              userId:    ownerId,
+              cId:       entry?.cId || null,
+              eid:       entryId,
+              shareToken: mpToken,
+              type:      'payment',
+              msg:       `${name} recorded a payment of $${settledAmt.toFixed(2)}${remaining > 0.005 ? ` — $${remaining.toFixed(2)} remaining` : ' — fully settled'}.`,
+              channel:   'in-app',
+              sent:      true,
+              who:       'them',
+              sentTo:    '',
+              read:      false,
+              createdAt: Date.now()
+            });
+            const recompressed = await _compress(ownerData);
+            await sql`UPDATE user_data SET data = ${recompressed}, updated_at = now() WHERE user_id = ${ownerId}`;
+          }
+        } catch (innerErr) {
+          console.error('[share/mark-paid] owner update failed:', innerErr.message);
+        }
+        return res.json({ ok: true, status: newStatus, remaining, settledAmt });
       } catch (e) {
         console.error('[share/mark-paid]', e.message);
         return res.status(500).json({ ok: false, error: 'Failed to mark paid.' });
@@ -732,7 +836,7 @@ module.exports = async function handler(req, res) {
       try {
         await ensureTable();
         const rows = await sql`
-          SELECT token, entry_data FROM share_tokens
+          SELECT token, entry_data, linked_user_id FROM share_tokens
           WHERE entry_id = ${entryId} AND user_id = ${payload.id}
         `;
         for (const row of rows) {
@@ -747,6 +851,26 @@ module.exports = async function handler(req, res) {
             updated.settlementConfirmed = updated.settlementConfirmed || false;
           }
           await sql`UPDATE share_tokens SET entry_data = ${updated} WHERE token = ${row.token}`;
+
+          // Also update recipient's isShared entry in their blob so their side reflects new status
+          if (row.linked_user_id) {
+            try {
+              const [recipBlob] = await sql`SELECT data FROM user_data WHERE user_id = ${row.linked_user_id} LIMIT 1`;
+              if (recipBlob) {
+                const recipData = await _decompress(recipBlob.data || {});
+                const recipEntry = (recipData.entries || []).find(e => e.shareToken === row.token);
+                if (recipEntry && recipEntry.status !== status) {
+                  recipEntry.status = status;
+                  if (settledAmt !== undefined) recipEntry.settledAmt = settledAmt;
+                  if (remaining  !== undefined) recipEntry.remaining  = remaining;
+                  const rRecompressed = await _compress(recipData);
+                  await sql`UPDATE user_data SET data = ${rRecompressed}, updated_at = now() WHERE user_id = ${row.linked_user_id}`;
+                }
+              }
+            } catch (_recipErr) {
+              // non-fatal — entry_data was already updated above
+            }
+          }
         }
         return res.json({ ok: true, synced: rows.length });
       } catch (e) {
@@ -769,6 +893,79 @@ module.exports = async function handler(req, res) {
       } catch (e) {
         console.error('[share/confirm-settlement]', e.message);
         return res.status(500).json({ ok: false, error: 'Failed to confirm settlement.' });
+      }
+    }
+
+    // ── mark-fulfilled: sender marks an invoice as fulfilled ─────────────────
+    // Status becomes 'fulfilled' on sender's entry, all share_tokens, and recipient's isShared entry.
+    if (action === 'mark-fulfilled') {
+      const payload = requireAuth(req, res);
+      if (!payload) return;
+      const { entryId } = req.body;
+      if (!entryId) return res.status(400).json({ ok: false, error: 'entryId required' });
+      try {
+        await ensureTable();
+        // Update sender's blob
+        const [blobRow] = await sql`SELECT data FROM user_data WHERE user_id = ${payload.id} LIMIT 1`;
+        if (!blobRow) return res.status(404).json({ ok: false, error: 'No data found.' });
+        const ownerData = await _decompress(blobRow.data || {});
+        const entry = (ownerData.entries || []).find(e => e.id === entryId);
+        if (!entry) return res.status(404).json({ ok: false, error: 'Entry not found.' });
+        if (entry.userId && entry.userId !== payload.id) return res.status(403).json({ ok: false, error: 'Not authorized.' });
+        entry.status       = 'fulfilled';
+        entry.fulfilledAt  = Date.now();
+        entry.lastActivityAt = Date.now();
+        const recompressed = await _compress(ownerData);
+        await sql`UPDATE user_data SET data = ${recompressed}, updated_at = now() WHERE user_id = ${payload.id}`;
+
+        // Update share_tokens entry_data + push notification to recipient(s)
+        const rows = await sql`
+          SELECT token, entry_data, linked_user_id FROM share_tokens
+          WHERE entry_id = ${entryId} AND user_id = ${payload.id}
+        `;
+        const contact    = (ownerData.contacts || []).find(c => c.id === entry.cId);
+        const senderName = contact?.name || payload.email || 'Sender';
+        for (const row of rows) {
+          const updatedData = { ...row.entry_data, status: 'fulfilled', fulfilledAt: Date.now() };
+          await sql`UPDATE share_tokens SET entry_data = ${updatedData} WHERE token = ${row.token}`;
+          // Notify + update recipient's blob
+          if (row.linked_user_id) {
+            try {
+              const [recipBlob] = await sql`SELECT data FROM user_data WHERE user_id = ${row.linked_user_id} LIMIT 1`;
+              if (recipBlob) {
+                const recipData = await _decompress(recipBlob.data || {});
+                if (!recipData.notifs) recipData.notifs = [];
+                recipData.notifs.push({
+                  id:        'n' + Math.random().toString(36).substr(2, 9),
+                  userId:    row.linked_user_id,
+                  shareToken: row.token,
+                  type:      'fulfilled',
+                  msg:       `${senderName} marked a record as fulfilled.`,
+                  channel:   'in-app',
+                  sent:      true,
+                  who:       'them',
+                  sentTo:    '',
+                  read:      false,
+                  createdAt: Date.now()
+                });
+                // Update recipient's isShared entry status
+                const recipEntry = (recipData.entries || []).find(e => e.shareToken === row.token);
+                if (recipEntry) {
+                  recipEntry.status      = 'fulfilled';
+                  recipEntry.fulfilledAt = Date.now();
+                }
+                const rRecompressed = await _compress(recipData);
+                await sql`UPDATE user_data SET data = ${rRecompressed}, updated_at = now() WHERE user_id = ${row.linked_user_id}`;
+              }
+            } catch (recipErr) {
+              console.error('[share/mark-fulfilled] recipient update failed:', recipErr.message);
+            }
+          }
+        }
+        return res.json({ ok: true, fulfilled: true });
+      } catch (e) {
+        console.error('[share/mark-fulfilled]', e.message);
+        return res.status(500).json({ ok: false, error: 'Failed to mark fulfilled.' });
       }
     }
 

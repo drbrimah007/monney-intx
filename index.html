@@ -390,7 +390,9 @@
       overdue: 'Overdue',
       archived: 'Archived',
       voided: 'Voided',
-      closed: 'Closed'
+      closed: 'Closed',
+      fulfilled: 'Fulfilled',
+      cancelled: 'Cancelled'
     };
 
     const TXL = {
@@ -530,14 +532,16 @@
     }
     // ── Status badge HTML (coloured by meaning) ───────────────────────────
     function statusBadge(s) {
-      const label = ENTRY_STATUS[safeStatus(s)] || s;
+      const label = ENTRY_STATUS[safeStatus(s)] || (s ? s.charAt(0).toUpperCase() + s.slice(1) : 'Posted');
       const cls =
-        (s==='settled')            ? 'badge-green'  :
+        (s==='settled' || s==='paid') ? 'badge-green'  :
+        (s==='fulfilled')          ? 'badge-green'  :
         (s==='overdue')            ? 'badge-red'    :
         (s==='partially_settled')  ? 'badge-yellow' :
         (s==='disputed')           ? 'badge-red'    :
         (s==='draft')              ? 'badge-gray'   :
         (s==='voided')             ? 'badge-gray'   :
+        (s==='cancelled')          ? 'badge-gray'   :
         (s==='closed')             ? 'badge-gray'   : 'badge-blue';
       return `<span class="badge ${cls}">${esc(label)}</span>`;
     }
@@ -981,7 +985,8 @@
     // Recompute invoice status after any linked settlement changes
     function _syncInvoiceStatus(eid) {
       const e = db.entries.find(x => x.id === eid); if (!e) return;
-      if (e.status === 'voided') return;
+      // Preserve terminal/manual statuses — don't overwrite with computed value
+      if (e.status === 'voided' || e.status === 'fulfilled' || e.status === 'cancelled') return;
       const st = _getInvoiceSettlement(eid);
       e.status = st.status;
     }
@@ -1439,7 +1444,7 @@
           <div class="tbl-wrap"><table><thead><tr><th>Contact</th><th>Amount</th><th class="hide-mobile">Type</th><th>Date</th><th>Status</th><th style="width:80px;">Action</th></tr></thead><tbody>
           ${recentEntries.map(e => {
             const c = db.contacts.find(x => x.id === e.cId);
-            return `<tr><td>${cLink(e.cId, c?.name||'—')}</td><td>${_fmtAmtCell(e.id,`<div class="mobile-label" style="font-size:11px;font-weight:700;color:${txTypeColor(e.txType)};margin-top:2px;">${esc(TXL[e.txType]||e.txType)}</div>`)}</td><td class="hide-mobile"><span style="font-weight:700;color:${txTypeColor(e.txType)}">${esc(TXL[e.txType]||e.txType)}</span></td><td>${new Date(e.date).toLocaleDateString()}</td><td>${statusBadge(e.status)}${_reminderBadge(e.reminderCount, e.id)}</td><td><div class="action-menu"><button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button><div class="action-dropdown"><button onclick="openEntryInvoice('${e.id}')">📄 View</button><button onclick="editEntry('${e.id}')">✏️ Edit</button>${(isInvoiceMode(e) || e.txType === 'they_owe_you' || e.txType === 'you_owe_them') && e.status !== 'settled' && e.status !== 'voided' ? `<button onclick="recordSettlement('${e.id}')">💰 Settle</button>` : ''}<button onclick="openNotifyModal('${e.id}')">🔔 Notify</button><button onclick="openShareModal('${e.id}')">🔗 Share</button><button onclick="toggleArchiveEntry('${e.id}')">${e.archived?'📤 Unarchive':'📥 Archive'}</button>${e.status !== 'voided' ? `<button onclick="voidEntry('${e.id}')" style="color:var(--amber);">🚫 Void</button>` : ''}<button onclick="delEntry('${e.id}')" style="color:var(--red);">🗑 Delete</button></div></div></td></tr>`;
+            return `<tr><td>${cLink(e.cId, c?.name||'—')}</td><td>${_fmtAmtCell(e.id,`<div class="mobile-label" style="font-size:11px;font-weight:700;color:${txTypeColor(e.txType)};margin-top:2px;">${esc(TXL[e.txType]||e.txType)}</div>`)}</td><td class="hide-mobile"><span style="font-weight:700;color:${txTypeColor(e.txType)}">${esc(TXL[e.txType]||e.txType)}</span></td><td>${new Date(e.date).toLocaleDateString()}</td><td>${statusBadge(e.status)}${_reminderBadge(e.reminderCount, e.id)}</td><td><div class="action-menu"><button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button><div class="action-dropdown"><button onclick="openEntryInvoice('${e.id}')">📄 View</button><button onclick="editEntry('${e.id}')">✏️ Edit</button>${(isInvoiceMode(e) || e.txType === 'they_owe_you' || e.txType === 'you_owe_them') && e.status !== 'settled' && e.status !== 'voided' && e.status !== 'fulfilled' && e.status !== 'cancelled' ? `<button onclick="recordSettlement('${e.id}')">💰 Settle</button>` : ''}${isInvoiceMode(e) && e.status !== 'fulfilled' && e.status !== 'voided' && e.status !== 'cancelled' ? `<button onclick="markFulfilled('${e.id}')" style="color:#16a34a;font-weight:700;">✅ Mark Fulfilled</button>` : ''}<button onclick="openNotifyModal('${e.id}')">🔔 Notify</button><button onclick="openShareModal('${e.id}')">🔗 Share</button><button onclick="toggleArchiveEntry('${e.id}')">${e.archived?'📤 Unarchive':'📥 Archive'}</button>${e.status !== 'voided' && e.status !== 'fulfilled' ? `<button onclick="voidEntry('${e.id}')" style="color:var(--amber);">🚫 Void</button>` : ''}<button onclick="delEntry('${e.id}')" style="color:var(--red);">🗑 Delete</button></div></div></td></tr>`;
           }).join('')}
           </tbody></table></div>`}
         </div>`;
@@ -1497,7 +1502,7 @@
               const sLink = sc ? `<a href="#" onclick="cLink_open('${sc.id}');return false;" style="font-weight:700;color:var(--accent);text-decoration:none;">${esc(dn)}</a>` : `<strong>${esc(dn)}</strong>`;
               const pill = `<span style="font-size:10px;background:rgba(251,191,36,.18);color:#d97706;border-radius:4px;padding:1px 5px;margin-left:3px;font-weight:700;">⏳ Pending</span>`;
               const siteUrl = e?.siteUrl || 'https://moneyinteractions.com';
-              const isSettled = e?.status === 'settled' || e?.status === 'paid';
+              const isSettled = e?.status === 'settled' || e?.status === 'paid' || e?.status === 'fulfilled' || e?.status === 'cancelled';
               const _dashRecipLbl = {they_owe_you:'You Owe',you_owe_them:'They Owe Me',invoice:'Invoice Due',bill:'Bill Due',lend:'You Borrowed',borrow:'I Lent',they_paid_you:'I Settled Them',you_paid_them:'They Settled Me',gift:'Gift Received'};
               const _dashRecipClr = {they_owe_you:'var(--red)',invoice:'var(--red)',bill:'var(--red)',lend:'var(--red)',you_owe_them:'var(--green)',borrow:'var(--green)',they_paid_you:'#0d9488',you_paid_them:'#0d9488',gift:'var(--green)'};
               const dashTypeLabel = _dashRecipLbl[e?.txType] || (TXL[e?.txType] || 'Shared');
@@ -1512,7 +1517,7 @@
                   <a href="${esc(siteUrl)}/view?t=${esc(r.token)}" target="_blank" style="display:block;padding:8px 14px;font-size:13px;color:var(--accent);text-decoration:none;font-weight:600;">👁 View</a>
                   <button onclick="doConfirmShared('${esc(r.token)}')">✅ Confirm &amp; Track</button>
                   <button onclick="doDismissShared('${esc(r.token)}')">✕ Dismiss</button>
-                  ${!isSettled ? `<button onclick="_sharedMarkPaid('${esc(r.token)}')" style="color:var(--green);font-weight:700;">✅ Mark Settled</button>` : ''}
+                  ${!isSettled ? `<button onclick="_sharedMarkPaid('${esc(r.token)}')" style="color:var(--green);font-weight:700;">💰 Record Payment</button>` : ''}
                 </div></div></td>
               </tr>`;
             }
@@ -1525,8 +1530,10 @@
               const sharedPill2 = `<span style="font-size:10px;background:rgba(108,99,255,.12);color:var(--accent);border-radius:4px;padding:1px 5px;margin-left:3px;">🔗 Shared</span>`;
               const rawAmt2 = parseFloat(e.amount||0);
               const dirLabel2 = TXL[e.txType] || e.txType;
-              const dirColor2 = txTypeColor(e.txType);
-              const isSettled2 = e.status === 'settled' || e.status === 'paid';
+              // Recipient-perspective color: invoice/bill = red (they owe)
+              const _shTx2 = e.senderTxType || e.txType;
+              const dirColor2 = (_shTx2==='they_owe_you'||_shTx2==='invoice'||_shTx2==='bill'||_shTx2==='lend') ? 'var(--red)' : 'var(--green)';
+              const isSettled2 = e.status === 'settled' || e.status === 'paid' || e.status === 'fulfilled' || e.status === 'cancelled';
               const viewUrl2 = `${e.fromSiteUrl||'https://moneyinteractions.com'}/view?t=${esc(e.shareToken)}`;
               const isRemindable2 = (e.senderTxType === 'you_owe_them' || e.senderTxType === 'borrow') && !isSettled2;
               return `<tr style="background:rgba(108,99,255,.03);">
@@ -1537,7 +1544,7 @@
                 <td>${statusBadge(e.status||'posted')}${_reminderBadge(e.reminderCount, e.id)}</td>
                 <td><div class="action-menu"><button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button><div class="action-dropdown">
                   <a href="${viewUrl2}" target="_blank" style="display:block;padding:8px 14px;font-size:13px;color:var(--accent);text-decoration:none;font-weight:600;">👁 View</a>
-                  ${!isSettled2 ? `<button onclick="_sharedMarkPaid('${esc(e.shareToken)}')" style="color:var(--green);font-weight:700;">✅ Mark Settled</button>` : ''}
+                  ${!isSettled2 ? `<button onclick="_sharedMarkPaid('${esc(e.shareToken)}')" style="color:var(--green);font-weight:700;">💰 Record Payment</button>` : ''}
                   ${isRemindable2 ? `<button onclick="openSharedRemindModal('${esc(e.shareToken)}')" style="color:var(--accent);font-weight:700;">🔔 Remind</button>` : ''}
                   <button onclick="_sharedExpire('${esc(e.shareToken)}')">⏰ Expire</button>
                   <button onclick="delEntry('${esc(e.id)}')" style="color:var(--red);">🗑 Delete</button>
@@ -1545,7 +1552,7 @@
               </tr>`;
             }
             const c = db.contacts.find(x => x.id === e.cId);
-            return `<tr><td>${cLink(e.cId, c?.name||'—')}</td><td>${_fmtAmtCell(e.id,`<div class="mobile-label" style="font-size:11px;font-weight:700;color:${txTypeColor(e.txType)};margin-top:2px;">${esc(TXL[e.txType]||e.txType)}</div>`)}</td><td class="hide-mobile"><span style="font-weight:700;color:${txTypeColor(e.txType)}">${esc(TXL[e.txType]||e.txType)}</span></td><td>${new Date(e.date).toLocaleDateString()}</td><td>${statusBadge(e.status)}${_reminderBadge(e.reminderCount, e.id)}</td><td><div class="action-menu"><button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button><div class="action-dropdown"><button onclick="openEntryInvoice('${e.id}')">📄 View</button><button onclick="editEntry('${e.id}')">✏️ Edit</button>${(isInvoiceMode(e) || e.txType === 'they_owe_you' || e.txType === 'you_owe_them') && e.status !== 'settled' && e.status !== 'voided' ? `<button onclick="recordSettlement('${e.id}')">💰 Settle</button>` : ''}<button onclick="openNotifyModal('${e.id}')">🔔 Notify</button><button onclick="openShareModal('${e.id}')">🔗 Share</button><button onclick="toggleArchiveEntry('${e.id}')">${e.archived?'📤 Unarchive':'📥 Archive'}</button>${e.status !== 'voided' ? `<button onclick="voidEntry('${e.id}')" style="color:var(--amber);">🚫 Void</button>` : ''}<button onclick="delEntry('${e.id}')" style="color:var(--red);">🗑 Delete</button></div></div></td></tr>`;
+            return `<tr><td>${cLink(e.cId, c?.name||'—')}</td><td>${_fmtAmtCell(e.id,`<div class="mobile-label" style="font-size:11px;font-weight:700;color:${txTypeColor(e.txType)};margin-top:2px;">${esc(TXL[e.txType]||e.txType)}</div>`)}</td><td class="hide-mobile"><span style="font-weight:700;color:${txTypeColor(e.txType)}">${esc(TXL[e.txType]||e.txType)}</span></td><td>${new Date(e.date).toLocaleDateString()}</td><td>${statusBadge(e.status)}${_reminderBadge(e.reminderCount, e.id)}</td><td><div class="action-menu"><button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button><div class="action-dropdown"><button onclick="openEntryInvoice('${e.id}')">📄 View</button><button onclick="editEntry('${e.id}')">✏️ Edit</button>${(isInvoiceMode(e) || e.txType === 'they_owe_you' || e.txType === 'you_owe_them') && e.status !== 'settled' && e.status !== 'voided' && e.status !== 'fulfilled' && e.status !== 'cancelled' ? `<button onclick="recordSettlement('${e.id}')">💰 Settle</button>` : ''}${isInvoiceMode(e) && e.status !== 'fulfilled' && e.status !== 'voided' && e.status !== 'cancelled' ? `<button onclick="markFulfilled('${e.id}')" style="color:#16a34a;font-weight:700;">✅ Mark Fulfilled</button>` : ''}<button onclick="openNotifyModal('${e.id}')">🔔 Notify</button><button onclick="openShareModal('${e.id}')">🔗 Share</button><button onclick="toggleArchiveEntry('${e.id}')">${e.archived?'📤 Unarchive':'📥 Archive'}</button>${e.status !== 'voided' && e.status !== 'fulfilled' ? `<button onclick="voidEntry('${e.id}')" style="color:var(--amber);">🚫 Void</button>` : ''}<button onclick="delEntry('${e.id}')" style="color:var(--red);">🗑 Delete</button></div></div></td></tr>`;
           }).join('')}
           </tbody></table></div>`}
         </div>`;
@@ -1618,10 +1625,19 @@
               if (!_existingE || _existingE.noLedger || !_existingE.cId) {
                 _insertSharedEntry(mr);
                 migrated = true;
+              } else if (_existingE && mr.entry?.status && _existingE.status !== mr.entry.status) {
+                // ── Status sync: keep recipient's isShared entry in sync with token entry_data ──
+                // When sender records settlement or marks fulfilled, sync-status updates the token.
+                // Pull that update through to the recipient's db.entries on each load.
+                _existingE.status = mr.entry.status;
+                if (mr.entry.settledAmt != null) _existingE.settledAmt = mr.entry.settledAmt;
+                if (mr.entry.remaining  != null) _existingE.remaining  = mr.entry.remaining;
+                if (mr.entry.fulfilledAt)        _existingE.fulfilledAt = mr.entry.fulfilledAt;
+                migrated = true;
               }
             }
           }
-          // save() already called per-insertion; nothing extra needed here
+          if (migrated) { try { await saveNow(); } catch(_) { save(); } }
         }
 
         // ── Auto-add senders as contacts (catch-up) ───────────────────────
@@ -1818,7 +1834,7 @@
                   <a href="${esc(siteUrl)}/view?t=${esc(r.token)}" target="_blank" style="display:block;padding:8px 14px;font-size:13px;color:var(--accent);text-decoration:none;font-weight:600;">👁 View</a>
                   ${!r.confirmed && !e.dismissed ? `<button onclick="doConfirmShared('${esc(r.token)}')">✅ Confirm &amp; Track</button>` : ''}
                   ${!r.confirmed && !e.dismissed ? `<button onclick="doDismissShared('${esc(r.token)}')">✕ Dismiss</button>` : ''}
-                  ${!isExpired && e.status !== 'settled' && e.status !== 'paid' ? `<button onclick="_sharedMarkPaid('${esc(r.token)}')" style="color:var(--green);font-weight:700;">✅ Mark Settled</button>` : ''}
+                  ${!isExpired && e.status !== 'settled' && e.status !== 'paid' ? `<button onclick="_sharedMarkPaid('${esc(r.token)}')" style="color:var(--green);font-weight:700;">💰 Record Payment</button>` : ''}
                   <button onclick="_sharedDepreciateModal('${esc(r.token)}','${esc(e.fromName||'')}',${rawAmt})">📉 Depreciate</button>
                   ${!isExpired ? `<button onclick="_sharedExpire('${esc(r.token)}')">⏰ Expire</button>` : ''}
                   <button onclick="_sharedHideToggle('${esc(r.token)}')">🙈 Hide</button>
@@ -2187,7 +2203,7 @@
                 html += '<button onclick="doDismissShared(\'' + esc(r.token) + '\')">✕ Dismiss</button>';
               }
               if (!isSettledCP) {
-                html += '<button onclick="_sharedMarkPaid(\'' + esc(r.token) + '\')" style="color:var(--green);font-weight:700;">✅ Mark Settled</button>';
+                html += '<button onclick="_sharedMarkPaid(\'' + esc(r.token) + '\')" style="color:var(--green);font-weight:700;">💰 Record Payment</button>';
               }
               if ((txType === 'you_owe_them' || txType === 'borrow') && !isSettledCP) {
                 html += '<button onclick="openSharedRemindModal(\'' + esc(r.token) + '\')" style="color:var(--accent);font-weight:700;">🔔 Remind</button>';
@@ -2211,7 +2227,7 @@
                 html += '<td>' + statusBadge(e2.status || 'posted') + _reminderBadge(e2.reminderCount, e2.id) + '</td>';
                 html += '<td><div class="action-menu"><button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button><div class="action-dropdown">';
                 html += '<a href="' + shViewUrl + '" target="_blank" style="display:block;padding:8px 14px;font-size:13px;color:var(--accent);text-decoration:none;font-weight:600;">👁 View</a>';
-                if (!shSettled) html += '<button onclick="_sharedMarkPaid(\'' + esc(e2.shareToken) + '\')" style="color:var(--green);font-weight:700;">✅ Mark Settled</button>';
+                if (!shSettled) html += '<button onclick="_sharedMarkPaid(\'' + esc(e2.shareToken) + '\')" style="color:var(--green);font-weight:700;">💰 Record Payment</button>';
                 if (shRemindable) html += '<button onclick="openSharedRemindModal(\'' + esc(e2.shareToken) + '\')" style="color:var(--accent);font-weight:700;">🔔 Remind</button>';
                 html += '<button onclick="_sharedExpire(\'' + esc(e2.shareToken) + '\')">⏰ Expire</button>';
                 html += '</div></div></td></tr>';
@@ -2943,22 +2959,27 @@
           const sharedPill = isPending
             ? `<span style="font-size:10px;background:rgba(251,191,36,.18);color:#d97706;border-radius:4px;padding:1px 5px;margin-left:3px;">⏳ Pending</span>`
             : `<span style="font-size:10px;background:rgba(108,99,255,.12);color:var(--accent);border-radius:4px;padding:1px 5px;margin-left:3px;">🔗 Shared</span>`;
-          const isSettledE = e?.status === 'settled' || e?.status === 'paid';
+          const isSettledE = e?.status === 'settled' || e?.status === 'paid' || e?.status === 'fulfilled' || e?.status === 'cancelled';
           const _selSharedId = r.token; // use token as id for shared rows
           const _sNoLedger = _sharedNoLedger.has(r.token);
           const _sNoLedgPill = _sNoLedger ? `<span title="Excluded from ledger balance" style="font-size:9px;background:rgba(245,158,11,.15);color:#b45309;border-radius:3px;padding:1px 4px;margin-left:3px;font-weight:700;">⊘ Ledger</span>` : '';
+          const _sPaid = parseFloat(e?.settledAmt || 0);
+          const _sRem  = parseFloat(e?.remaining  != null ? e.remaining : (e?.amount||0));
+          const _sAmtHtml = _sPaid > 0
+            ? `<strong>${fmt(rawAmt)}</strong><div class="mobile-label" style="font-size:11px;font-weight:700;color:${dirColor};margin-top:2px;">${esc(dirLabel)}</div><div style="font-size:11px;color:var(--muted);margin-top:1px;">Paid&nbsp;${fmt(_sPaid)}</div><div style="font-size:11px;font-weight:700;color:${_sRem<=0?'var(--green)':'var(--amber)'};">Bal&nbsp;${fmt(_sRem)}</div>`
+            : `<strong>${fmt(rawAmt)}</strong><div class="mobile-label" style="font-size:11px;font-weight:700;color:${dirColor};margin-top:2px;">${esc(dirLabel)}</div>`;
           html += `<tr style="background:${isPending?'rgba(251,191,36,.05)':'rgba(108,99,255,.04)'};"${_sm&&window._selectedEntries.has(_selSharedId)?' class="row-selected"':''}>
             ${_sm ? `<td class="sel-col"><input type="checkbox" class="sel-cb entry-sel-cb" data-id="${esc(_selSharedId)}" ${window._selectedEntries.has(_selSharedId)?'checked':''} onchange="_toggleEntrySelect('${esc(_selSharedId)}')"></td>` : ''}
             <td>${nameHtmlE} ${sharedPill}${_sNoLedgPill}</td>
             <td class="hide-mobile"><span style="color:var(--muted);">—</span></td>
-            <td><strong>${fmt(rawAmt)}</strong><div class="mobile-label" style="font-size:11px;font-weight:700;color:${dirColor};margin-top:2px;">${esc(dirLabel)}</div></td>
+            <td>${_sAmtHtml}</td>
             <td class="hide-mobile"><span style="font-weight:700;color:${dirColor}">${esc(dirLabel)}</span></td>
             <td>${dt}</td>
             <td>${statusBadge(e?.status||'posted')}${_reminderBadge(r.reminderCount, r.token)}</td>
             <td><div class="action-menu"><button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button><div class="action-dropdown">
               <a href="${esc(siteUrl)}/view?t=${esc(r.token)}" target="_blank" style="display:block;padding:8px 14px;font-size:13px;color:var(--accent);text-decoration:none;font-weight:600;">👁 View</a>
               ${isPending ? `<button onclick="doConfirmShared('${esc(r.token)}')" style="color:#16a34a;font-weight:700;">✅ Confirm &amp; Track</button><button onclick="doDismissShared('${esc(r.token)}')" style="color:var(--red);">✕ Dismiss</button>` : ''}
-              ${!isSettledE ? `<button onclick="_sharedMarkPaid('${esc(r.token)}')" style="color:var(--green);font-weight:700;">✅ Mark Settled</button>` : ''}
+              ${!isSettledE ? `<button onclick="_sharedMarkPaid('${esc(r.token)}')" style="color:var(--green);font-weight:700;">💰 Record Payment</button>` : ''}
               ${(e?.txType === 'you_owe_them' || e?.txType === 'borrow') && !isSettledE ? `<button onclick="openSharedRemindModal('${esc(r.token)}')" style="color:var(--accent);font-weight:700;">🔔 Remind</button>` : ''}
               ${_sNoLedger
                 ? `<button onclick="_sharedNoLedger.delete('${esc(r.token)}');_saveSharedPrefs();toast('📊 Restored to ledger');renderEntries();">📊 Restore to Ledger</button>`
@@ -2968,12 +2989,16 @@
           </tr>`;
         } else if (isSharedEntry) {
           // ── Confirmed shared entry (isShared:true in db.entries) ────────
-          // txType is already flipped to recipient's perspective
+          // txType is already flipped to recipient's perspective, but invoice/bill stay as-is.
+          // Use recipient-perspective color: invoice/bill/they_owe_you = red (recipient owes).
           const e = item;
           const rawAmt    = parseFloat(e.amount || 0);
           const dt        = e.date ? new Date(e.date).toLocaleDateString() : '—';
           const dirLabel  = TXL[e.txType] || e.txType;
-          const dirColor  = txTypeColor(e.txType);
+          // For shared entries, use recipient color perspective (invoice = they owe = red/danger)
+          const _sharedSenderTx = e.senderTxType || e.txType;
+          const dirColor  = (_sharedSenderTx==='they_owe_you'||_sharedSenderTx==='invoice'||_sharedSenderTx==='bill'||_sharedSenderTx==='lend')
+            ? 'var(--red)' : 'var(--green)';
           const dispName  = e.fromName || '—';
           const _senderCE = (() => {
             const nl = dispName.toLowerCase().trim();
@@ -2987,23 +3012,30 @@
             ? `<a href="#" onclick="cLink_open('${_senderCE.id}');return false;" style="color:var(--accent);text-decoration:none;font-weight:700;">${esc(dispName)}</a>`
             : `<strong>${esc(dispName)}</strong>`;
           const sharedPillSE = `<span style="font-size:10px;background:rgba(108,99,255,.12);color:var(--accent);border-radius:4px;padding:1px 5px;margin-left:3px;">🔗 Shared</span>`;
-          const isSettledSE  = e.status === 'settled' || e.status === 'paid';
+          const isSettledSE   = e.status === 'settled' || e.status === 'paid' || e.status === 'fulfilled';
+          const isTerminalSE  = isSettledSE || e.status === 'cancelled' || e.status === 'voided';
           const _noLedgPillSE = e.noLedger ? `<span title="Excluded from ledger balance" style="font-size:9px;background:rgba(245,158,11,.15);color:#b45309;border-radius:3px;padding:1px 4px;margin-left:3px;font-weight:700;">⊘ Ledger</span>` : '';
           const viewUrl = `${e.fromSiteUrl||'https://moneyinteractions.com'}/view?t=${esc(e.shareToken)}`;
           // Remind: shown when sender's original txType was you_owe_them or borrow
           // (meaning from recipient's perspective: they_owe_you/lend — they owe recipient)
-          const isRemindableSE = (e.senderTxType === 'you_owe_them' || e.senderTxType === 'borrow') && !isSettledSE;
+          const isRemindableSE = (e.senderTxType === 'you_owe_them' || e.senderTxType === 'borrow') && !isTerminalSE;
+          // Amount cell with paid/remaining breakdown
+          const _sePaid = parseFloat(e.settledAmt || 0);
+          const _seRem  = e.remaining != null ? parseFloat(e.remaining) : Math.max(0, rawAmt - _sePaid);
+          const _seAmtHtml = _sePaid > 0
+            ? `<strong>${fmt(rawAmt)}</strong><div class="mobile-label" style="font-size:11px;font-weight:700;color:${dirColor};margin-top:2px;">${esc(dirLabel)}</div><div style="font-size:11px;color:var(--muted);margin-top:1px;">Paid&nbsp;${fmt(_sePaid)}</div><div style="font-size:11px;font-weight:700;color:${_seRem<=0?'var(--green)':'var(--amber)'};">Bal&nbsp;${fmt(_seRem)}</div>`
+            : `<strong>${fmt(rawAmt)}</strong><div class="mobile-label" style="font-size:11px;font-weight:700;color:${dirColor};margin-top:2px;">${esc(dirLabel)}</div>`;
           html += `<tr style="background:rgba(108,99,255,.04);"${_sm&&window._selectedEntries.has(e.id)?' class="row-selected"':''}>
             ${_sm ? `<td class="sel-col"><input type="checkbox" class="sel-cb entry-sel-cb" data-id="${e.id}" ${window._selectedEntries.has(e.id)?'checked':''} onchange="_toggleEntrySelect('${e.id}')"></td>` : ''}
             <td>${nameHtmlSE} ${sharedPillSE}${_noLedgPillSE}</td>
             <td class="hide-mobile"><span style="color:var(--muted);">—</span></td>
-            <td><strong>${fmt(rawAmt)}</strong><div class="mobile-label" style="font-size:11px;font-weight:700;color:${dirColor};margin-top:2px;">${esc(dirLabel)}</div></td>
+            <td>${_seAmtHtml}</td>
             <td class="hide-mobile"><span style="font-weight:700;color:${dirColor}">${esc(dirLabel)}</span></td>
             <td>${dt}</td>
             <td>${statusBadge(e.status || 'posted')}${_reminderBadge(e.reminderCount, e.id)}</td>
             <td><div class="action-menu"><button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button><div class="action-dropdown">
               <a href="${viewUrl}" target="_blank" style="display:block;padding:8px 14px;font-size:13px;color:var(--accent);text-decoration:none;font-weight:600;">👁 View</a>
-              ${!isSettledSE ? `<button onclick="_sharedMarkPaid('${esc(e.shareToken)}')" style="color:var(--green);font-weight:700;">✅ Mark Settled</button>` : ''}
+              ${!isTerminalSE ? `<button onclick="_sharedMarkPaid('${esc(e.shareToken)}')" style="color:var(--green);font-weight:700;">💰 Record Payment</button>` : ''}
               ${isRemindableSE ? `<button onclick="openSharedRemindModal('${esc(e.shareToken)}')" style="color:var(--accent);font-weight:700;">🔔 Remind</button>` : ''}
               ${e.noLedger
                 ? `<button onclick="(function(){var _se=db.entries.find(x=>x.id==='${e.id}');if(_se){delete _se.noLedger;save();toast('📊 Restored to ledger');renderEntries();}})()">📊 Restore to Ledger</button>`
@@ -3029,11 +3061,12 @@
             <td><div class="action-menu"><button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button><div class="action-dropdown">
               <button onclick="openEntryInvoice('${e.id}')">📄 View</button>
               <button onclick="editEntry('${e.id}')">✏️ Edit</button>
-              ${(isInvoiceMode(e) || e.txType === 'they_owe_you' || e.txType === 'you_owe_them') && e.status !== 'settled' && e.status !== 'voided' ? `<button onclick="recordSettlement('${e.id}')">💰 Settle</button>` : ''}
+              ${(isInvoiceMode(e) || e.txType === 'they_owe_you' || e.txType === 'you_owe_them') && e.status !== 'settled' && e.status !== 'voided' && e.status !== 'fulfilled' && e.status !== 'cancelled' ? `<button onclick="recordSettlement('${e.id}')">💰 Settle</button>` : ''}
+              ${isInvoiceMode(e) && e.status !== 'fulfilled' && e.status !== 'voided' && e.status !== 'cancelled' ? `<button onclick="markFulfilled('${e.id}')" style="color:#16a34a;font-weight:700;">✅ Mark Fulfilled</button>` : ''}
               <button onclick="openNotifyModal('${e.id}')">🔔 Notify</button>
               <button onclick="openShareModal('${e.id}')">🔗 Share</button>
               <button onclick="toggleArchiveEntry('${e.id}')">${e.archived ? '📤 Unarchive' : '📥 Archive'}</button>
-              ${e.status !== 'voided' ? `<button onclick="voidEntry('${e.id}')" style="color:var(--amber);">🚫 Void</button>` : ''}
+              ${e.status !== 'voided' && e.status !== 'fulfilled' ? `<button onclick="voidEntry('${e.id}')" style="color:var(--amber);">🚫 Void</button>` : ''}
               <button onclick="${e.status==='closed' ? 'reopenEntry' : 'openCloseModal'}('${e.id}')">${e.status==='closed' ? '🔓 Reopen' : '🔒 Close Record'}</button>
               ${e.noLedger ? `<button onclick="(function(){var _e=db.entries.find(x=>x.id==='${e.id}');if(_e){delete _e.noLedger;save();toast('Restored to ledger');renderEntries();}})()">📊 Restore to Ledger</button>` : `<button onclick="(function(){var _e=db.entries.find(x=>x.id==='${e.id}');if(_e){_e.noLedger=true;save();toast('Removed from ledger');renderEntries();}})()">⊘ Remove from Ledger</button>`}
               <button onclick="delEntry('${e.id}')" style="color: var(--red);">🗑 Delete</button>
@@ -5881,6 +5914,8 @@
         if (t === 'confirmed') return `<span class="badge" style="background:rgba(22,163,74,.12);color:#16a34a;font-size:11px;">✅ Confirmed</span>`;
         if (t === 'closed')    return `<span class="badge badge-gray" style="font-size:11px;">🔒 Closed</span>`;
         if (t === 'reminder')  return `<span class="badge" style="background:rgba(239,68,68,.12);color:#dc2626;font-size:11px;">🚩 Reminder</span>`;
+        if (t === 'payment')   return `<span class="badge" style="background:rgba(22,163,74,.12);color:#16a34a;font-size:11px;">💰 Payment</span>`;
+        if (t === 'fulfilled') return `<span class="badge badge-green" style="font-size:11px;">✅ Fulfilled</span>`;
         return `<span class="badge badge-green" style="font-size:11px;">📤 Sent</span>`;
       };
 
@@ -7546,9 +7581,11 @@
     // Mark a received shared record as paid/settled — opens confirmation modal first
     function _sharedMarkPaid(token) {
       // Look up the record to show amount context
-      const r   = (_cachedSharedRecords || []).find(x => x.token === token);
-      const _se = db.entries.find(e => e.shareToken === token);
-      const rawAmt = parseFloat(r?.entry?.amount || _se?.amount || 0);
+      const r      = (_cachedSharedRecords || []).find(x => x.token === token);
+      const _se    = db.entries.find(e => e.shareToken === token);
+      const totalAmt    = parseFloat(r?.entry?.amount || _se?.amount || 0);
+      const alreadyPaid = parseFloat(r?.entry?.settledAmt || _se?.settledAmt || 0);
+      const remainingAmt = alreadyPaid > 0 ? Math.max(0, totalAmt - alreadyPaid) : totalAmt;
       const fromName = r?.entry?._resolvedFromName || r?.entry?.fromName || _se?.fromName || 'sender';
 
       document.getElementById('shMarkPaidBg')?.remove();
@@ -7556,26 +7593,28 @@
       d.innerHTML = `<div id="shMarkPaidBg" style="position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:2000;display:flex;align-items:center;justify-content:center;padding:16px;" onclick="if(event.target===this)this.remove()">
         <div style="background:var(--card);border-radius:14px;max-width:400px;width:100%;padding:24px;box-shadow:0 20px 60px rgba(0,0,0,.25);" onclick="event.stopPropagation()">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
-            <h3 style="margin:0;font-size:16px;">✅ Record Settlement</h3>
+            <h3 style="margin:0;font-size:16px;">💰 Record Payment</h3>
             <button class="gh sm" onclick="document.getElementById('shMarkPaidBg').remove()">✕</button>
           </div>
           <div style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:12px 14px;margin-bottom:14px;font-size:13px;line-height:1.8;">
             <div style="display:flex;justify-content:space-between;"><span style="color:var(--muted);">From</span><strong>${esc(fromName)}</strong></div>
-            <div style="display:flex;justify-content:space-between;border-top:1px solid var(--border);margin-top:6px;padding-top:6px;font-weight:700;"><span>Amount</span><span>${fmt(rawAmt)}</span></div>
+            <div style="display:flex;justify-content:space-between;"><span style="color:var(--muted);">Total</span><span>${fmt(totalAmt)}</span></div>
+            ${alreadyPaid > 0 ? `<div style="display:flex;justify-content:space-between;"><span style="color:var(--muted);">Already Paid</span><span style="color:var(--green);">${fmt(alreadyPaid)}</span></div>` : ''}
+            <div style="display:flex;justify-content:space-between;border-top:1px solid var(--border);margin-top:6px;padding-top:6px;font-weight:700;"><span>Remaining</span><span>${fmt(remainingAmt)}</span></div>
           </div>
           <div class="fg" style="margin-bottom:4px;">
-            <label>Amount settled</label>
+            <label>Amount paying now</label>
             <input type="number" id="shMarkPaidAmt" step="0.01" min="0.01"
-              placeholder="Leave blank for full amount (${fmt(rawAmt)})"
+              placeholder="Leave blank for full remaining (${fmt(remainingAmt)})"
               style="width:100%;box-sizing:border-box;">
           </div>
           <div id="shMarkPaidErr" style="color:var(--red);font-size:12px;margin-bottom:12px;display:none;"></div>
           <div style="background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.3);border-radius:6px;padding:10px 12px;font-size:12px;color:#b45309;margin-bottom:14px;">
-            ⚠️ This records that the balance has been settled outside this app. Money IntX does not process payments.
+            ⚠️ This records a payment outside this app. Money IntX does not process payments.
           </div>
           <div style="display:flex;gap:8px;justify-content:flex-end;border-top:1px solid var(--border);padding-top:14px;">
             <button class="bs sm" onclick="document.getElementById('shMarkPaidBg').remove()">Cancel</button>
-            <button class="btn sm" id="shMarkPaidBtn" onclick="_sharedMarkPaidSubmit('${token}', ${rawAmt})">✅ Confirm Settled</button>
+            <button class="btn sm" id="shMarkPaidBtn" onclick="_sharedMarkPaidSubmit('${token}', ${remainingAmt}, ${totalAmt})">✅ Confirm Payment</button>
           </div>
         </div>
       </div>`;
@@ -7586,7 +7625,8 @@
       });
     }
 
-    async function _sharedMarkPaidSubmit(token, fullAmt) {
+    async function _sharedMarkPaidSubmit(token, remainingAmt, totalAmt) {
+      const fullAmt = remainingAmt; // "full" in context = remaining balance
       const rawVal = (document.getElementById('shMarkPaidAmt')?.value || '').trim();
       const errEl  = document.getElementById('shMarkPaidErr');
       const btn    = document.getElementById('shMarkPaidBtn');
@@ -7601,18 +7641,33 @@
         const res = await fetch('/api/share', {
           method: 'POST', credentials: 'include',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'mark-paid', token })
+          body: JSON.stringify({ action: 'mark-paid', token, settledAmt: amt, totalAmt: totalAmt || fullAmt })
         });
         const data = await res.json();
         if (data.ok) {
           document.getElementById('shMarkPaidBg')?.remove();
+          const newStatus  = data.status || (amt >= fullAmt ? 'settled' : 'partially_settled');
+          const remaining  = data.remaining != null ? data.remaining : Math.max(0, fullAmt - amt);
           // Update in-memory cache
           const r = (_cachedSharedRecords || []).find(x => x.token === token);
-          if (r && r.entry) r.entry.status = 'settled';
+          if (r && r.entry) {
+            r.entry.status     = newStatus;
+            r.entry.settledAmt = amt;
+            r.entry.remaining  = remaining;
+          }
           // Sync unified record layer
           const _se = db.entries.find(e => e.shareToken === token);
-          if (_se) { _se.status = 'settled'; save(); }
-          toast(`Settlement of ${fmt(amt)} recorded`);
+          if (_se) {
+            _se.status     = newStatus;
+            _se.settledAmt = amt;
+            _se.remaining  = remaining;
+            save();
+          }
+          if (remaining > 0.005) {
+            toast(`Payment of ${fmt(amt)} recorded — ${fmt(remaining)} remaining`);
+          } else {
+            toast(`Settlement of ${fmt(amt)} recorded — fully settled`);
+          }
           _loadSharedWithMe();
           if (_curPage === 'entries') renderEntries();
           if (_curPage === 'dash') renderDash();
@@ -7623,6 +7678,33 @@
       } catch(_) {
         toast('Failed to record settlement');
         if (btn) { btn.disabled = false; btn.textContent = '✅ Confirm Settled'; }
+      }
+    }
+
+    // Mark an invoice as fulfilled (sender action — invoice mode only)
+    async function markFulfilled(eid) {
+      const e = db.entries.find(x => x.id === eid); if (!e) return;
+      if (!isInvoiceMode(e)) return toast('Mark Fulfilled is only available for invoices.');
+      if (!confirm('Mark this invoice as Fulfilled? This records that the goods/services have been fully delivered. This cannot be undone.')) return;
+      try {
+        const res = await fetch('/api/share', {
+          method: 'POST', credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'mark-fulfilled', entryId: eid })
+        });
+        const data = await res.json();
+        if (data.ok) {
+          e.status      = 'fulfilled';
+          e.fulfilledAt = Date.now();
+          try { await saveNow(); } catch(_) { save(); }
+          logAudit('mark_fulfilled', { eid });
+          toast('✅ Invoice marked as Fulfilled');
+          refreshCurPage();
+        } else {
+          toast('Failed to mark as fulfilled: ' + (data.error || 'Unknown error'));
+        }
+      } catch (_) {
+        toast('Network error — please try again.');
       }
     }
 
