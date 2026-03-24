@@ -596,7 +596,14 @@
     }
 
     // ── load(): pull from server, fall back to localStorage ──────────────
+    let _loadCompleted = false;
     async function load() {
+      // If already loaded in this session, skip — prevents overwriting entries
+      // created by _loadSharedWithMe. Explicit re-loads (login, signup) reset this flag.
+      if (_loadCompleted && _IS_SERVER) {
+        console.log('[load] Skipping — already loaded this session');
+        return;
+      }
       // Read localStorage first — we need it as a recovery source if server is blank
       let _localData = null;
       try { const _s = localStorage.getItem('mxi_v2'); if (_s) _localData = JSON.parse(_s); } catch(_) {}
@@ -703,6 +710,7 @@
             migrate();
             // Mirror to localStorage as offline cache
             localStorage.setItem('mxi_v2', JSON.stringify(db));
+            _loadCompleted = true;
             return;
           }
           // 401 = not logged in, handled by caller
@@ -1742,7 +1750,13 @@
       }
     }
 
+    let _sharedWithMeRunning = false;
     async function _loadSharedWithMe() {
+      if (_sharedWithMeRunning) return; // prevent parallel execution
+      _sharedWithMeRunning = true;
+      try { await _loadSharedWithMeInner(); } finally { _sharedWithMeRunning = false; }
+    }
+    async function _loadSharedWithMeInner() {
       const el = document.getElementById('shared-with-me');
       // Note: el may be null if we're on the entries page — that's fine, we still load the data
       try {
@@ -7975,6 +7989,7 @@
         return;
       }
       closeAuthModal();
+      _loadCompleted = false; // reset so load() runs fresh for new session
       await load(); // pull their data from server
       await _acceptPendingInvite();
       await _linkPendingShare();
@@ -8559,6 +8574,7 @@
           // Force full reload from server so everything syncs cleanly.
           window._pendingSettlements = {};
           window._settlementProofs = {};
+          _loadCompleted = false;
           await load(); // pulls fresh data with updated notifs from server
           await _syncSentShareStatuses(); // re-reads share tokens
           _loadSharedWithMe();
