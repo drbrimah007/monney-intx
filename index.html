@@ -797,6 +797,10 @@
       });
       // Ensure each entry has a valid status
       db.entries.forEach(e => { if (!ENTRY_STATUS[e.status]) e.status = 'posted'; });
+      // Migration: clear stale reminderCount on sender's OWN entries.
+      // Old code incorrectly set reminderCount on the sender's entry when they clicked Notify.
+      // The 🚩 flag now belongs on the RECIPIENT's isShared entry only.
+      db.entries.forEach(e => { if (!e.isShared && e.reminderCount) delete e.reminderCount; });
       // Backfill linkedInvoiceId for settlement entries created before this feature
       // They have notes like "Settlement for INV-0001" or "Settlement for #0001"
       db.entries.forEach(e => {
@@ -4634,8 +4638,8 @@
             logoData: db.settings?.logoData || ''
           })
         });
-        // Notify the ORIGINAL SHARE OWNER (sender) — increment their reminderCount and push
-        // an in-app notification so the 🚩 flag appears on THEIR entries, not ours.
+        // Notify the ORIGINAL SHARE OWNER (sender) — push in-app notification.
+        // The server-side log-reminder also increments reminderCount on the sender's entry.
         // Fire-and-forget: non-critical, reminder was already sent via email above.
         fetch('/api/share', {
           method: 'POST', credentials: 'include',
