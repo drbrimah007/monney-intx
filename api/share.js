@@ -67,6 +67,36 @@ module.exports = async function handler(req, res) {
   // ── GET ───────────────────────────────────────────────────────────────────
   if (req.method === 'GET') {
 
+    // GET ?sent=1 — return outbound share tokens created by the current user with current status
+    if (req.query.sent) {
+      const payload = requireAuth(req, res);
+      if (!payload) return;
+      try {
+        await ensureTable();
+        const rows = await sql`
+          SELECT token, entry_id, entry_data, viewed, viewed_at, confirmed, created_at,
+                 recipient_closed, linked_user_id
+          FROM share_tokens
+          WHERE user_id = ${payload.id}
+          ORDER BY created_at DESC
+          LIMIT 200
+        `;
+        return res.json({ ok: true, sent: rows.map(r => ({
+          token:           r.token,
+          entryId:         r.entry_id,
+          entry:           r.entry_data,
+          viewed:          r.viewed || false,
+          viewedAt:        r.viewed_at,
+          confirmed:       r.confirmed || false,
+          recipientClosed: r.recipient_closed || false,
+          createdAt:       r.created_at
+        }))});
+      } catch (e) {
+        console.error('[share/sent]', e.message);
+        return res.status(500).json({ ok: false, error: 'Failed to load sent records.' });
+      }
+    }
+
     // GET ?linked=1 — return all records shared with the current user (auth)
     if (req.query.linked) {
       const payload = requireAuth(req, res);
@@ -144,6 +174,10 @@ module.exports = async function handler(req, res) {
               read:      false,
               createdAt: Date.now()
             });
+            // Update the sender's original entry status to 'viewed' so Entries list reflects it
+            if (entry && (entry.status === 'posted' || entry.status === 'sent')) {
+              entry.status = 'viewed';
+            }
             // Re-compress before writing back
             const recompressed = await _compress(ownerData);
             await sql`UPDATE user_data SET data = ${recompressed}, updated_at = now() WHERE user_id = ${ownerId}`;
@@ -293,6 +327,24 @@ module.exports = async function handler(req, res) {
       if (!entryId) return res.status(400).json({ ok: false, error: 'entryId required' });
       try {
         await ensureTable();
+
+        // SAFETY: verify the entry belongs to the sender and is NOT a received shared record.
+        // If it is isShared, creating a share token would send a reverse share back to the
+        // original sender — producing a duplicate Pending record in their inbox.
+        try {
+          const [blobCheck] = await sql`SELECT data FROM user_data WHERE user_id = ${payload.id} LIMIT 1`;
+          if (blobCheck) {
+            const blobData = await _decompress(blobCheck.data || {});
+            const targetEntry = (blobData.entries || []).find(e => e.id === entryId);
+            if (targetEntry?.isShared) {
+              // Return existing share link (original) instead of creating a reverse one
+              const origToken = targetEntry.shareToken;
+              const base = (targetEntry.fromSiteUrl) || siteUrl || 'https://moneyinteractions.com';
+              if (origToken) return res.json({ ok: true, token: origToken, shareUrl: `${base}/view?t=${origToken}`, isOriginal: true });
+              return res.status(400).json({ ok: false, error: 'Cannot create share for a received record.' });
+            }
+          }
+        } catch (_) {} // non-critical — fall through to normal create
 
         // Resolve recipient user — two paths:
         //  1. contactEmail passed directly from client (fast, no blob read needed)
@@ -479,6 +531,49 @@ module.exports = async function handler(req, res) {
           UPDATE share_tokens SET confirmed = true
           WHERE token = ${cToken} AND linked_user_id = ${payload.id}
         `;
+
+        // Push "confirmed" notification to sender + update their entry status to 'accepted'
+        try {
+          const [tokenRow] = await sql`
+            SELECT user_id, entry_id, entry_data FROM share_tokens WHERE token = ${cToken} LIMIT 1
+          `;
+          if (tokenRow) {
+            const ownerId   = tokenRow.user_id;
+            const entryId   = tokenRow.entry_id;
+            const entryData = tokenRow.entry_data;
+            const [blobRow] = await sql`SELECT data FROM user_data WHERE user_id = ${ownerId} LIMIT 1`;
+            if (blobRow) {
+              const ownerData = await _decompress(blobRow.data || {});
+              const entry     = (ownerData.entries  || []).find(e => e.id === entryId);
+              const contact   = entry ? (ownerData.contacts || []).find(c => c.id === entry.cId) : null;
+              const name      = contact?.name || entryData?.contactName || 'Someone';
+              if (!ownerData.notifs) ownerData.notifs = [];
+              ownerData.notifs.push({
+                id:        'n' + Math.random().toString(36).substr(2, 9),
+                userId:    ownerId,
+                cId:       entry?.cId || null,
+                eid:       entryId,
+                type:      'confirmed',
+                msg:       `${name} confirmed and is now tracking a record you shared with them.`,
+                channel:   'in-app',
+                sent:      true,
+                who:       'them',
+                sentTo:    '',
+                read:      false,
+                createdAt: Date.now()
+              });
+              // Update sender's entry status to 'accepted' so their Entries list reflects confirmation
+              if (entry && entry.status !== 'settled' && entry.status !== 'voided') {
+                entry.status = 'accepted';
+              }
+              const recompressed = await _compress(ownerData);
+              await sql`UPDATE user_data SET data = ${recompressed}, updated_at = now() WHERE user_id = ${ownerId}`;
+            }
+          }
+        } catch (innerErr) {
+          console.error('[share/confirm-shared] sender update failed:', innerErr.message);
+        }
+
         return res.json({ ok: true });
       } catch (e) {
         console.error('[share/confirm-shared]', e.message);
@@ -546,6 +641,10 @@ module.exports = async function handler(req, res) {
         let created = 0;
         for (const e of entries) {
           if (e.status === 'voided') continue;
+          // NEVER backfill isShared entries — they were RECEIVED from someone else.
+          // Creating a share token for them would send a reverse share back to the
+          // original sender, which lands in their inbox as a new "Pending" record.
+          if (e.isShared) continue;
           const contact = contacts.find(c => c.id === e.cId);
           if (!contact?.email) continue;
           const emailClean = contact.email.toLowerCase().trim();

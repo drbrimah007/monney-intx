@@ -7804,15 +7804,55 @@
       } catch (_) {}
     }
 
+    // ── Sync sent-share statuses ──────────────────────────────────────────
+    // Polls /api/share?sent=1 and updates the sender's own entry statuses
+    // when recipients have viewed or confirmed the shared records.
+    // Rules: status only moves forward (posted → viewed → accepted) —
+    // never backwards, and never overrides settled/voided.
+    const _SHARE_STATUS_ORDER = ['draft','posted','sent','viewed','accepted','partially_settled','settled','voided'];
+    async function _syncSentShareStatuses() {
+      if (!_IS_SERVER || _impersonatingDataUserId) return;
+      const u = curUser(); if (!u) return;
+      try {
+        const res = await fetch('/api/share?sent=1', { credentials: 'include' });
+        if (!res.ok) return;
+        const { sent } = await res.json();
+        if (!Array.isArray(sent)) return;
+        let changed = false;
+        sent.forEach(tok => {
+          if (!tok.entryId) return;
+          const entry = db.entries.find(e => e.id === tok.entryId && e.userId === u.id);
+          if (!entry) return;
+          // Determine target status from share token state
+          let targetStatus = null;
+          if (tok.confirmed)                       targetStatus = 'accepted';
+          else if (tok.viewed && !tok.confirmed)   targetStatus = 'viewed';
+          if (!targetStatus) return;
+          const curIdx = _SHARE_STATUS_ORDER.indexOf(entry.status || 'posted');
+          const newIdx = _SHARE_STATUS_ORDER.indexOf(targetStatus);
+          if (newIdx > curIdx) {
+            entry.status = targetStatus;
+            changed = true;
+          }
+        });
+        if (changed) {
+          save();
+          if (_curPage === 'entries' || _curPage === 'dash') refreshCurPage();
+        }
+      } catch (_) {}
+    }
+
     function _startNotifPolling() {
       if (!_IS_SERVER) return;
       // Poll every 30 seconds
       setInterval(_pollNotifs, 30_000);
+      // Sync sent-share statuses every 60 seconds (less frequent — less critical)
+      setInterval(_syncSentShareStatuses, 60_000);
       // Also re-check immediately when the user returns to the tab
       document.addEventListener('visibilitychange', () => {
         if (document.visibilityState === 'visible') {
           const now = Date.now();
-          if (now - _lastPollAt > 10_000) { _lastPollAt = now; _pollNotifs(); }
+          if (now - _lastPollAt > 10_000) { _lastPollAt = now; _pollNotifs(); _syncSentShareStatuses(); }
         }
       });
     }
