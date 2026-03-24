@@ -612,18 +612,22 @@ module.exports = async function handler(req, res) {
         const entryId   = row.entry_id;
         const entryData = row.entry_data || {};
 
-        // Compute amounts
+        // thisPayment = the amount being paid RIGHT NOW
         const totalAmt   = parseFloat(_tAmt || entryData.amount || 0);
-        const settledAmt = Math.min(Math.max(0, parseFloat(_sAmt || totalAmt)), totalAmt);
-        const remaining  = Math.max(0, totalAmt - settledAmt);
+        const thisPayment = Math.max(0, parseFloat(_sAmt || totalAmt));
+
+        // Read prior settled amount from existing entry_data (accumulated across all payments)
+        const priorSettled = parseFloat(entryData.settledAmt || 0);
+        const cumulativeSettled = Math.min(priorSettled + thisPayment, totalAmt);
+        const remaining  = Math.max(0, totalAmt - cumulativeSettled);
         const newStatus  = remaining <= 0.005 ? 'settled' : 'partially_settled';
 
-        // Update share_token entry_data with correct status + amounts
+        // Update share_token entry_data with CUMULATIVE amounts
         const updatedEntry = {
           ...entryData,
           status:            newStatus,
           settledByRecipient: true,
-          settledAmt:        settledAmt,
+          settledAmt:        cumulativeSettled,
           remaining:         remaining,
           settledAt:         new Date().toISOString(),
           settlementPending: true,
@@ -653,7 +657,7 @@ module.exports = async function handler(req, res) {
                 userId:          ownerId,
                 cId:             entry.cId,
                 txType:          creditType,
-                amount:          settledAmt,
+                amount:          thisPayment,
                 note:            `Payment (by recipient) for ${docRef}`,
                 date:            Date.now(),
                 status:          'settled',
@@ -687,7 +691,7 @@ module.exports = async function handler(req, res) {
               eid:       entryId,
               shareToken: mpToken,
               type:      'payment',
-              msg:       `${name} recorded a payment of $${settledAmt.toFixed(2)}${remaining > 0.005 ? ` — $${remaining.toFixed(2)} remaining` : ' — fully settled'}.`,
+              msg:       `${name} recorded a payment of $${thisPayment.toFixed(2)}${remaining > 0.005 ? ` — $${remaining.toFixed(2)} remaining` : ' — fully settled'}.`,
               channel:   'in-app',
               sent:      true,
               who:       'them',
@@ -701,7 +705,7 @@ module.exports = async function handler(req, res) {
         } catch (innerErr) {
           console.error('[share/mark-paid] owner update failed:', innerErr.message);
         }
-        return res.json({ ok: true, status: newStatus, remaining, settledAmt });
+        return res.json({ ok: true, status: newStatus, remaining, settledAmt: thisPayment, totalSettled: cumulativeSettled });
       } catch (e) {
         console.error('[share/mark-paid]', e.message);
         return res.status(500).json({ ok: false, error: 'Failed to mark paid.' });
