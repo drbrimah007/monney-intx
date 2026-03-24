@@ -397,12 +397,12 @@
       sent: 'Sent',
       viewed: 'Viewed',
       accepted: 'Accepted',
+      rejected: 'Rejected',
       disputed: 'Disputed',
       paid: 'Settled',
       settled: 'Settled',
       partially_settled: 'Partially Settled',
       overdue: 'Overdue',
-      archived: 'Archived',
       voided: 'Voided',
       closed: 'Closed',
       fulfilled: 'Fulfilled',
@@ -550,9 +550,14 @@
       const cls =
         (s==='settled' || s==='paid') ? 'badge-green'  :
         (s==='fulfilled')          ? 'badge-green'  :
+        (s==='accepted')           ? 'badge-green'  :
         (s==='overdue')            ? 'badge-red'    :
-        (s==='partially_settled')  ? 'badge-yellow' :
         (s==='disputed')           ? 'badge-red'    :
+        (s==='rejected')           ? 'badge-red'    :
+        (s==='partially_settled')  ? 'badge-yellow' :
+        (s==='sent')               ? 'badge-blue'   :
+        (s==='viewed')             ? 'badge-blue'   :
+        (s==='posted')             ? 'badge-blue'   :
         (s==='draft')              ? 'badge-gray'   :
         (s==='voided')             ? 'badge-gray'   :
         (s==='cancelled')          ? 'badge-gray'   :
@@ -811,13 +816,14 @@
       });
       // Ensure each entry has a valid status
       db.entries.forEach(e => { if (!ENTRY_STATUS[e.status]) e.status = 'posted'; });
-      // Migration: clear ALL stale reminderCount/lastReminderAt from entries.
-      // Old code auto-set reminder state when sending invoices or using Notify.
-      // Now reminderCount is ONLY set by explicit "Send Reminder" actions.
-      // Also clear on shared entries — recipient badges now come only from sender-notify.
-      db.entries.forEach(e => {
-        if (e.reminderCount) { delete e.reminderCount; delete e.lastReminderAt; delete e.lastReminderMethod; }
-      });
+      // Migration (one-time): clear stale reminderCount from entries that had it
+      // auto-set by old code. Now reminderCount is ONLY set by explicit "Send Reminder".
+      if (!localStorage.getItem('mxi_mig_reminder_v2')) {
+        db.entries.forEach(e => {
+          if (e.reminderCount) { delete e.reminderCount; delete e.lastReminderAt; delete e.lastReminderMethod; }
+        });
+        localStorage.setItem('mxi_mig_reminder_v2', '1');
+      }
       // Retype old notification events as 'notification' if they lack a type
       db.notifs.forEach(n => { if (!n.type) n.type = 'notification'; });
       // Backfill linkedInvoiceId for settlement entries created before this feature
@@ -971,11 +977,15 @@
         }
       }
       const remaining = Math.max(0, total - settled);
+      // Compute settlement-driven status without regressing forward statuses
+      const _noRegress = ['sent','viewed','accepted','rejected','disputed','fulfilled','closed'];
       const status =
         e.status === 'voided' ? 'voided' :
-        e.status === 'overdue' && settled <= 0 ? 'overdue' :
-        settled <= 0 ? (e.status === 'draft' ? 'draft' : (e.status === 'overdue' ? 'overdue' : 'posted')) :
-        remaining <= 0 ? 'settled' : 'partially_settled';
+        remaining <= 0 && settled > 0 ? 'settled' :
+        settled > 0 ? 'partially_settled' :
+        _noRegress.includes(e.status) ? e.status :
+        e.status === 'overdue' ? 'overdue' :
+        e.status === 'draft' ? 'draft' : 'posted';
       return { settled, remaining, status, total };
     }
 
@@ -1541,7 +1551,7 @@
           <div class="tbl-wrap"><table><thead><tr><th>Contact</th><th>Amount</th><th class="hide-mobile">Type</th><th>Date</th><th>Status</th><th style="width:80px;">Action</th></tr></thead><tbody>
           ${recentEntries.map(e => {
             const c = db.contacts.find(x => x.id === e.cId);
-            return `<tr><td>${cLink(e.cId, c?.name||'—')}</td><td>${_fmtAmtCell(e.id,`<div class="mobile-label" style="font-size:11px;font-weight:700;color:${txTypeColor(e.txType)};margin-top:2px;">${esc(TXL[e.txType]||e.txType)}</div>`)}</td><td class="hide-mobile"><span style="font-weight:700;color:${txTypeColor(e.txType)}">${esc(TXL[e.txType]||e.txType)}</span></td><td>${new Date(e.date).toLocaleDateString()}</td><td>${statusBadge(e.status)}${_reminderBadge(e.reminderCount, e.id)}</td><td><div class="action-menu"><button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button><div class="action-dropdown"><button onclick="openEntryInvoice('${e.id}')">📄 View</button><button onclick="editEntry('${e.id}')">✏️ Edit</button>${(isInvoiceMode(e) || e.txType === 'they_owe_you' || e.txType === 'you_owe_them') && e.status !== 'settled' && e.status !== 'voided' && e.status !== 'fulfilled' && e.status !== 'cancelled' ? `<button onclick="recordSettlement('${e.id}')">💰 Settle</button>` : ''}${isInvoiceMode(e) && e.status !== 'fulfilled' && e.status !== 'voided' && e.status !== 'cancelled' ? `<button onclick="markFulfilled('${e.id}')" style="color:#16a34a;font-weight:700;">✅ Mark Fulfilled</button>` : ''}<button onclick="openNotifyModal('${e.id}')">🔔 Send Reminder</button><button onclick="openShareModal('${e.id}')">🔗 Share</button><button onclick="toggleArchiveEntry('${e.id}')">${e.archived?'📤 Unarchive':'📥 Archive'}</button>${e.status !== 'voided' && e.status !== 'fulfilled' ? `<button onclick="voidEntry('${e.id}')" style="color:var(--amber);">🚫 Void</button>` : ''}<button onclick="delEntry('${e.id}')" style="color:var(--red);">🗑 Delete</button></div></div></td></tr>`;
+            return `<tr><td>${cLink(e.cId, c?.name||'—')}</td><td>${_fmtAmtCell(e.id,`<div class="mobile-label" style="font-size:11px;font-weight:700;color:${txTypeColor(e.txType)};margin-top:2px;">${esc(TXL[e.txType]||e.txType)}</div>`)}</td><td class="hide-mobile"><span style="font-weight:700;color:${txTypeColor(e.txType)}">${esc(TXL[e.txType]||e.txType)}</span></td><td>${new Date(e.date).toLocaleDateString()}</td><td>${statusBadge(e.status)}${_reminderBadge(e.reminderCount, e.id)}</td><td><div class="action-menu"><button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button><div class="action-dropdown"><button onclick="openEntryInvoice('${e.id}')">📄 View</button><button onclick="editEntry('${e.id}')">✏️ Edit</button>${(isInvoiceMode(e) || e.txType === 'they_owe_you' || e.txType === 'you_owe_them') && e.status !== 'settled' && e.status !== 'voided' && e.status !== 'fulfilled' && e.status !== 'cancelled' ? `<button onclick="recordSettlement('${e.id}')">💰 Settle</button>` : ''}${isInvoiceMode(e) && e.status !== 'fulfilled' && e.status !== 'voided' && e.status !== 'cancelled' ? `<button onclick="markFulfilled('${e.id}')" style="color:#16a34a;font-weight:700;">✅ Mark Fulfilled</button>` : ''}<button onclick="openNotifyModal('${e.id}')">🔔 Send Reminder</button><button onclick="openShareModal('${e.id}')">🔗 Share</button><button onclick="duplicateEntry('${e.id}')">📋 Duplicate</button><button onclick="toggleArchiveEntry('${e.id}')">${e.archived?'📤 Unarchive':'📥 Archive'}</button>${e.status !== 'voided' && e.status !== 'fulfilled' ? `<button onclick="voidEntry('${e.id}')" style="color:var(--amber);">🚫 Void</button>` : ''}<button onclick="delEntry('${e.id}')" style="color:var(--red);">🗑 Delete</button></div></div></td></tr>`;
           }).join('')}
           </tbody></table></div>`}
         </div>`;
@@ -1659,7 +1669,7 @@
               </tr>`;
             }
             const c = db.contacts.find(x => x.id === e.cId);
-            return `<tr><td>${cLink(e.cId, c?.name||'—')}</td><td>${_fmtAmtCell(e.id,`<div class="mobile-label" style="font-size:11px;font-weight:700;color:${txTypeColor(e.txType)};margin-top:2px;">${esc(TXL[e.txType]||e.txType)}</div>`)}</td><td class="hide-mobile"><span style="font-weight:700;color:${txTypeColor(e.txType)}">${esc(TXL[e.txType]||e.txType)}</span></td><td>${new Date(e.date).toLocaleDateString()}</td><td>${statusBadge(e.status)}${_reminderBadge(e.reminderCount, e.id)}</td><td><div class="action-menu"><button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button><div class="action-dropdown"><button onclick="openEntryInvoice('${e.id}')">📄 View</button><button onclick="editEntry('${e.id}')">✏️ Edit</button>${(isInvoiceMode(e) || e.txType === 'they_owe_you' || e.txType === 'you_owe_them') && e.status !== 'settled' && e.status !== 'voided' && e.status !== 'fulfilled' && e.status !== 'cancelled' ? `<button onclick="recordSettlement('${e.id}')">💰 Settle</button>` : ''}${isInvoiceMode(e) && e.status !== 'fulfilled' && e.status !== 'voided' && e.status !== 'cancelled' ? `<button onclick="markFulfilled('${e.id}')" style="color:#16a34a;font-weight:700;">✅ Mark Fulfilled</button>` : ''}<button onclick="openNotifyModal('${e.id}')">🔔 Send Reminder</button><button onclick="openShareModal('${e.id}')">🔗 Share</button><button onclick="toggleArchiveEntry('${e.id}')">${e.archived?'📤 Unarchive':'📥 Archive'}</button>${e.status !== 'voided' && e.status !== 'fulfilled' ? `<button onclick="voidEntry('${e.id}')" style="color:var(--amber);">🚫 Void</button>` : ''}<button onclick="delEntry('${e.id}')" style="color:var(--red);">🗑 Delete</button></div></div></td></tr>`;
+            return `<tr><td>${cLink(e.cId, c?.name||'—')}</td><td>${_fmtAmtCell(e.id,`<div class="mobile-label" style="font-size:11px;font-weight:700;color:${txTypeColor(e.txType)};margin-top:2px;">${esc(TXL[e.txType]||e.txType)}</div>`)}</td><td class="hide-mobile"><span style="font-weight:700;color:${txTypeColor(e.txType)}">${esc(TXL[e.txType]||e.txType)}</span></td><td>${new Date(e.date).toLocaleDateString()}</td><td>${statusBadge(e.status)}${_reminderBadge(e.reminderCount, e.id)}</td><td><div class="action-menu"><button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button><div class="action-dropdown"><button onclick="openEntryInvoice('${e.id}')">📄 View</button><button onclick="editEntry('${e.id}')">✏️ Edit</button>${(isInvoiceMode(e) || e.txType === 'they_owe_you' || e.txType === 'you_owe_them') && e.status !== 'settled' && e.status !== 'voided' && e.status !== 'fulfilled' && e.status !== 'cancelled' ? `<button onclick="recordSettlement('${e.id}')">💰 Settle</button>` : ''}${isInvoiceMode(e) && e.status !== 'fulfilled' && e.status !== 'voided' && e.status !== 'cancelled' ? `<button onclick="markFulfilled('${e.id}')" style="color:#16a34a;font-weight:700;">✅ Mark Fulfilled</button>` : ''}<button onclick="openNotifyModal('${e.id}')">🔔 Send Reminder</button><button onclick="openShareModal('${e.id}')">🔗 Share</button><button onclick="duplicateEntry('${e.id}')">📋 Duplicate</button><button onclick="toggleArchiveEntry('${e.id}')">${e.archived?'📤 Unarchive':'📥 Archive'}</button>${e.status !== 'voided' && e.status !== 'fulfilled' ? `<button onclick="voidEntry('${e.id}')" style="color:var(--amber);">🚫 Void</button>` : ''}<button onclick="delEntry('${e.id}')" style="color:var(--red);">🗑 Delete</button></div></div></td></tr>`;
           }).join('')}
           </tbody></table></div>`}
         </div>`;
@@ -2246,6 +2256,8 @@
         html += `<div><p><strong>Email:</strong> ${esc(c.email || '—')}</p><p><strong>Phone:</strong> ${esc(c.phone || '—')}</p><p><strong>Address:</strong> ${esc(c.address || '—')}</p><p><strong>Notes:</strong> ${esc(c.notes || '—')}</p>
           <p><strong>Tags:</strong> ${c.tags && c.tags.length ? c.tags.map(t => `<span class="badge badge-blue">${esc(t)}</span>`).join(' ') : '—'}</p>
           <button class="btn sm" style="margin-top: 12px;" onclick="openNewEntry('${cid}'); this.closest('.modal-bg').remove()">+ Add Entry</button>
+          ${(c.email && !c.linkedUserId && _IS_SERVER) ? `<button class="bs sm" style="margin-top:8px;margin-left:8px;" onclick="_sendInvite('${cid}')">✉ Invite to Platform</button>` : ''}
+          ${c.linkedUserId ? `<span class="badge badge-green" style="margin-top:8px;margin-left:8px;">🔗 Linked</span>` : ''}
         </div>`;
       } else if (tab === 'entries') {
         // Merge own entries + shared-from-this-contact, sorted latest first
@@ -2376,6 +2388,7 @@
                 html += '<button onclick="closeCPModal();editEntry(\'' + e2.id + '\')">✏️ Edit</button>';
                 html += '<button onclick="closeCPModal();openNotifyModal(\'' + e2.id + '\')">🔔 Send Reminder</button>';
                 html += '<button onclick="closeCPModal();openShareModal(\'' + e2.id + '\')">🔗 Share</button>';
+                html += '<button onclick="closeCPModal();duplicateEntry(\'' + e2.id + '\')">📋 Duplicate</button>';
                 if ((isInvoiceMode(e2) || e2.txType === 'they_owe_you' || e2.txType === 'you_owe_them') && e2.status !== 'settled' && e2.status !== 'voided') {
                   html += '<button onclick="closeCPModal();recordSettlement(\'' + e2.id + '\')">💰 Settle</button>';
                 }
@@ -3364,6 +3377,7 @@
               ${isInvoiceMode(e) && e.status !== 'fulfilled' && e.status !== 'voided' && e.status !== 'cancelled' ? `<button onclick="markFulfilled('${e.id}')" style="color:#16a34a;font-weight:700;">✅ Mark Fulfilled</button>` : ''}
               <button onclick="openNotifyModal('${e.id}')">🔔 Send Reminder</button>
               <button onclick="openShareModal('${e.id}')">🔗 Share</button>
+              <button onclick="duplicateEntry('${e.id}')">📋 Duplicate</button>
               <button onclick="toggleArchiveEntry('${e.id}')">${e.archived ? '📤 Unarchive' : '📥 Archive'}</button>
               ${e.status !== 'voided' && e.status !== 'fulfilled' ? `<button onclick="voidEntry('${e.id}')" style="color:var(--amber);">🚫 Void</button>` : ''}
               <button onclick="${e.status==='closed' ? 'reopenEntry' : 'openCloseModal'}('${e.id}')">${e.status==='closed' ? '🔓 Reopen' : '🔒 Close Record'}</button>
@@ -4122,6 +4136,7 @@
           invoicePrefix: _entryTpl.invoicePrefix, fields: _entryTpl.fields
         }));
         saveNow(); logAudit('edit_entry', {eid, cid, amount: aggVal, tpl: _entryTpl.name});
+        _pushShareStatus(eid); // sync edited data to share token snapshot
         document.getElementById('editEntryBg')?.remove();
         toast('Entry updated');
         refreshCurPage();
@@ -4143,10 +4158,40 @@
         e.note = note; e.status = safeStatus(status);
         e.date = dateStr ? new Date(dateStr).getTime() : e.date;
         saveNow(); logAudit('edit_entry', {eid, cid, txType, amount: amt});
+        _pushShareStatus(eid); // sync edited data to share token snapshot
         document.getElementById('editEntryBg')?.remove();
         toast('Entry updated');
         refreshCurPage();
       }
+    }
+
+    function duplicateEntry(eid) {
+      const orig = db.entries.find(x => x.id === eid);
+      if (!orig) return;
+      db.settings.entryCounter = (db.settings.entryCounter || 0) + 1;
+      const newId = uuid();
+      const newEntry = {
+        id: newId,
+        userId: orig.userId,
+        cId: orig.cId,
+        txType: orig.txType,
+        amount: orig.amount,
+        note: orig.note || '',
+        templateId: orig.templateId || null,
+        templateData: orig.templateData ? JSON.parse(JSON.stringify(orig.templateData)) : {},
+        templateSnapshot: orig.templateSnapshot ? JSON.parse(JSON.stringify(orig.templateSnapshot)) : null,
+        date: Date.now(),
+        status: 'draft',
+        createdAt: Date.now(),
+        entryNum: db.settings.entryCounter,
+        archived: false,
+        shared: false,
+        responses: []
+      };
+      db.entries.push(newEntry);
+      save();
+      toast('Entry duplicated as draft');
+      editEntry(newId);
     }
 
     function toggleArchiveEntry(eid) {
@@ -6938,7 +6983,18 @@
           </div>
           <button class="btn sm" style="margin-top:14px;" onclick="saveProfile()">Save Preferences</button>
         </div>`;
+
+        // ── Sent Invites section ──────────────────────────────────────────
+        if (_IS_SERVER) {
+          html += `<div class="card" style="margin-bottom:16px;">
+            <div class="section-title">&#9993; Sent Invites</div>
+            <p style="color:var(--muted);font-size:13px;margin-bottom:14px;">Manage invitations you have sent to join the platform. Invite contacts from their profile page.</p>
+            <div id="invitesSection"><p style="color:var(--muted);font-size:13px;">Loading...</p></div>
+          </div>`;
+        }
+
         document.getElementById('content').innerHTML = html;
+        if (_IS_SERVER) _renderInvitesSection();
       }
     }
 
@@ -7260,6 +7316,71 @@
             method: 'POST', credentials: 'include',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ token, password })
+          });
+          return res.json();
+        } catch (e) { return { ok: false, error: 'Network error.' }; }
+      },
+
+      // ── Invite API ───────────────────────────────────────────────────
+      async inviteCreate({ email, name, contactId }) {
+        if (!_IS_SERVER) { toast('Invites require server deployment.'); return { ok: false }; }
+        try {
+          const res = await fetch('/api/invite', {
+            method: 'POST', credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'create', email, name, contactId })
+          });
+          return res.json();
+        } catch (e) { return { ok: false, error: 'Network error.' }; }
+      },
+
+      async inviteCheck(token) {
+        if (!_IS_SERVER) return { ok: false };
+        try {
+          const res = await fetch(`/api/invite?action=check&token=${encodeURIComponent(token)}`, { credentials: 'include' });
+          return res.json();
+        } catch (e) { return { ok: false, error: 'Network error.' }; }
+      },
+
+      async inviteAccept(token) {
+        if (!_IS_SERVER) return { ok: false };
+        try {
+          const res = await fetch('/api/invite', {
+            method: 'POST', credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'accept', token })
+          });
+          return res.json();
+        } catch (e) { return { ok: false, error: 'Network error.' }; }
+      },
+
+      async inviteList() {
+        if (!_IS_SERVER) return { ok: false, invites: [] };
+        try {
+          const res = await fetch('/api/invite?action=list', { credentials: 'include' });
+          return res.json();
+        } catch (e) { return { ok: false, invites: [] }; }
+      },
+
+      async inviteResend(token) {
+        if (!_IS_SERVER) return { ok: false };
+        try {
+          const res = await fetch('/api/invite', {
+            method: 'POST', credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'resend', token })
+          });
+          return res.json();
+        } catch (e) { return { ok: false, error: 'Network error.' }; }
+      },
+
+      async inviteCancel(token) {
+        if (!_IS_SERVER) return { ok: false };
+        try {
+          const res = await fetch('/api/invite', {
+            method: 'POST', credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'cancel', token })
           });
           return res.json();
         } catch (e) { return { ok: false, error: 'Network error.' }; }
@@ -7768,6 +7889,7 @@
       }
       closeAuthModal();
       await load(); // pull their data from server
+      await _acceptPendingInvite();
       await _linkPendingShare();
       initApp();
     }
@@ -7789,8 +7911,148 @@
       }
       closeAuthModal();
       await load(); // pull fresh data (empty blob for new user)
+      // Accept pending invite if present
+      await _acceptPendingInvite();
       await _linkPendingShare();
       initApp();
+    }
+
+    // ── Invite system frontend ─────────────────────────────────────────────
+
+    // Send invite from Contact Panel
+    async function _sendInvite(contactId) {
+      const c = db.contacts.find(x => x.id === contactId);
+      if (!c || !c.email) { toast('Contact has no email address.'); return; }
+      const res = await API.inviteCreate({ email: c.email, name: c.name, contactId: c.id });
+      if (res.alreadyRegistered) {
+        c.linkedUserId = true;
+        save();
+        toast(`${res.linkedName || c.name} is already on the platform — linked!`);
+        openCP(contactId);
+        return;
+      }
+      if (!res.ok) { toast(res.error || 'Failed to send invite.'); return; }
+      toast(`Invite sent to ${c.email}!`);
+    }
+
+    // Accept invite after signup — called from doSignup
+    async function _acceptPendingInvite() {
+      let inviteToken;
+      try { inviteToken = sessionStorage.getItem('pendingInviteToken'); } catch(_) {}
+      if (!inviteToken) return;
+      try {
+        const res = await API.inviteAccept(inviteToken);
+        sessionStorage.removeItem('pendingInviteToken');
+        if (res.ok && res.inviterName) {
+          setTimeout(() => toast(`Welcome! You've been connected with ${res.inviterName}.`), 500);
+        }
+      } catch(_) { sessionStorage.removeItem('pendingInviteToken'); }
+    }
+
+    // Check for ?invite=TOKEN on page load and open invite-aware signup
+    async function _checkInviteParam() {
+      const params = new URLSearchParams(window.location.search);
+      const inviteToken = params.get('invite');
+      if (!inviteToken) return false;
+
+      const res = await API.inviteCheck(inviteToken);
+      if (!res.ok) {
+        toast(res.error || 'This invite link is no longer valid.');
+        window.history.replaceState({}, '', window.location.pathname);
+        return false;
+      }
+
+      sessionStorage.setItem('pendingInviteToken', inviteToken);
+      window.history.replaceState({}, '', window.location.pathname);
+      _openInviteSignupModal(res.inviterName, res.email, res.name);
+      return true;
+    }
+
+    function _openInviteSignupModal(inviterName, email, name) {
+      const _esc = s => (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+      const html = `
+        <div class="modal-bg" id="authModalBg" onclick="if(event.target===this)closeAuthModal()">
+          <div class="modal auth-modal">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px">
+              <div class="modal-title" style="margin-bottom:0">You're Invited!</div>
+              <button class="gh" onclick="closeAuthModal()">&#10005;</button>
+            </div>
+            <div style="background:var(--bg3);border-radius:8px;padding:14px 16px;margin-bottom:20px;border-left:4px solid var(--accent);">
+              <p style="margin:0;font-size:14px;color:var(--fg);"><strong>${_esc(inviterName)}</strong> invited you to join and track financial interactions together.</p>
+            </div>
+            <div class="fg">
+              <label>Full Name</label>
+              <input id="su_name" type="text" value="${_esc(name)}" placeholder="Jane Smith" autocomplete="name" onkeydown="if(event.key==='Enter')doSignup()">
+            </div>
+            <div class="fg">
+              <label>Email</label>
+              <input id="su_email" type="email" value="${_esc(email)}" readonly style="background:var(--bg3);color:var(--muted);cursor:not-allowed;" autocomplete="email">
+              <span style="font-size:11px;color:var(--muted);">You must sign up with the invited email address.</span>
+            </div>
+            <div class="fg">
+              <label>Password <span style="color:var(--muted);font-size:11px">(min 6 characters)</span></label>
+              <input id="su_pw" type="password" placeholder="&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;" autocomplete="new-password" onkeydown="if(event.key==='Enter')doSignup()">
+            </div>
+            <div id="su_err" class="err" style="margin-bottom:10px;display:none"></div>
+            <button class="btn" style="width:100%" onclick="doSignup()">Create Account</button>
+            <div class="auth-divider">or</div>
+            <p style="text-align:center;font-size:13px;color:var(--muted)">
+              Already have an account?
+              <button class="gh sm" style="color:var(--accent);font-weight:700" onclick="closeAuthModal();openLoginModal()">Log In</button>
+            </p>
+          </div>
+        </div>`;
+      document.body.insertAdjacentHTML('beforeend', html);
+      setTimeout(() => document.getElementById('su_pw')?.focus(), 80);
+    }
+
+    // Invite management section — renders in settings
+    async function _renderInvitesSection() {
+      const container = document.getElementById('invitesSection');
+      if (!container) return;
+      container.innerHTML = '<p style="color:var(--muted);font-size:13px;">Loading invites...</p>';
+
+      const res = await API.inviteList();
+      if (!res.ok || !res.invites || res.invites.length === 0) {
+        container.innerHTML = '<p style="color:var(--muted);font-size:13px;">No invites sent yet. You can invite contacts from their profile page.</p>';
+        return;
+      }
+
+      const _statusBadge = {
+        pending:   '<span class="badge" style="background:rgba(251,191,36,.18);color:#d97706;">Pending</span>',
+        accepted:  '<span class="badge badge-green">Accepted</span>',
+        expired:   '<span class="badge" style="background:rgba(239,68,68,.12);color:#dc2626;">Expired</span>',
+        cancelled: '<span class="badge" style="background:var(--bg3);color:var(--muted);">Cancelled</span>'
+      };
+
+      let tbl = '<div class="tbl-wrap"><table style="font-size:13px;"><thead><tr><th>Name</th><th>Email</th><th>Status</th><th>Sent</th><th>Actions</th></tr></thead><tbody>';
+      res.invites.forEach(inv => {
+        const badge = _statusBadge[inv.status] || inv.status;
+        const dateStr = new Date(inv.createdAt).toLocaleDateString();
+        let actions = '';
+        if (inv.status === 'pending' || inv.status === 'expired') {
+          actions += `<button class="bs sm" onclick="_resendInvite('${inv.token}')">Resend</button> `;
+        }
+        if (inv.status === 'pending') {
+          actions += `<button class="bs sm" style="color:var(--red);" onclick="_cancelInvite('${inv.token}')">Cancel</button>`;
+        }
+        tbl += `<tr><td>${inv.name || '\u2014'}</td><td>${inv.email}</td><td>${badge}</td><td>${dateStr}</td><td>${actions}</td></tr>`;
+      });
+      tbl += '</tbody></table></div>';
+      container.innerHTML = tbl;
+    }
+
+    async function _resendInvite(token) {
+      const res = await API.inviteResend(token);
+      if (res.ok) { toast('Invite resent!'); _renderInvitesSection(); }
+      else toast(res.error || 'Failed to resend invite.');
+    }
+
+    async function _cancelInvite(token) {
+      if (!confirm('Cancel this invite?')) return;
+      const res = await API.inviteCancel(token);
+      if (res.ok) { toast('Invite cancelled.'); _renderInvitesSection(); }
+      else toast(res.error || 'Failed to cancel invite.');
     }
 
     // Called after login/signup — fetches the pending share entry and shows
@@ -8343,7 +8605,7 @@
     // when recipients have viewed or confirmed the shared records.
     // Rules: status only moves forward (posted → viewed → accepted) —
     // never backwards, and never overrides settled/voided.
-    const _SHARE_STATUS_ORDER = ['draft','posted','sent','viewed','accepted','partially_settled','settled','voided'];
+    const _SHARE_STATUS_ORDER = ['draft','posted','sent','viewed','accepted','rejected','disputed','partially_settled','settled','fulfilled','closed','voided'];
     async function _syncSentShareStatuses() {
       if (!_IS_SERVER || _impersonatingDataUserId) return;
       const u = curUser(); if (!u) return;
@@ -8505,6 +8767,11 @@
         // No valid server session — show landing, then open modal if requested
         await load();
         renderLandingPage();
+        // Check for invite token in URL — takes priority over auto-modal
+        if (params.get('invite')) {
+          setTimeout(() => _checkInviteParam(), 120);
+          return;
+        }
         if (_autoModal === 'signup') setTimeout(openSignupModal, 120);
         else if (_autoModal === 'login') setTimeout(openLoginModal, 120);
         return;
@@ -8516,7 +8783,10 @@
         initApp();
       } else {
         renderLandingPage();
-        if (_autoModal === 'signup') setTimeout(openSignupModal, 120);
+        // Check for invite token in URL — takes priority over auto-modal
+        if (params.get('invite')) {
+          setTimeout(() => _checkInviteParam(), 120);
+        } else if (_autoModal === 'signup') setTimeout(openSignupModal, 120);
         else if (_autoModal === 'login') setTimeout(openLoginModal, 120);
       }
     });

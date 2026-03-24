@@ -398,6 +398,23 @@ module.exports = async function handler(req, res) {
               WHERE token = ${token}
             `;
           }
+          // Refresh the entry_data snapshot so reminders/views reflect the latest edits
+          const updatedEntryData = {
+            entryId, contactName,
+            contactEmail: contactEmail ? contactEmail.toLowerCase().trim() : '',
+            fromName, fromEmail: fromEmail || '',
+            txType, amount, date, note: note || '',
+            invoiceNumber: invoiceNumber || null,
+            status: status || 'posted',
+            appName: appName || 'Money IntX',
+            siteUrl: siteUrl || 'https://moneyinteractions.com',
+            tagline: tagline || 'Making Money Matters Memorable',
+            sharedAt: Date.now()
+          };
+          await sql`
+            UPDATE share_tokens SET entry_data = ${JSON.stringify(updatedEntryData)}::jsonb
+            WHERE token = ${token}
+          `;
           const base = siteUrl || 'https://moneyinteractions.com';
           return res.json({ ok: true, token, shareUrl: `${base}/view?t=${token}` });
         }
