@@ -797,10 +797,15 @@
       });
       // Ensure each entry has a valid status
       db.entries.forEach(e => { if (!ENTRY_STATUS[e.status]) e.status = 'posted'; });
-      // Migration: clear stale reminderCount on sender's OWN entries.
-      // Old code incorrectly set reminderCount on the sender's entry when they clicked Notify.
-      // The 🚩 flag now belongs on the RECIPIENT's isShared entry only.
-      db.entries.forEach(e => { if (!e.isShared && e.reminderCount) delete e.reminderCount; });
+      // Migration: clear ALL stale reminderCount/lastReminderAt from entries.
+      // Old code auto-set reminder state when sending invoices or using Notify.
+      // Now reminderCount is ONLY set by explicit "Send Reminder" actions.
+      // Also clear on shared entries — recipient badges now come only from sender-notify.
+      db.entries.forEach(e => {
+        if (e.reminderCount) { delete e.reminderCount; delete e.lastReminderAt; delete e.lastReminderMethod; }
+      });
+      // Retype old notification events as 'notification' if they lack a type
+      db.notifs.forEach(n => { if (!n.type) n.type = 'notification'; });
       // Backfill linkedInvoiceId for settlement entries created before this feature
       // They have notes like "Settlement for INV-0001" or "Settlement for #0001"
       db.entries.forEach(e => {
@@ -1448,7 +1453,7 @@
           <div class="tbl-wrap"><table><thead><tr><th>Contact</th><th>Amount</th><th class="hide-mobile">Type</th><th>Date</th><th>Status</th><th style="width:80px;">Action</th></tr></thead><tbody>
           ${recentEntries.map(e => {
             const c = db.contacts.find(x => x.id === e.cId);
-            return `<tr><td>${cLink(e.cId, c?.name||'—')}</td><td>${_fmtAmtCell(e.id,`<div class="mobile-label" style="font-size:11px;font-weight:700;color:${txTypeColor(e.txType)};margin-top:2px;">${esc(TXL[e.txType]||e.txType)}</div>`)}</td><td class="hide-mobile"><span style="font-weight:700;color:${txTypeColor(e.txType)}">${esc(TXL[e.txType]||e.txType)}</span></td><td>${new Date(e.date).toLocaleDateString()}</td><td>${statusBadge(e.status)}${_reminderBadge(e.reminderCount, e.id)}</td><td><div class="action-menu"><button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button><div class="action-dropdown"><button onclick="openEntryInvoice('${e.id}')">📄 View</button><button onclick="editEntry('${e.id}')">✏️ Edit</button>${(isInvoiceMode(e) || e.txType === 'they_owe_you' || e.txType === 'you_owe_them') && e.status !== 'settled' && e.status !== 'voided' && e.status !== 'fulfilled' && e.status !== 'cancelled' ? `<button onclick="recordSettlement('${e.id}')">💰 Settle</button>` : ''}${isInvoiceMode(e) && e.status !== 'fulfilled' && e.status !== 'voided' && e.status !== 'cancelled' ? `<button onclick="markFulfilled('${e.id}')" style="color:#16a34a;font-weight:700;">✅ Mark Fulfilled</button>` : ''}<button onclick="openNotifyModal('${e.id}')">🔔 Notify</button><button onclick="openShareModal('${e.id}')">🔗 Share</button><button onclick="toggleArchiveEntry('${e.id}')">${e.archived?'📤 Unarchive':'📥 Archive'}</button>${e.status !== 'voided' && e.status !== 'fulfilled' ? `<button onclick="voidEntry('${e.id}')" style="color:var(--amber);">🚫 Void</button>` : ''}<button onclick="delEntry('${e.id}')" style="color:var(--red);">🗑 Delete</button></div></div></td></tr>`;
+            return `<tr><td>${cLink(e.cId, c?.name||'—')}</td><td>${_fmtAmtCell(e.id,`<div class="mobile-label" style="font-size:11px;font-weight:700;color:${txTypeColor(e.txType)};margin-top:2px;">${esc(TXL[e.txType]||e.txType)}</div>`)}</td><td class="hide-mobile"><span style="font-weight:700;color:${txTypeColor(e.txType)}">${esc(TXL[e.txType]||e.txType)}</span></td><td>${new Date(e.date).toLocaleDateString()}</td><td>${statusBadge(e.status)}${_reminderBadge(e.reminderCount, e.id)}</td><td><div class="action-menu"><button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button><div class="action-dropdown"><button onclick="openEntryInvoice('${e.id}')">📄 View</button><button onclick="editEntry('${e.id}')">✏️ Edit</button>${(isInvoiceMode(e) || e.txType === 'they_owe_you' || e.txType === 'you_owe_them') && e.status !== 'settled' && e.status !== 'voided' && e.status !== 'fulfilled' && e.status !== 'cancelled' ? `<button onclick="recordSettlement('${e.id}')">💰 Settle</button>` : ''}${isInvoiceMode(e) && e.status !== 'fulfilled' && e.status !== 'voided' && e.status !== 'cancelled' ? `<button onclick="markFulfilled('${e.id}')" style="color:#16a34a;font-weight:700;">✅ Mark Fulfilled</button>` : ''}<button onclick="openNotifyModal('${e.id}')">🔔 Send Reminder</button><button onclick="openShareModal('${e.id}')">🔗 Share</button><button onclick="toggleArchiveEntry('${e.id}')">${e.archived?'📤 Unarchive':'📥 Archive'}</button>${e.status !== 'voided' && e.status !== 'fulfilled' ? `<button onclick="voidEntry('${e.id}')" style="color:var(--amber);">🚫 Void</button>` : ''}<button onclick="delEntry('${e.id}')" style="color:var(--red);">🗑 Delete</button></div></div></td></tr>`;
           }).join('')}
           </tbody></table></div>`}
         </div>`;
@@ -1545,18 +1550,18 @@
                 <td><strong>${fmt(rawAmt2)}</strong><div class="mobile-label" style="font-size:11px;font-weight:700;color:${dirColor2};margin-top:2px;">${esc(dirLabel2)}</div></td>
                 <td class="hide-mobile"><span style="font-weight:700;color:${dirColor2};">${esc(dirLabel2)}</span></td>
                 <td>${e.date ? new Date(e.date).toLocaleDateString() : '—'}</td>
-                <td>${statusBadge(e.status||'posted')}${_reminderBadge(e.reminderCount, e.id)}</td>
+                <td>${statusBadge(e.status||'posted')}</td>
                 <td><div class="action-menu"><button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button><div class="action-dropdown">
                   <a href="${viewUrl2}" target="_blank" style="display:block;padding:8px 14px;font-size:13px;color:var(--accent);text-decoration:none;font-weight:600;">👁 View</a>
                   ${!isSettled2 ? `<button onclick="_sharedMarkPaid('${esc(e.shareToken)}')" style="color:var(--green);font-weight:700;">💰 Record Payment</button>` : ''}
-                  ${isRemindable2 ? `<button onclick="openSharedRemindModal('${esc(e.shareToken)}')" style="color:var(--accent);font-weight:700;">🔔 Remind</button>` : ''}
+                  ${isRemindable2 ? `<button onclick="_selfRemindMe('${esc(e.shareToken)}')" style="color:var(--accent);font-weight:700;">⏰ Remind Me</button>` : ''}
                   <button onclick="_sharedExpire('${esc(e.shareToken)}')">⏰ Expire</button>
                   <button onclick="delEntry('${esc(e.id)}')" style="color:var(--red);">🗑 Delete</button>
                 </div></div></td>
               </tr>`;
             }
             const c = db.contacts.find(x => x.id === e.cId);
-            return `<tr><td>${cLink(e.cId, c?.name||'—')}</td><td>${_fmtAmtCell(e.id,`<div class="mobile-label" style="font-size:11px;font-weight:700;color:${txTypeColor(e.txType)};margin-top:2px;">${esc(TXL[e.txType]||e.txType)}</div>`)}</td><td class="hide-mobile"><span style="font-weight:700;color:${txTypeColor(e.txType)}">${esc(TXL[e.txType]||e.txType)}</span></td><td>${new Date(e.date).toLocaleDateString()}</td><td>${statusBadge(e.status)}${_reminderBadge(e.reminderCount, e.id)}</td><td><div class="action-menu"><button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button><div class="action-dropdown"><button onclick="openEntryInvoice('${e.id}')">📄 View</button><button onclick="editEntry('${e.id}')">✏️ Edit</button>${(isInvoiceMode(e) || e.txType === 'they_owe_you' || e.txType === 'you_owe_them') && e.status !== 'settled' && e.status !== 'voided' && e.status !== 'fulfilled' && e.status !== 'cancelled' ? `<button onclick="recordSettlement('${e.id}')">💰 Settle</button>` : ''}${isInvoiceMode(e) && e.status !== 'fulfilled' && e.status !== 'voided' && e.status !== 'cancelled' ? `<button onclick="markFulfilled('${e.id}')" style="color:#16a34a;font-weight:700;">✅ Mark Fulfilled</button>` : ''}<button onclick="openNotifyModal('${e.id}')">🔔 Notify</button><button onclick="openShareModal('${e.id}')">🔗 Share</button><button onclick="toggleArchiveEntry('${e.id}')">${e.archived?'📤 Unarchive':'📥 Archive'}</button>${e.status !== 'voided' && e.status !== 'fulfilled' ? `<button onclick="voidEntry('${e.id}')" style="color:var(--amber);">🚫 Void</button>` : ''}<button onclick="delEntry('${e.id}')" style="color:var(--red);">🗑 Delete</button></div></div></td></tr>`;
+            return `<tr><td>${cLink(e.cId, c?.name||'—')}</td><td>${_fmtAmtCell(e.id,`<div class="mobile-label" style="font-size:11px;font-weight:700;color:${txTypeColor(e.txType)};margin-top:2px;">${esc(TXL[e.txType]||e.txType)}</div>`)}</td><td class="hide-mobile"><span style="font-weight:700;color:${txTypeColor(e.txType)}">${esc(TXL[e.txType]||e.txType)}</span></td><td>${new Date(e.date).toLocaleDateString()}</td><td>${statusBadge(e.status)}${_reminderBadge(e.reminderCount, e.id)}</td><td><div class="action-menu"><button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button><div class="action-dropdown"><button onclick="openEntryInvoice('${e.id}')">📄 View</button><button onclick="editEntry('${e.id}')">✏️ Edit</button>${(isInvoiceMode(e) || e.txType === 'they_owe_you' || e.txType === 'you_owe_them') && e.status !== 'settled' && e.status !== 'voided' && e.status !== 'fulfilled' && e.status !== 'cancelled' ? `<button onclick="recordSettlement('${e.id}')">💰 Settle</button>` : ''}${isInvoiceMode(e) && e.status !== 'fulfilled' && e.status !== 'voided' && e.status !== 'cancelled' ? `<button onclick="markFulfilled('${e.id}')" style="color:#16a34a;font-weight:700;">✅ Mark Fulfilled</button>` : ''}<button onclick="openNotifyModal('${e.id}')">🔔 Send Reminder</button><button onclick="openShareModal('${e.id}')">🔗 Share</button><button onclick="toggleArchiveEntry('${e.id}')">${e.archived?'📤 Unarchive':'📥 Archive'}</button>${e.status !== 'voided' && e.status !== 'fulfilled' ? `<button onclick="voidEntry('${e.id}')" style="color:var(--amber);">🚫 Void</button>` : ''}<button onclick="delEntry('${e.id}')" style="color:var(--red);">🗑 Delete</button></div></div></td></tr>`;
           }).join('')}
           </tbody></table></div>`}
         </div>`;
@@ -2211,7 +2216,7 @@
               // Amount only — Type is always visible in col 1 of this table
               html += '<td><strong>' + fmt(rawAmt) + '</strong></td>';
               html += '<td>' + (e && e.date ? new Date(e.date).toLocaleDateString() : '—') + '</td>';
-              html += '<td>' + statusBadge((e && e.status) || 'posted') + _reminderBadge(r.reminderCount, r.token) + '</td>';
+              html += '<td>' + statusBadge((e && e.status) || 'posted') + '</td>';
               html += '<td><div class="action-menu"><button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button><div class="action-dropdown">';
               html += '<a href="' + esc(siteUrl) + '/view?t=' + esc(r.token) + '" target="_blank" style="display:block;padding:8px 14px;font-size:13px;color:var(--accent);text-decoration:none;font-weight:600;">👁 View</a>';
               if (isPendingCP) {
@@ -2222,7 +2227,7 @@
                 html += '<button onclick="_sharedMarkPaid(\'' + esc(r.token) + '\')" style="color:var(--green);font-weight:700;">💰 Record Payment</button>';
               }
               if ((txType === 'you_owe_them' || txType === 'borrow') && !isSettledCP) {
-                html += '<button onclick="openSharedRemindModal(\'' + esc(r.token) + '\')" style="color:var(--accent);font-weight:700;">🔔 Remind</button>';
+                html += '<button onclick="_selfRemindMe(\'' + esc(r.token) + '\')" style="color:var(--accent);font-weight:700;">⏰ Remind Me</button>';
               }
               html += '<button onclick="_sharedExpire(\'' + esc(r.token) + '\')">⏰ Expire</button>';
               html += '</div></div></td></tr>';
@@ -2240,11 +2245,11 @@
                 html += '<td><span style="font-weight:700;color:' + shColor + '">' + esc(shLabel) + '</span>' + shPill + '</td>';
                 html += '<td>' + _fmtAmtCell(e2.id) + '</td>';
                 html += '<td>' + new Date(e2.date).toLocaleDateString() + '</td>';
-                html += '<td>' + statusBadge(e2.status || 'posted') + _reminderBadge(e2.reminderCount, e2.id) + '</td>';
+                html += '<td>' + statusBadge(e2.status || 'posted') + '</td>';
                 html += '<td><div class="action-menu"><button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button><div class="action-dropdown">';
                 html += '<a href="' + shViewUrl + '" target="_blank" style="display:block;padding:8px 14px;font-size:13px;color:var(--accent);text-decoration:none;font-weight:600;">👁 View</a>';
                 if (!shSettled) html += '<button onclick="_sharedMarkPaid(\'' + esc(e2.shareToken) + '\')" style="color:var(--green);font-weight:700;">💰 Record Payment</button>';
-                if (shRemindable) html += '<button onclick="openSharedRemindModal(\'' + esc(e2.shareToken) + '\')" style="color:var(--accent);font-weight:700;">🔔 Remind</button>';
+                if (shRemindable) html += '<button onclick="_selfRemindMe(\'' + esc(e2.shareToken) + '\')" style="color:var(--accent);font-weight:700;">⏰ Remind Me</button>';
                 html += '<button onclick="_sharedExpire(\'' + esc(e2.shareToken) + '\')">⏰ Expire</button>';
                 html += '</div></div></td></tr>';
               } else {
@@ -2263,7 +2268,7 @@
                 html += '<td><div class="action-menu"><button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button><div class="action-dropdown">';
                 html += '<button onclick="openEntryInvoice(\'' + e2.id + '\')">📄 View</button>';
                 html += '<button onclick="closeCPModal();editEntry(\'' + e2.id + '\')">✏️ Edit</button>';
-                html += '<button onclick="closeCPModal();openNotifyModal(\'' + e2.id + '\')">🔔 Notify</button>';
+                html += '<button onclick="closeCPModal();openNotifyModal(\'' + e2.id + '\')">🔔 Send Reminder</button>';
                 html += '<button onclick="closeCPModal();openShareModal(\'' + e2.id + '\')">🔗 Share</button>';
                 if ((isInvoiceMode(e2) || e2.txType === 'they_owe_you' || e2.txType === 'you_owe_them') && e2.status !== 'settled' && e2.status !== 'voided') {
                   html += '<button onclick="closeCPModal();recordSettlement(\'' + e2.id + '\')">💰 Settle</button>';
@@ -2991,12 +2996,12 @@
             <td>${_sAmtHtml}</td>
             <td class="hide-mobile"><span style="font-weight:700;color:${dirColor}">${esc(dirLabel)}</span></td>
             <td>${dt}</td>
-            <td>${statusBadge(e?.status||'posted')}${_reminderBadge(r.reminderCount, r.token)}</td>
+            <td>${statusBadge(e?.status||'posted')}</td>
             <td><div class="action-menu"><button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button><div class="action-dropdown">
               <a href="${esc(siteUrl)}/view?t=${esc(r.token)}" target="_blank" style="display:block;padding:8px 14px;font-size:13px;color:var(--accent);text-decoration:none;font-weight:600;">👁 View</a>
               ${isPending ? `<button onclick="doConfirmShared('${esc(r.token)}')" style="color:#16a34a;font-weight:700;">✅ Confirm &amp; Track</button><button onclick="doDismissShared('${esc(r.token)}')" style="color:var(--red);">✕ Dismiss</button>` : ''}
               ${!isSettledE ? `<button onclick="_sharedMarkPaid('${esc(r.token)}')" style="color:var(--green);font-weight:700;">💰 Record Payment</button>` : ''}
-              ${(e?.txType === 'you_owe_them' || e?.txType === 'borrow') && !isSettledE ? `<button onclick="openSharedRemindModal('${esc(r.token)}')" style="color:var(--accent);font-weight:700;">🔔 Remind</button>` : ''}
+              ${(e?.txType === 'you_owe_them' || e?.txType === 'borrow') && !isSettledE ? `<button onclick="_selfRemindMe('${esc(r.token)}')" style="color:var(--accent);font-weight:700;">⏰ Remind Me</button>` : ''}
               ${_sNoLedger
                 ? `<button onclick="_sharedNoLedger.delete('${esc(r.token)}');_saveSharedPrefs();toast('📊 Restored to ledger');renderEntries();">📊 Restore to Ledger</button>`
                 : `<button onclick="_sharedNoLedger.add('${esc(r.token)}');_saveSharedPrefs();toast('⊘ Removed from ledger');renderEntries();">⊘ Rm Ledger</button>`}
@@ -3048,11 +3053,11 @@
             <td>${_seAmtHtml}</td>
             <td class="hide-mobile"><span style="font-weight:700;color:${dirColor}">${esc(dirLabel)}</span></td>
             <td>${dt}</td>
-            <td>${statusBadge(e.status || 'posted')}${_reminderBadge(e.reminderCount, e.id)}</td>
+            <td>${statusBadge(e.status || 'posted')}</td>
             <td><div class="action-menu"><button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button><div class="action-dropdown">
               <a href="${viewUrl}" target="_blank" style="display:block;padding:8px 14px;font-size:13px;color:var(--accent);text-decoration:none;font-weight:600;">👁 View</a>
               ${!isTerminalSE ? `<button onclick="_sharedMarkPaid('${esc(e.shareToken)}')" style="color:var(--green);font-weight:700;">💰 Record Payment</button>` : ''}
-              ${isRemindableSE ? `<button onclick="openSharedRemindModal('${esc(e.shareToken)}')" style="color:var(--accent);font-weight:700;">🔔 Remind</button>` : ''}
+              ${isRemindableSE ? `<button onclick="_selfRemindMe('${esc(e.shareToken)}')" style="color:var(--accent);font-weight:700;">⏰ Remind Me</button>` : ''}
               ${e.noLedger
                 ? `<button onclick="(function(){var _se=db.entries.find(x=>x.id==='${e.id}');if(_se){delete _se.noLedger;save();toast('📊 Restored to ledger');renderEntries();}})()">📊 Restore to Ledger</button>`
                 : `<button onclick="(function(){var _se=db.entries.find(x=>x.id==='${e.id}');if(_se){_se.noLedger=true;save();toast('⊘ Removed from ledger');renderEntries();}})()">⊘ Rm Ledger</button>`}
@@ -3079,7 +3084,7 @@
               <button onclick="editEntry('${e.id}')">✏️ Edit</button>
               ${(isInvoiceMode(e) || e.txType === 'they_owe_you' || e.txType === 'you_owe_them') && e.status !== 'settled' && e.status !== 'voided' && e.status !== 'fulfilled' && e.status !== 'cancelled' ? `<button onclick="recordSettlement('${e.id}')">💰 Settle</button>` : ''}
               ${isInvoiceMode(e) && e.status !== 'fulfilled' && e.status !== 'voided' && e.status !== 'cancelled' ? `<button onclick="markFulfilled('${e.id}')" style="color:#16a34a;font-weight:700;">✅ Mark Fulfilled</button>` : ''}
-              <button onclick="openNotifyModal('${e.id}')">🔔 Notify</button>
+              <button onclick="openNotifyModal('${e.id}')">🔔 Send Reminder</button>
               <button onclick="openShareModal('${e.id}')">🔗 Share</button>
               <button onclick="toggleArchiveEntry('${e.id}')">${e.archived ? '📤 Unarchive' : '📥 Archive'}</button>
               ${e.status !== 'voided' && e.status !== 'fulfilled' ? `<button onclick="voidEntry('${e.id}')" style="color:var(--amber);">🚫 Void</button>` : ''}
@@ -3321,32 +3326,8 @@
         });
         html += `</div>`;
       }
-      // ── Notify contact on save ────────────────────────────────────────
-      html += `<div style="border-top:1px solid var(--border);margin-top:14px;padding-top:14px;">
-        <button type="button" class="notify-toggle-row" id="ne_notify_btn" onclick="_toggleNotify('ne')">
-          <span class="ntl-left"><span style="font-size:18px;">🔔</span> Notify contact after saving</span>
-          <span class="toggle-switch" id="ne_notify_sw"></span>
-        </button>
-        <div id="ne_notify_wrap" style="display:none;margin-top:10px;">
-          <div style="margin-bottom:10px;">
-            <div style="font-size:11px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.06em;margin-bottom:7px;">Send to</div>
-            <div style="display:flex;border:1px solid var(--border);border-radius:8px;overflow:hidden;">
-              <button type="button" id="ne_nwho_them" style="flex:1;padding:9px 4px;font-size:13px;background:var(--accent);color:#fff;border:none;cursor:pointer;font-weight:600;" onclick="_setFormNwho('ne','them')">Contact</button>
-              <button type="button" id="ne_nwho_you"  style="flex:1;padding:9px 4px;font-size:13px;background:var(--bg3);color:var(--text);border:none;border-left:1px solid var(--border);cursor:pointer;" onclick="_setFormNwho('ne','you')">You</button>
-              <button type="button" id="ne_nwho_both" style="flex:1;padding:9px 4px;font-size:13px;background:var(--bg3);color:var(--text);border:none;border-left:1px solid var(--border);cursor:pointer;" onclick="_setFormNwho('ne','both')">Both</button>
-            </div>
-          </div>
-          <textarea id="nenote" rows="2" style="width:100%;box-sizing:border-box;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg2);color:var(--text);font-size:14px;resize:vertical;" placeholder="notes">${esc(e?.note||'')}</textarea>
-          <div id="ne_notify_email_wrap" style="display:none;margin-top:8px;">
-            <div style="background:#fff8e1;border:1px solid #ffe082;border-radius:8px;padding:10px 14px;">
-              <div style="font-size:13px;color:#795548;margin-bottom:8px;">⚠️ Selected contact has no email on file.</div>
-              <input type="email" id="ne_notify_contact_email" placeholder="Enter email to send notification"
-                style="width:100%;box-sizing:border-box;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;background:var(--bg2);color:var(--text);" />
-              <div style="font-size:11px;color:var(--muted);margin-top:4px;">Email will be saved to this contact.</div>
-            </div>
-          </div>
-        </div>
-      </div>`;
+      // Notify toggle removed — reminders are a separate explicit action via "Send Reminder"
+      // on existing entries, not auto-triggered when creating/editing.
       return html;
     }
 
@@ -3742,16 +3723,7 @@
         }).catch(() => {});
       }
 
-      // Notify contact if toggle is on
-      const notifyOn  = document.getElementById('ne_notify_btn')?.classList.contains('on');
-      const notifyMsg = document.getElementById('ne_notify_msg')?.value.trim();
-      if (notifyOn && notifyMsg) {
-        // Save inline email to contact if provided
-        const inlineEmail = document.getElementById('ne_notify_contact_email')?.value.trim() || '';
-        if (inlineEmail && contact && !contact.email) { contact.email = inlineEmail; await saveNow(); }
-        const notifyWho = window._formNwho_ne || 'them';
-        _sendNotificationForEntry(newEid, notifyMsg, notifyWho);
-      }
+      // Auto-notify removed — use "Send Reminder" on existing entries instead.
       closeEntryModal();
       toast(`Entry saved${invoiceNumber ? ' — ' + invoiceNumber : ''}`);
       // Always navigate to dashboard so Recent Entries refreshes (fixes mobile stale view)
@@ -4236,7 +4208,7 @@
       d.innerHTML = `<div class="modal-bg" id="notifyModalBg" onclick="if(event.target===this)this.remove()">
         <div class="modal" style="max-width:500px;" onclick="event.stopPropagation()">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
-            <div class="modal-title" style="margin:0;">Send Notification</div>
+            <div class="modal-title" style="margin:0;">Send Reminder</div>
             <button class="gh sm" onclick="document.getElementById('notifyModalBg').remove()">✕</button>
           </div>
           <div style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:14px;">
@@ -4328,8 +4300,9 @@
       }
     }
 
-    // Shared helper — saves to db.notifs AND calls the email API
-    async function _sendNotificationForEntry(eid, message, who) {
+    // Sends an explicit reminder for an existing entry (sender action only).
+    // Logs as type 'reminder' — distinct from the original send/share event.
+    async function _sendReminder(eid, message, who) {
       const e = db.entries.find(x => x.id === eid);
       if (!e) return;
       let contact = db.contacts.find(x => x.id === e.cId);
@@ -4360,17 +4333,18 @@
       const _notifNow = Date.now();
       db.notifs.push({
         id: uuid(), userId: u.id, cId: e.cId, eid,
+        type: 'reminder', isReminder: true,
         msg: message, channel: 'email', sent: false,
         who, sentTo: toAddresses,
         read: false, createdAt: _notifNow
       });
-      // Update activity metadata on the sender's own entry — but NOT reminderCount.
-      // The 🚩 flag should appear on the RECIPIENT's shared entry, not the sender's.
+      // Update activity metadata — reminderCount tracks explicit Send Reminder actions
       e.lastActivityAt     = _notifNow;
       e.lastReminderAt     = _notifNow;
       e.lastReminderMethod = 'email';
+      e.reminderCount      = (e.reminderCount || 0) + 1;
       save();
-      logAudit('send_notification', { eid, to: who });
+      logAudit('send_reminder', { eid, to: who });
       if (toAddresses.length === 0) {
         toast('⚠️ No email on record for this contact — notification saved but not emailed.', 4000);
         return;
@@ -4450,19 +4424,7 @@
         // Mark sent
         const notif = db.notifs.find(n => n.eid === eid && n.msg === message);
         if (notif) { notif.sent = true; save(); }
-        // Push reminder flag + lastActivityAt to RECIPIENT's shared entry (fire-and-forget)
-        if (_IS_SERVER) {
-          fetch('/api/share', {
-            method: 'POST', credentials: 'include',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              action: 'sender-notify',
-              entryId: eid,
-              senderName: u.displayName || u.email || 'Sender'
-            })
-          }).catch(() => {});
-        }
-        toast('✅ Notification emailed');
+        toast('✅ Reminder sent');
       } catch(err) {
         console.error('send-reminder error:', err);
         toast('⚠️ Saved but email failed — check console');
@@ -4520,11 +4482,78 @@
       </div>`);
     }
 
-    // ── Shared-with-me Reminder ────────────────────────────────────────────
-    // Only valid when recipient's perspective is "They Owe Me":
-    //   sender txType 'you_owe_them' → "I (sender) owe them (you)" → they owe you → remind them
-    //   sender txType 'borrow'       → "I (sender) borrowed"       → they owe you → remind them
-    async function openSharedRemindModal(token) {
+    // ── Private self-reminder for shared-with-me entries ─────────────────────
+    // Sets a local "remind me" date/flag — does NOT email or notify the sender.
+    function _selfRemindMe(token) {
+      const dbEntry = db.entries.find(e => e.shareToken === token);
+      const r = (_cachedSharedRecords || []).find(x => x.token === token);
+      const e = r?.entry || {};
+      const senderName = e._resolvedFromName || e.fromName || dbEntry?.fromName || 'them';
+      const rawAmt = parseFloat(e.amount || dbEntry?.amount || 0);
+      const d = document.createElement('div');
+      d.innerHTML = `<div class="modal-bg" id="selfRemindBg" onclick="if(event.target===this)this.remove()">
+        <div class="modal" style="max-width:420px;" onclick="event.stopPropagation()">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+            <div class="modal-title" style="margin:0;">⏰ Remind Me</div>
+            <button class="gh sm" onclick="document.getElementById('selfRemindBg').remove()">✕</button>
+          </div>
+          <div style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:14px;">
+            <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px;">Record</div>
+            <div style="font-weight:700;">${esc(senderName)} — ${fmt(rawAmt)}</div>
+          </div>
+          <p style="font-size:13px;color:var(--muted);margin:0 0 14px;">
+            Set a private reminder for yourself. This will <strong>not</strong> notify ${esc(senderName)}.
+          </p>
+          <div class="fg"><label>Remind me on</label>
+            <input type="date" id="selfRemindDate" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;background:var(--bg2);color:var(--text);"
+              value="${new Date(Date.now()+7*86400000).toISOString().slice(0,10)}" />
+          </div>
+          <div class="fg"><label>Note (optional)</label>
+            <textarea id="selfRemindNote" rows="2" style="width:100%;" placeholder="Follow up on this..."></textarea>
+          </div>
+          <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;border-top:1px solid var(--border);padding-top:14px;">
+            <button class="bs sm" onclick="document.getElementById('selfRemindBg').remove()">Cancel</button>
+            <button class="btn sm" onclick="_saveSelfReminder('${esc(token)}')">Set Reminder</button>
+          </div>
+        </div></div>`;
+      document.body.appendChild(d.firstChild);
+    }
+
+    function _saveSelfReminder(token) {
+      const dateVal = document.getElementById('selfRemindDate')?.value;
+      const noteVal = document.getElementById('selfRemindNote')?.value.trim() || '';
+      if (!dateVal) return alert('Please select a date');
+      const dbEntry = db.entries.find(e => e.shareToken === token);
+      if (dbEntry) {
+        dbEntry.selfReminder = { date: dateVal, note: noteVal, createdAt: Date.now() };
+        save();
+      }
+      // Also store in localStorage for quick access
+      const key = 'mxi_self_reminders';
+      const reminders = JSON.parse(localStorage.getItem(key) || '{}');
+      reminders[token] = { date: dateVal, note: noteVal, createdAt: Date.now() };
+      localStorage.setItem(key, JSON.stringify(reminders));
+      document.getElementById('selfRemindBg')?.remove();
+      toast('⏰ Reminder set for ' + new Date(dateVal).toLocaleDateString());
+      // Log as private self-reminder in notifs (not sent to anyone)
+      db.notifs.push({
+        id: uuid(), userId: curUser().id,
+        cId: dbEntry?.cId || null, eid: dbEntry?.id || null,
+        shareToken: token, type: 'self-reminder',
+        msg: `Self-reminder: ${noteVal || 'Follow up on this record'}`,
+        channel: 'local', sent: false, isReminder: false,
+        who: 'you', sentTo: [],
+        read: true, createdAt: Date.now()
+      });
+      save();
+    }
+
+    // ── Legacy shared-with-me reminder (kept for backward compat, now unused) ──
+    async function openSharedRemindModal(token) { _selfRemindMe(token); }
+
+    // ── Original shared-with-me reminder code ──────────────────────────────────
+    // Preserved as _openSharedRemindModalLegacy for reference only.
+    async function _openSharedRemindModalLegacy(token) {
       // Look up from _cachedSharedRecords first, fall back to db.entries (unified record layer)
       const r = (_cachedSharedRecords || []).find(x => x.token === token);
       const dbEntry = db.entries.find(e => e.shareToken === token);
@@ -4700,7 +4729,7 @@
         }
       }
       document.getElementById('notifyModalBg')?.remove();
-      _sendNotificationForEntry(eid, message, who).then(() => refreshCurPage());
+      _sendReminder(eid, message, who).then(() => refreshCurPage());
     }
 
     // Unified notify toggle — prefix is 'ne' (entry form) or 'r' (recurring form)
@@ -5943,6 +5972,7 @@
         if (t === 'confirmed') return `<span class="badge" style="background:rgba(22,163,74,.12);color:#16a34a;font-size:11px;">✅ Confirmed</span>`;
         if (t === 'closed')    return `<span class="badge badge-gray" style="font-size:11px;">🔒 Closed</span>`;
         if (t === 'reminder')  return `<span class="badge" style="background:rgba(239,68,68,.12);color:#dc2626;font-size:11px;">🚩 Reminder</span>`;
+        if (t === 'self-reminder') return `<span class="badge" style="background:rgba(245,158,11,.12);color:#d97706;font-size:11px;">⏰ Self-Reminder</span>`;
         if (t === 'payment')   return `<span class="badge" style="background:rgba(22,163,74,.12);color:#16a34a;font-size:11px;">💰 Payment</span>`;
         if (t === 'fulfilled') return `<span class="badge badge-green" style="font-size:11px;">✅ Fulfilled</span>`;
         return `<span class="badge badge-green" style="font-size:11px;">📤 Sent</span>`;
