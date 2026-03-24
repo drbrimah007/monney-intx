@@ -8499,16 +8499,19 @@
             if (window._pendingSettlements[eid] === token) delete window._pendingSettlements[eid];
           }
           if (action === 'confirm') {
-            toast('Settlement confirmed');
+            toast('Settlement confirmed — reloading data…');
+            // Force reload from server to pick up the new settlement entry
+            await load();
+            initApp();
           } else {
             toast('Settlement rejected — payer has been notified');
+            save();
+            _loadSharedWithMe();
+            _syncSentShareStatuses();
+            if (_curPage === 'entries') renderEntries();
+            if (_curPage === 'dash') renderDash();
+            if (_curPage === 'notifs') renderNotifs();
           }
-          save();
-          _loadSharedWithMe();
-          _syncSentShareStatuses();
-          if (_curPage === 'entries') renderEntries();
-          if (_curPage === 'dash') renderDash();
-          if (_curPage === 'notifs') renderNotifs();
         } else {
           if (errEl) { errEl.textContent = data.error || 'Action failed.'; errEl.style.display = 'block'; }
           if (confirmBtn) { confirmBtn.disabled = false; confirmBtn.textContent = 'Confirm Settlement'; }

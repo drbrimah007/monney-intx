@@ -922,50 +922,67 @@ module.exports = async function handler(req, res) {
         const newStatus       = pending.newStatus || (remaining <= 0.005 ? 'settled' : 'partially_settled');
 
         // 1. Create the actual settlement entry on the sender's blob
-        const [blobRow] = await sql`SELECT data FROM user_data WHERE user_id = ${ownerId} LIMIT 1`;
-        if (blobRow) {
+        // Retry up to 2 times to handle race conditions with browser sync
+        let entryCreated = false;
+        for (let attempt = 0; attempt < 2 && !entryCreated; attempt++) {
+          const [blobRow] = await sql`SELECT data FROM user_data WHERE user_id = ${ownerId} LIMIT 1`;
+          if (!blobRow) break;
           const ownerData = await _decompress(blobRow.data || {});
           const entry   = (ownerData.entries  || []).find(e => e.id === entryId);
-          const contact = entry ? (ownerData.contacts || []).find(c => c.id === entry.cId) : null;
 
-          if (entry && entry.status !== 'voided' && entry.status !== 'fulfilled') {
-            const creditType = (entry.txType === 'they_owe_you' || entry.txType === 'invoice' || entry.txType === 'bill')
-              ? 'they_paid_you' : 'you_paid_them';
-            ownerData.settings = ownerData.settings || {};
-            ownerData.settings.entryCounter = (ownerData.settings.entryCounter || 0) + 1;
-            const docRef = entry.invoiceNumber || ('#' + String(entry.entryNum || '?').padStart(4, '0'));
-            if (!ownerData.entries) ownerData.entries = [];
-            ownerData.entries.push({
-              id:              'x' + Math.random().toString(36).substr(2, 9),
-              userId:          ownerId,
-              cId:             entry.cId,
-              txType:          creditType,
-              amount:          thisPayment,
-              note:            `Payment (by recipient) for ${docRef}`,
-              date:            Date.now(),
-              status:          'settled',
-              archived:        false,
-              shared:          false,
-              responses:       [],
-              templateId:      null,
-              templateData:    {},
-              invoiceNumber:   null,
-              entryNum:        ownerData.settings.entryCounter,
-              createdAt:       Date.now(),
-              linkedInvoiceId: entryId,
-              settledByRecipient: true
-            });
-            // Recompute invoice status from all linked settlement entries
-            const allSettledSum = ownerData.entries
-              .filter(s => s.linkedInvoiceId === entryId && s.status !== 'voided')
-              .reduce((sum, s) => sum + (parseFloat(s.amount) || 0), 0);
-            const totalOrig  = parseFloat(entry.amount) || 0;
-            const allRemain  = Math.max(0, totalOrig - allSettledSum);
-            entry.status = allRemain <= 0.005 ? 'settled' : 'partially_settled';
-            entry.lastActivityAt = Date.now();
+          if (!entry) {
+            console.warn(`[confirm-settlement] entry ${entryId} not found in owner blob (attempt ${attempt+1})`);
+            if (attempt === 0) { await new Promise(r => setTimeout(r, 500)); continue; }
+            break;
           }
+          if (entry.status === 'voided' || entry.status === 'fulfilled') break;
+
+          // Check if this settlement was already created (idempotency guard)
+          const alreadyExists = (ownerData.entries || []).some(s =>
+            s.linkedInvoiceId === entryId && s.settledByRecipient &&
+            Math.abs((parseFloat(s.amount) || 0) - thisPayment) < 0.01 &&
+            s.createdAt && (Date.now() - s.createdAt) < 300000 // within 5 min
+          );
+          if (alreadyExists) { entryCreated = true; break; }
+
+          const creditType = (entry.txType === 'they_owe_you' || entry.txType === 'invoice' || entry.txType === 'bill')
+            ? 'they_paid_you' : 'you_paid_them';
+          ownerData.settings = ownerData.settings || {};
+          ownerData.settings.entryCounter = (ownerData.settings.entryCounter || 0) + 1;
+          const docRef = entry.invoiceNumber || ('#' + String(entry.entryNum || '?').padStart(4, '0'));
+          if (!ownerData.entries) ownerData.entries = [];
+          ownerData.entries.push({
+            id:              'x' + Math.random().toString(36).substr(2, 9),
+            userId:          ownerId,
+            cId:             entry.cId,
+            txType:          creditType,
+            amount:          thisPayment,
+            note:            `Payment (by recipient) for ${docRef}`,
+            date:            Date.now(),
+            status:          'settled',
+            archived:        false,
+            shared:          false,
+            responses:       [],
+            templateId:      null,
+            templateData:    {},
+            invoiceNumber:   null,
+            entryNum:        ownerData.settings.entryCounter,
+            createdAt:       Date.now(),
+            linkedInvoiceId: entryId,
+            settledByRecipient: true
+          });
+          // Recompute invoice status from all linked settlement entries
+          const allSettledSum = ownerData.entries
+            .filter(s => s.linkedInvoiceId === entryId && s.status !== 'voided')
+            .reduce((sum, s) => sum + (parseFloat(s.amount) || 0), 0);
+          const totalOrig  = parseFloat(entry.amount) || 0;
+          const allRemain  = Math.max(0, totalOrig - allSettledSum);
+          entry.status = allRemain <= 0.005 ? 'settled' : 'partially_settled';
+          entry.lastActivityAt = Date.now();
+
           const recompressed = await _compress(ownerData);
           await sql`UPDATE user_data SET data = ${recompressed}, updated_at = now() WHERE user_id = ${ownerId}`;
+          entryCreated = true;
         }
 
         // 2. Update share_token entry_data
