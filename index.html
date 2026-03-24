@@ -1757,12 +1757,6 @@
         if (!_impersonatingDataUserId) {
           let migrated = false;
           for (const mr of records) {
-            // Auto-confirm settlement receipts — they don't need manual confirmation
-            const _isAutoConfirm = !mr.confirmed && mr.entry && (
-              mr.entry.linkedInvoiceId || mr.entry.settledByRecipient ||
-              mr.entry.txType === 'they_paid_you' || mr.entry.txType === 'you_paid_them'
-            );
-            if (_isAutoConfirm) mr.confirmed = true;
             if (mr.confirmed && !mr.recipientClosed && !(mr.entry?.dismissed)) {
               const _existingE = db.entries.find(e => e.shareToken === mr.token);
               // Run _insertSharedEntry if:
@@ -1787,8 +1781,35 @@
                 if (mr.entry.fulfilledAt && !_existingE.fulfilledAt) {
                   _existingE.fulfilledAt = mr.entry.fulfilledAt; _entryChanged = true;
                 }
-                // Settlement credits are handled by auto-confirmed receipt records
-                // from share tokens — no separate credit backfill needed.
+                // ── Backfill credit entries for seller-initiated settlements ──
+                // The share token's settledAmt is authoritative (updated by sync-status).
+                // Count ALL existing credits for this entry (buyer's own mark-paid + any prior backfills)
+                // and only create the gap.
+                const _tokenSettled = parseFloat(mr.entry.settledAmt || 0);
+                if (_tokenSettled > 0 && _existingE.cId) {
+                  // Sum all credit entries linked to this shared entry
+                  const _creditTxTypes = new Set(['they_paid_you','you_paid_them']);
+                  const _existingCredits = db.entries
+                    .filter(s => s.linkedInvoiceId === _existingE.id && _creditTxTypes.has(s.txType) && s.status !== 'voided')
+                    .reduce((sum, s) => sum + (parseFloat(s.amount) || 0), 0);
+                  const _creditGap = _tokenSettled - _existingCredits;
+                  if (_creditGap > 0.5) { // min $0.50 gap to avoid rounding noise
+                    const _crType = (_existingE.txType === 'you_owe_them' || _existingE.txType === 'borrow')
+                      ? 'you_paid_them' : 'they_paid_you';
+                    db.settings.entryCounter = (db.settings.entryCounter || 0) + 1;
+                    db.entries.push({
+                      id: uuid(), userId: curUser().id, cId: _existingE.cId,
+                      txType: _crType, amount: _creditGap,
+                      note: 'Settlement by sender', date: Date.now(),
+                      status: 'settled', archived: false, shared: false, responses: [],
+                      templateId: null, templateData: {},
+                      invoiceNumber: null, entryNum: db.settings.entryCounter,
+                      createdAt: Date.now(), linkedInvoiceId: _existingE.id,
+                      isReceipt: true, noLedger: false
+                    });
+                    _entryChanged = true;
+                  }
+                }
                 if (_entryChanged) migrated = true;
               }
             }
