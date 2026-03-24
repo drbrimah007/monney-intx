@@ -1211,12 +1211,17 @@
             credentials: 'include', headers
           });
           if (r.ok) {
-            const { data, sharedRecords } = await r.json();
+            const { data, sharedRecords, user: impUser } = await r.json();
             // Merge their entries/contacts/templates into db in-memory only (NOT saved)
             (data.entries   || []).forEach(e => { if (!db.entries.find(x=>x.id===e.id))   db.entries.push(e); });
             (data.contacts  || []).forEach(c => { if (!db.contacts.find(x=>x.id===c.id))  db.contacts.push(c); });
             (data.templates || []).forEach(t => { if (!db.templates.find(x=>x.id===t.id)) db.templates.push(t); });
             (data.recurring || []).forEach(r => { if (!db.recurring.find(x=>x.id===r.id)) db.recurring.push(r); });
+            // Inject the impersonated user's record so curUser() resolves to them
+            // (not the admin fallback), ensuring myContacts/myEntries filter correctly.
+            if (impUser && !db.users.find(u => u.id === impUser.id)) {
+              db.users.push({ id: impUser.id, name: impUser.username || impUser.email || '', email: impUser.email || '', role: impUser.role || 'standard' });
+            }
             _impersonatingDataUserId = userId;
 
             // Load confirmed shared records for the impersonated user and run
@@ -1246,12 +1251,13 @@
 
     function _stripImpersonateData(userId) {
       if (!userId) return;
-      // Remove entries/contacts/templates that were injected for impersonation
+      // Remove entries/contacts/templates/users that were injected for impersonation
       const adminId = db.settings.sessionUserId;
       db.entries   = db.entries.filter(e => e.userId === adminId || e.userId === 'admin_001');
       db.contacts  = db.contacts.filter(c => c.userId === adminId || c.userId === 'admin_001');
       db.templates = db.templates.filter(t => t.userId === adminId || t.userId === 'admin_001');
       db.recurring = db.recurring.filter(r => r.userId === adminId || r.userId === 'admin_001');
+      db.users     = db.users.filter(u => u.id === adminId || u.id === 'admin_001' || u.role === 'admin');
       _impersonatingDataUserId = null;
     }
 
