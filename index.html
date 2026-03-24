@@ -1130,9 +1130,12 @@
       if (!c) return { toy: 0, yot: 0, net: 0 };
       let toy = c.startToy || 0, yot = c.startYot || 0;
       db.entries.filter(e => e.cId === cid && e.status !== 'voided' && !e.noLedger).forEach(e => {
-        // For shared entries with settlement data, use remaining amount (not full original)
-        const hasSettlement = e.isShared && e.settledAmt !== undefined && e.settledAmt > 0;
-        const effectiveAmt = hasSettlement ? Math.abs(parseFloat(e.remaining) || 0) : Math.abs(parseFloat(e.amount) || 0);
+        // For shared entries with settlement data, use remaining balance (amount minus settled)
+        const amt = Math.abs(parseFloat(e.amount) || 0);
+        const hasSettlement = e.isShared && parseFloat(e.settledAmt) > 0;
+        const effectiveAmt = hasSettlement
+          ? Math.max(0, amt - Math.abs(parseFloat(e.settledAmt) || 0))
+          : amt;
         const dir = TX_LEDGER[e.txType] || '';
         if      (dir === 'toy')        toy += effectiveAmt;
         else if (dir === 'toy_credit') toy = Math.max(0, toy - effectiveAmt);
