@@ -611,9 +611,15 @@
             const serverHasData = Object.keys(data).length > 0 &&
               ((data.entries?.length > 0) || (data.contacts?.length > 0) || (data.templates?.length > 0));
             // Only recover local data if it belongs to the same logged-in user.
-            // Allow recovery when sessionUserId is absent (older data format that pre-dates the field).
+            // If sessionUserId is set and doesn't match, discard local data entirely.
             const localBelongsToUser = _localData && srvUser &&
-              (!_localData.settings?.sessionUserId || _localData.settings?.sessionUserId === srvUser.id);
+              (_localData.settings?.sessionUserId === srvUser.id);
+            // Clear contaminated localStorage if it belongs to a different user
+            if (_localData && srvUser && _localData.settings?.sessionUserId && _localData.settings.sessionUserId !== srvUser.id) {
+              console.warn('[load] localStorage belongs to user', _localData.settings.sessionUserId, '— clearing for', srvUser.id);
+              localStorage.removeItem('mxi_v2');
+              _localData = null;
+            }
             const localHasData = localBelongsToUser &&
               ((_localData.entries?.length > 0) || (_localData.contacts?.length > 0) || (_localData.templates?.length > 0));
 
@@ -7973,6 +7979,20 @@
         errEl.textContent = res.error;
         errEl.style.display = 'block';
         return;
+      }
+      // ── Clear stale data from previous user before loading new user's data ──
+      // Prevents data contamination when switching accounts on the same browser.
+      const prevUserId = db.settings?.sessionUserId;
+      const newUserId  = res.user?.id;
+      if (prevUserId && newUserId && prevUserId !== newUserId) {
+        // Different user logging in — wipe local data so load() starts fresh
+        localStorage.removeItem('mxi_v2');
+        db = defDB();
+        db.settings.sessionUserId = newUserId;
+        if (!db.users) db.users = [];
+        db.users.push({ ...res.user, status: 'active',
+          notifPrefs: { inapp: true, email: true, sms: false },
+          discoverable: true, invoiceShow: {}, logoData: '' });
       }
       closeAuthModal();
       await load(); // pull their data from server
