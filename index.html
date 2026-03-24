@@ -1759,15 +1759,24 @@
               if (!_existingE || _existingE.noLedger || !_existingE.cId) {
                 _insertSharedEntry(mr);
                 migrated = true;
-              } else if (_existingE && mr.entry?.status && _existingE.status !== mr.entry.status) {
-                // ── Status sync: keep recipient's isShared entry in sync with token entry_data ──
-                // When sender records settlement or marks fulfilled, sync-status updates the token.
-                // Pull that update through to the recipient's db.entries on each load.
-                _existingE.status = mr.entry.status;
-                if (mr.entry.settledAmt != null) _existingE.settledAmt = mr.entry.settledAmt;
-                if (mr.entry.remaining  != null) _existingE.remaining  = mr.entry.remaining;
-                if (mr.entry.fulfilledAt)        _existingE.fulfilledAt = mr.entry.fulfilledAt;
-                migrated = true;
+              } else if (_existingE && mr.entry) {
+                // ── Status + amount sync: keep recipient's isShared entry in sync with token ──
+                // Always sync amounts (not just when status changes) — handles multiple
+                // partial payments at same status (e.g. partially_settled → partially_settled)
+                let _entryChanged = false;
+                if (mr.entry.status && _existingE.status !== mr.entry.status) {
+                  _existingE.status = mr.entry.status; _entryChanged = true;
+                }
+                if (mr.entry.settledAmt != null && _existingE.settledAmt !== mr.entry.settledAmt) {
+                  _existingE.settledAmt = mr.entry.settledAmt; _entryChanged = true;
+                }
+                if (mr.entry.remaining != null && _existingE.remaining !== mr.entry.remaining) {
+                  _existingE.remaining = mr.entry.remaining; _entryChanged = true;
+                }
+                if (mr.entry.fulfilledAt && !_existingE.fulfilledAt) {
+                  _existingE.fulfilledAt = mr.entry.fulfilledAt; _entryChanged = true;
+                }
+                if (_entryChanged) migrated = true;
               }
             }
           }
