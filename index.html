@@ -378,6 +378,19 @@
     let _curPage = 'dash'; // tracks active page for post-save refresh
     const PER_PAGE = 20;
 
+    // ── Email rate limiter ────────────────────────────────────────────────
+    const _emailThrottle = new Map(); // key → timestamp of last send
+    function _canSendEmail(key, cooldownMs = 30000) {
+      const last = _emailThrottle.get(key) || 0;
+      if (Date.now() - last < cooldownMs) {
+        const secsLeft = Math.ceil((cooldownMs - (Date.now() - last)) / 1000);
+        toast(`Please wait ${secsLeft}s before sending again`, 3000);
+        return false;
+      }
+      _emailThrottle.set(key, Date.now());
+      return true;
+    }
+
     const ENTRY_STATUS = {
       draft: 'Draft',
       posted: 'Posted',
@@ -1376,8 +1389,8 @@
 
       // ── ADMIN ROLE ───────────────────────────────────────────────────
       } else if (role === 'admin') {
-        const allContacts = db.contacts;
-        const allEntries  = db.entries;
+        const allContacts = db.contacts.filter(c => c.userId === u.id);
+        const allEntries  = db.entries.filter(e => e.userId === u.id);
         const allUsers    = db.users;
         let totToy = 0, totYot = 0;
         allContacts.filter(c => !c.archived).forEach(c => { const l = getLedger(c.id); totToy += l.toy; totYot += l.yot; });
@@ -1393,13 +1406,20 @@
         // System stats row
         html += `<div class="grid3" style="margin-bottom:16px;">
           <div class="stat-card"><div class="stat-lbl">System Users</div><div class="stat-val">${allUsers.length}</div><div style="font-size:12px;color:var(--muted);margin-top:4px;"><button class="gh sm" onclick="nav('users')" style="font-size:12px;padding:2px 6px;">Manage →</button></div></div>
-          <div class="stat-card"><div class="stat-lbl">Total Contacts</div><div class="stat-val">${allContacts.length}</div></div>
-          <div class="stat-card"><div class="stat-lbl">Total Entries</div><div class="stat-val">${allEntries.length}</div></div>
+          <div class="stat-card"><div class="stat-lbl">My Contacts</div><div class="stat-val">${allContacts.length}</div></div>
+          <div class="stat-card"><div class="stat-lbl">My Entries</div><div class="stat-val">${allEntries.length}</div></div>
         </div>`;
         html += `<div class="grid3" style="margin-bottom:16px;">
-          <div class="stat-card"><div class="stat-lbl">They Owe (Total)</div><div class="stat-val" style="color:var(--green)">${fmt(totToy)}</div></div>
-          <div class="stat-card"><div class="stat-lbl">You Owe (Total)</div><div class="stat-val" style="color:var(--red)">${fmt(totYot)}</div></div>
+          <div class="stat-card"><div class="stat-lbl">They Owe Me</div><div class="stat-val" style="color:var(--green)">${fmt(totToy)}</div></div>
+          <div class="stat-card"><div class="stat-lbl">I Owe</div><div class="stat-val" style="color:var(--red)">${fmt(totYot)}</div></div>
           <div class="stat-card"><div class="stat-lbl">Net Balance</div><div class="stat-val" style="color:${net>=0?'var(--green)':'var(--red)'}">${fmt(net)}</div></div>
+        </div>`;
+        html += `<div style="margin-bottom:16px;">
+          <div style="font-size:13px;font-weight:600;color:var(--muted);margin-bottom:8px;text-transform:uppercase;letter-spacing:0.5px;">Platform Overview</div>
+          <div class="grid3">
+            <div class="stat-card" style="opacity:0.85;"><div class="stat-lbl">Total Contacts</div><div class="stat-val">${db.contacts.length}</div></div>
+            <div class="stat-card" style="opacity:0.85;"><div class="stat-lbl">Total Entries</div><div class="stat-val">${db.entries.length}</div></div>
+          </div>
         </div>`;
 
         // Branding card
@@ -4319,6 +4339,11 @@
     // Sends an explicit reminder for an existing entry (sender action only).
     // Logs as type 'reminder' — distinct from the original send/share event.
     async function _sendReminder(eid, message, who) {
+      if (!_canSendEmail('reminder_' + eid)) return;
+      // Disable submit button while sending
+      const _remBtn = document.querySelector('#notifyModalBg .btn.sm, .notify-send-btn');
+      if (_remBtn) { _remBtn.disabled = true; _remBtn.textContent = 'Sending…'; }
+      try {
       const e = db.entries.find(x => x.id === eid);
       if (!e) return;
       let contact = db.contacts.find(x => x.id === e.cId);
@@ -4444,6 +4469,10 @@
       } catch(err) {
         console.error('send-reminder error:', err);
         toast('⚠️ Saved but email failed — check console');
+      }
+      } finally {
+        // Re-enable submit button
+        if (_remBtn) { _remBtn.disabled = false; _remBtn.textContent = 'Send'; }
       }
     }
 
@@ -4642,6 +4671,7 @@
     }
 
     async function _sendSharedReminder(token, senderEmail, senderName, rawAmt) {
+      if (!_canSendEmail('shremind_' + token)) return;
       const message = document.getElementById('sh_remind_msg')?.value.trim() || '';
       if (!message) return alert('Message required');
       const toEmail = senderEmail || document.getElementById('sh_remind_email')?.value.trim() || '';
@@ -4730,6 +4760,7 @@
     }
 
     function sendNotification(eid) {
+      if (!_canSendEmail('notify_' + eid)) return;
       const who = window._notifyWhoVal || 'them';
       const message = document.getElementById('notify_msg')?.value.trim() || '';
       if (!message) return alert('Message required');
@@ -4793,6 +4824,7 @@
 
     // Send a notification for a recurring record (no entryId yet)
     async function _sendRecurringNotif(rid, message, who) {
+      if (!_canSendEmail('recnotif_' + rid)) return;
       who = who || 'them';
       const r = db.recurring.find(x => x.id === rid);
       if (!r) return;
