@@ -1551,7 +1551,8 @@
           <div class="tbl-wrap"><table><thead><tr><th>Contact</th><th>Amount</th><th class="hide-mobile">Type</th><th>Date</th><th>Status</th><th style="width:80px;">Action</th></tr></thead><tbody>
           ${recentEntries.map(e => {
             const c = db.contacts.find(x => x.id === e.cId);
-            return `<tr><td>${cLink(e.cId, c?.name||'—')}</td><td>${_fmtAmtCell(e.id,`<div class="mobile-label" style="font-size:11px;font-weight:700;color:${txTypeColor(e.txType)};margin-top:2px;">${esc(TXL[e.txType]||e.txType)}</div>`)}</td><td class="hide-mobile"><span style="font-weight:700;color:${txTypeColor(e.txType)}">${esc(TXL[e.txType]||e.txType)}</span></td><td>${new Date(e.date).toLocaleDateString()}</td><td>${statusBadge(e.status)}${_reminderBadge(e.reminderCount, e.id)}</td><td><div class="action-menu"><button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button><div class="action-dropdown"><button onclick="openEntryInvoice('${e.id}')">📄 View</button><button onclick="editEntry('${e.id}')">✏️ Edit</button>${(isInvoiceMode(e) || e.txType === 'they_owe_you' || e.txType === 'you_owe_them') && e.status !== 'settled' && e.status !== 'voided' && e.status !== 'fulfilled' && e.status !== 'cancelled' ? `<button onclick="recordSettlement('${e.id}')">💰 Settle</button>` : ''}${isInvoiceMode(e) && e.status !== 'fulfilled' && e.status !== 'voided' && e.status !== 'cancelled' ? `<button onclick="markFulfilled('${e.id}')" style="color:#16a34a;font-weight:700;">✅ Mark Fulfilled</button>` : ''}<button onclick="openNotifyModal('${e.id}')">🔔 Send Reminder</button><button onclick="openShareModal('${e.id}')">🔗 Share</button><button onclick="duplicateEntry('${e.id}')">📋 Duplicate</button><button onclick="toggleArchiveEntry('${e.id}')">${e.archived?'📤 Unarchive':'📥 Archive'}</button>${e.status !== 'voided' && e.status !== 'fulfilled' ? `<button onclick="voidEntry('${e.id}')" style="color:var(--amber);">🚫 Void</button>` : ''}<button onclick="delEntry('${e.id}')" style="color:var(--red);">🗑 Delete</button></div></div></td></tr>`;
+            const _pTok = window._pendingSettlements?.[e.id];
+            return `<tr><td>${cLink(e.cId, c?.name||'—')}</td><td>${_fmtAmtCell(e.id,`<div class="mobile-label" style="font-size:11px;font-weight:700;color:${txTypeColor(e.txType)};margin-top:2px;">${esc(TXL[e.txType]||e.txType)}</div>`)}</td><td class="hide-mobile"><span style="font-weight:700;color:${txTypeColor(e.txType)}">${esc(TXL[e.txType]||e.txType)}</span></td><td>${new Date(e.date).toLocaleDateString()}</td><td>${statusBadge(e.status)}${_reminderBadge(e.reminderCount, e.id)}${_pTok ? `<span class="badge" style="background:rgba(245,158,11,.12);color:#d97706;font-size:10px;margin-left:4px;cursor:pointer;" onclick="_reviewSettlement('${_pTok}')">⏳ Review</span>` : ''}</td><td><div class="action-menu"><button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button><div class="action-dropdown"><button onclick="openEntryInvoice('${e.id}')">📄 View</button><button onclick="editEntry('${e.id}')">✏️ Edit</button>${_pTok ? `<button onclick="_reviewSettlement('${_pTok}')" style="color:#d97706;font-weight:700;">⏳ Review Payment</button>` : ''}${(isInvoiceMode(e) || e.txType === 'they_owe_you' || e.txType === 'you_owe_them') && e.status !== 'settled' && e.status !== 'voided' && e.status !== 'fulfilled' && e.status !== 'cancelled' ? `<button onclick="recordSettlement('${e.id}')">💰 Settle</button>` : ''}${isInvoiceMode(e) && e.status !== 'fulfilled' && e.status !== 'voided' && e.status !== 'cancelled' ? `<button onclick="markFulfilled('${e.id}')" style="color:#16a34a;font-weight:700;">✅ Mark Fulfilled</button>` : ''}<button onclick="openNotifyModal('${e.id}')">🔔 Send Reminder</button><button onclick="openShareModal('${e.id}')">🔗 Share</button><button onclick="duplicateEntry('${e.id}')">📋 Duplicate</button><button onclick="toggleArchiveEntry('${e.id}')">${e.archived?'📤 Unarchive':'📥 Archive'}</button>${e.status !== 'voided' && e.status !== 'fulfilled' ? `<button onclick="voidEntry('${e.id}')" style="color:var(--amber);">🚫 Void</button>` : ''}<button onclick="delEntry('${e.id}')" style="color:var(--red);">🗑 Delete</button></div></div></td></tr>`;
           }).join('')}
           </tbody></table></div>`}
         </div>`;
@@ -1669,7 +1670,8 @@
               </tr>`;
             }
             const c = db.contacts.find(x => x.id === e.cId);
-            return `<tr><td>${cLink(e.cId, c?.name||'—')}</td><td>${_fmtAmtCell(e.id,`<div class="mobile-label" style="font-size:11px;font-weight:700;color:${txTypeColor(e.txType)};margin-top:2px;">${esc(TXL[e.txType]||e.txType)}</div>`)}</td><td class="hide-mobile"><span style="font-weight:700;color:${txTypeColor(e.txType)}">${esc(TXL[e.txType]||e.txType)}</span></td><td>${new Date(e.date).toLocaleDateString()}</td><td>${statusBadge(e.status)}${_reminderBadge(e.reminderCount, e.id)}</td><td><div class="action-menu"><button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button><div class="action-dropdown"><button onclick="openEntryInvoice('${e.id}')">📄 View</button><button onclick="editEntry('${e.id}')">✏️ Edit</button>${(isInvoiceMode(e) || e.txType === 'they_owe_you' || e.txType === 'you_owe_them') && e.status !== 'settled' && e.status !== 'voided' && e.status !== 'fulfilled' && e.status !== 'cancelled' ? `<button onclick="recordSettlement('${e.id}')">💰 Settle</button>` : ''}${isInvoiceMode(e) && e.status !== 'fulfilled' && e.status !== 'voided' && e.status !== 'cancelled' ? `<button onclick="markFulfilled('${e.id}')" style="color:#16a34a;font-weight:700;">✅ Mark Fulfilled</button>` : ''}<button onclick="openNotifyModal('${e.id}')">🔔 Send Reminder</button><button onclick="openShareModal('${e.id}')">🔗 Share</button><button onclick="duplicateEntry('${e.id}')">📋 Duplicate</button><button onclick="toggleArchiveEntry('${e.id}')">${e.archived?'📤 Unarchive':'📥 Archive'}</button>${e.status !== 'voided' && e.status !== 'fulfilled' ? `<button onclick="voidEntry('${e.id}')" style="color:var(--amber);">🚫 Void</button>` : ''}<button onclick="delEntry('${e.id}')" style="color:var(--red);">🗑 Delete</button></div></div></td></tr>`;
+            const _pTok = window._pendingSettlements?.[e.id];
+            return `<tr><td>${cLink(e.cId, c?.name||'—')}</td><td>${_fmtAmtCell(e.id,`<div class="mobile-label" style="font-size:11px;font-weight:700;color:${txTypeColor(e.txType)};margin-top:2px;">${esc(TXL[e.txType]||e.txType)}</div>`)}</td><td class="hide-mobile"><span style="font-weight:700;color:${txTypeColor(e.txType)}">${esc(TXL[e.txType]||e.txType)}</span></td><td>${new Date(e.date).toLocaleDateString()}</td><td>${statusBadge(e.status)}${_reminderBadge(e.reminderCount, e.id)}${_pTok ? `<span class="badge" style="background:rgba(245,158,11,.12);color:#d97706;font-size:10px;margin-left:4px;cursor:pointer;" onclick="_reviewSettlement('${_pTok}')">⏳ Review</span>` : ''}</td><td><div class="action-menu"><button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button><div class="action-dropdown"><button onclick="openEntryInvoice('${e.id}')">📄 View</button><button onclick="editEntry('${e.id}')">✏️ Edit</button>${_pTok ? `<button onclick="_reviewSettlement('${_pTok}')" style="color:#d97706;font-weight:700;">⏳ Review Payment</button>` : ''}${(isInvoiceMode(e) || e.txType === 'they_owe_you' || e.txType === 'you_owe_them') && e.status !== 'settled' && e.status !== 'voided' && e.status !== 'fulfilled' && e.status !== 'cancelled' ? `<button onclick="recordSettlement('${e.id}')">💰 Settle</button>` : ''}${isInvoiceMode(e) && e.status !== 'fulfilled' && e.status !== 'voided' && e.status !== 'cancelled' ? `<button onclick="markFulfilled('${e.id}')" style="color:#16a34a;font-weight:700;">✅ Mark Fulfilled</button>` : ''}<button onclick="openNotifyModal('${e.id}')">🔔 Send Reminder</button><button onclick="openShareModal('${e.id}')">🔗 Share</button><button onclick="duplicateEntry('${e.id}')">📋 Duplicate</button><button onclick="toggleArchiveEntry('${e.id}')">${e.archived?'📤 Unarchive':'📥 Archive'}</button>${e.status !== 'voided' && e.status !== 'fulfilled' ? `<button onclick="voidEntry('${e.id}')" style="color:var(--amber);">🚫 Void</button>` : ''}<button onclick="delEntry('${e.id}')" style="color:var(--red);">🗑 Delete</button></div></div></td></tr>`;
           }).join('')}
           </tbody></table></div>`}
         </div>`;
@@ -3369,10 +3371,11 @@
             <td>${_fmtAmtCell(e.id,`<div class="mobile-label" style="font-size:11px;font-weight:700;color:${txTypeColor(e.txType)};margin-top:2px;">${esc(TXL[e.txType]||e.txType)}</div>`)}</td>
             <td class="hide-mobile"><button class="gh sm" style="font-size:13px;padding:2px 6px;font-weight:700;color:${txTypeColor(e.txType)};" onclick="openEntryInvoice('${e.id}')" title="View record">${esc(TXL[e.txType]||e.txType)}</button></td>
             <td>${new Date(e.date).toLocaleDateString()}</td>
-            <td>${statusBadge(e.status)}${_reminderBadge(e.reminderCount, e.id)}</td>
+            <td>${statusBadge(e.status)}${_reminderBadge(e.reminderCount, e.id)}${window._pendingSettlements?.[e.id] ? `<span class="badge" style="background:rgba(245,158,11,.12);color:#d97706;font-size:10px;margin-left:4px;cursor:pointer;" onclick="_reviewSettlement('${window._pendingSettlements[e.id]}')">⏳ Review Payment</span>` : ''}</td>
             <td><div class="action-menu"><button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button><div class="action-dropdown">
               <button onclick="openEntryInvoice('${e.id}')">📄 View</button>
               <button onclick="editEntry('${e.id}')">✏️ Edit</button>
+              ${window._pendingSettlements?.[e.id] ? `<button onclick="_reviewSettlement('${window._pendingSettlements[e.id]}')" style="color:#d97706;font-weight:700;">⏳ Review Payment</button>` : ''}
               ${(isInvoiceMode(e) || e.txType === 'they_owe_you' || e.txType === 'you_owe_them') && e.status !== 'settled' && e.status !== 'voided' && e.status !== 'fulfilled' && e.status !== 'cancelled' ? `<button onclick="recordSettlement('${e.id}')">💰 Settle</button>` : ''}
               ${isInvoiceMode(e) && e.status !== 'fulfilled' && e.status !== 'voided' && e.status !== 'cancelled' ? `<button onclick="markFulfilled('${e.id}')" style="color:#16a34a;font-weight:700;">✅ Mark Fulfilled</button>` : ''}
               <button onclick="openNotifyModal('${e.id}')">🔔 Send Reminder</button>
@@ -6313,7 +6316,8 @@
         if (t === 'settlement_pending')   return `<span class="badge" style="background:rgba(245,158,11,.12);color:#d97706;font-size:11px;">⏳ Review Payment</span>`;
         if (t === 'settlement_confirmed') return `<span class="badge" style="background:rgba(22,163,74,.12);color:#16a34a;font-size:11px;">✅ Payment Confirmed</span>`;
         if (t === 'settlement_rejected')  return `<span class="badge" style="background:rgba(239,68,68,.12);color:#dc2626;font-size:11px;">❌ Payment Rejected</span>`;
-        return `<span class="badge badge-green" style="font-size:11px;">📤 Sent</span>`;
+        if (t === 'notification')  return `<span class="badge badge-blue" style="font-size:11px;">📬 Notification</span>`;
+        return `<span class="badge badge-blue" style="font-size:11px;">📤 Sent</span>`;
       };
 
       let html = `<div class="page-header"><h2>Notifications</h2></div><div class="card">`;
@@ -8799,6 +8803,9 @@
     // Rules: status only moves forward (posted → viewed → accepted) —
     // never backwards, and never overrides settled/voided.
     const _SHARE_STATUS_ORDER = ['draft','posted','sent','viewed','accepted','rejected','disputed','partially_settled','settled','fulfilled','closed','voided'];
+    // Track pending settlements per entry — maps entryId → shareToken
+    window._pendingSettlements = {};
+
     async function _syncSentShareStatuses() {
       if (!_IS_SERVER || _impersonatingDataUserId) return;
       const u = curUser(); if (!u) return;
@@ -8808,10 +8815,17 @@
         const { sent } = await res.json();
         if (!Array.isArray(sent)) return;
         let changed = false;
+        const prevPending = JSON.stringify(window._pendingSettlements);
+        window._pendingSettlements = {};
         sent.forEach(tok => {
           if (!tok.entryId) return;
           const entry = db.entries.find(e => e.id === tok.entryId && e.userId === u.id);
           if (!entry) return;
+          // Track pending settlements so we can show review buttons on entries
+          const ed = tok.entry || {};
+          if (ed.settlementPending && ed.pendingSettlement) {
+            window._pendingSettlements[tok.entryId] = tok.token;
+          }
           // Determine target status from share token state
           let targetStatus = null;
           if (tok.confirmed)                       targetStatus = 'accepted';
@@ -8824,8 +8838,9 @@
             changed = true;
           }
         });
-        if (changed) {
-          save();
+        const pendingChanged = JSON.stringify(window._pendingSettlements) !== prevPending;
+        if (changed || pendingChanged) {
+          if (changed) save();
           if (_curPage === 'entries' || _curPage === 'dash') refreshCurPage();
         }
       } catch (_) {}
@@ -8837,7 +8852,8 @@
       (db.notifs || []).forEach(n => { if ((n.createdAt || 0) > _lastNotifTs) _lastNotifTs = n.createdAt; });
       // Poll every 30 seconds
       setInterval(_pollNotifs, 30_000);
-      // Sync sent-share statuses every 60 seconds (less frequent — less critical)
+      // Sync sent-share statuses immediately on load, then every 60 seconds
+      _syncSentShareStatuses();
       setInterval(_syncSentShareStatuses, 60_000);
       // Also re-check immediately when the user returns to the tab
       document.addEventListener('visibilitychange', () => {
