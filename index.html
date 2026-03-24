@@ -4702,6 +4702,36 @@
       const appName = db.settings?.appName || 'Money IntX';
       const tagline = db.settings?.tagline || 'Making Money Matters Memorable';
 
+      // LOOP GUARD: confirmed shared records were received FROM someone else.
+      // Creating a new share token from this entry would send a reverse share back
+      // to the original sender, producing duplicate pending records.
+      // Instead: show the original view link so the user can forward/copy it.
+      if (e.isShared && e.shareToken) {
+        const origUrl = (e.fromSiteUrl || siteUrl) + '/view?t=' + e.shareToken;
+        window._shareModalUrl = origUrl;
+        const d2 = document.createElement('div');
+        d2.innerHTML = `<div class="modal-bg" id="shareModalBg" onclick="if(event.target===this)document.getElementById('shareModalBg').remove()">
+          <div class="modal" style="max-width:480px;" onclick="event.stopPropagation()">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+              <div class="modal-title" style="margin:0;">🔗 View Shared Record</div>
+              <button class="gh sm" onclick="document.getElementById('shareModalBg').remove()">✕</button>
+            </div>
+            <div style="background:var(--bg3);border:1px solid var(--amber);border-radius:8px;padding:12px 14px;margin-bottom:14px;font-size:13px;color:var(--amber);">
+              ℹ️ This record was received from <strong>${esc(e.fromName||'someone')}</strong>. Use the link below to view it — sharing it back would create a reverse record.
+            </div>
+            <div style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:10px 14px;display:flex;align-items:center;gap:8px;margin-bottom:14px;overflow:hidden;">
+              <span style="font-size:12px;color:var(--muted);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(origUrl)}</span>
+              <button class="btn sm" onclick="navigator.clipboard.writeText(window._shareModalUrl);toast('Link copied!');">Copy</button>
+            </div>
+            <div style="display:flex;gap:8px;justify-content:flex-end;">
+              <a href="${esc(origUrl)}" target="_blank" class="btn sm">👁 Open</a>
+              <button class="bs sm" onclick="document.getElementById('shareModalBg').remove()">Close</button>
+            </div>
+          </div></div>`;
+        document.body.appendChild(d2.firstChild);
+        return;
+      }
+
       // Show modal with loading state first
       const d = document.createElement('div');
       d.innerHTML = `<div class="modal-bg" id="shareModalBg" onclick="if(event.target===this)document.getElementById('shareModalBg').remove()">
