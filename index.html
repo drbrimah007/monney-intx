@@ -568,6 +568,12 @@
     function isInvoiceMode(e) {
       return !!(e.templateId || e.txType==='invoice' || e.txType==='bill');
     }
+    // Settlement receipts (auto-generated payment entries) — should not show Confirm & Track
+    function _isSettlementEntry(e) {
+      if (!e) return false;
+      return !!(e.linkedInvoiceId || e.settledByRecipient ||
+        e.txType === 'they_paid_you' || e.txType === 'you_paid_them');
+    }
 
     function uuid() { return 'x' + Math.random().toString(36).substr(2, 9); }
     function fmt(n) { return '$' + parseFloat(n || 0).toFixed(2); }
@@ -1628,7 +1634,7 @@
                 <td>${statusBadge(e?.status||'posted')}</td>
                 <td><div class="action-menu"><button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button><div class="action-dropdown">
                   <a href="${esc(siteUrl)}/view?t=${esc(r.token)}" target="_blank" style="display:block;padding:8px 14px;font-size:13px;color:var(--accent);text-decoration:none;font-weight:600;">👁 View</a>
-                  <button onclick="doConfirmShared('${esc(r.token)}')">✅ Confirm &amp; Track</button>
+                  ${!_isSettlementEntry(e) ? `<button onclick="doConfirmShared('${esc(r.token)}')">✅ Confirm &amp; Track</button>` : ''}
                   <button onclick="doDismissShared('${esc(r.token)}')">✕ Dismiss</button>
                   ${!isSettled ? `<button onclick="_sharedMarkPaid('${esc(r.token)}')" style="color:var(--green);font-weight:700;">💰 Record Payment</button>` : ''}
                 </div></div></td>
@@ -1877,7 +1883,7 @@
                 <div style="font-size:12px;color:var(--muted);">${fmt(pAmt)} · <span style="color:${_recipDirColor(pe?.txType)};font-weight:600;">${_recipDirLabel(pe?.txType)}</span> · ${pe?.date ? new Date(pe.date).toLocaleDateString() : ''}</div>
               </div>
               <div style="display:flex;gap:8px;">
-                <button onclick="doConfirmShared('${esc(r.token)}')" style="background:var(--accent);color:#fff;border:none;border-radius:7px;padding:7px 14px;font-size:12px;font-weight:700;cursor:pointer;">✅ Confirm &amp; Track</button>
+                ${!_isSettlementEntry(pe) ? `<button onclick="doConfirmShared('${esc(r.token)}')" style="background:var(--accent);color:#fff;border:none;border-radius:7px;padding:7px 14px;font-size:12px;font-weight:700;cursor:pointer;">✅ Confirm &amp; Track</button>` : ''}
                 <button onclick="doDismissShared('${esc(r.token)}')" style="background:var(--bg3);color:var(--text);border:1px solid var(--border);border-radius:7px;padding:7px 14px;font-size:12px;cursor:pointer;">✕ Dismiss</button>
               </div>
             </div>`;
@@ -1951,7 +1957,7 @@
                 <button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button>
                 <div class="action-dropdown">
                   <a href="${esc(siteUrl)}/view?t=${esc(r.token)}" target="_blank" style="display:block;padding:8px 14px;font-size:13px;color:var(--accent);text-decoration:none;font-weight:600;">👁 View</a>
-                  ${!r.confirmed && !e.dismissed ? `<button onclick="doConfirmShared('${esc(r.token)}')">✅ Confirm &amp; Track</button>` : ''}
+                  ${!r.confirmed && !e.dismissed && !_isSettlementEntry(e) ? `<button onclick="doConfirmShared('${esc(r.token)}')">✅ Confirm &amp; Track</button>` : ''}
                   ${!r.confirmed && !e.dismissed ? `<button onclick="doDismissShared('${esc(r.token)}')">✕ Dismiss</button>` : ''}
                   ${!isExpired && e.status !== 'settled' && e.status !== 'paid' ? `<button onclick="_sharedMarkPaid('${esc(r.token)}')" style="color:var(--green);font-weight:700;">💰 Record Payment</button>` : ''}
                   <button onclick="_sharedDepreciateModal('${esc(r.token)}','${esc(e.fromName||'')}',${rawAmt})">📉 Depreciate</button>
@@ -2339,7 +2345,7 @@
               html += '<td>' + statusBadge((e && e.status) || 'posted') + '</td>';
               html += '<td><div class="action-menu"><button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button><div class="action-dropdown">';
               html += '<a href="' + esc(siteUrl) + '/view?t=' + esc(r.token) + '" target="_blank" style="display:block;padding:8px 14px;font-size:13px;color:var(--accent);text-decoration:none;font-weight:600;">👁 View</a>';
-              if (isPendingCP) {
+              if (isPendingCP && !_isSettlementEntry(e)) {
                 html += '<button onclick="doConfirmShared(\'' + esc(r.token) + '\')">✅ Confirm &amp; Track</button>';
                 html += '<button onclick="doDismissShared(\'' + esc(r.token) + '\')">✕ Dismiss</button>';
               }
@@ -3292,7 +3298,7 @@
             <td>${statusBadge(e?.status||'posted')}</td>
             <td><div class="action-menu"><button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button><div class="action-dropdown">
               <a href="${esc(siteUrl)}/view?t=${esc(r.token)}" target="_blank" style="display:block;padding:8px 14px;font-size:13px;color:var(--accent);text-decoration:none;font-weight:600;">👁 View</a>
-              ${isPending ? `<button onclick="doConfirmShared('${esc(r.token)}')" style="color:#16a34a;font-weight:700;">✅ Confirm &amp; Track</button><button onclick="doDismissShared('${esc(r.token)}')" style="color:var(--red);">✕ Dismiss</button>` : ''}
+              ${isPending && !_isSettlementEntry(r.entry) ? `<button onclick="doConfirmShared('${esc(r.token)}')" style="color:#16a34a;font-weight:700;">✅ Confirm &amp; Track</button><button onclick="doDismissShared('${esc(r.token)}')" style="color:var(--red);">✕ Dismiss</button>` : ''}
               ${!isSettledE ? `<button onclick="_sharedMarkPaid('${esc(r.token)}')" style="color:var(--green);font-weight:700;">💰 Record Payment</button>` : ''}
               ${(e?.txType === 'you_owe_them' || e?.txType === 'borrow') && !isSettledE ? `<button onclick="_selfRemindMe('${esc(r.token)}')" style="color:var(--accent);font-weight:700;">⏰ Remind Me</button>` : ''}
               ${_sNoLedger
@@ -8498,20 +8504,20 @@
           for (const eid in window._pendingSettlements) {
             if (window._pendingSettlements[eid] === token) delete window._pendingSettlements[eid];
           }
+          // Force refresh everything — both confirm and reject need full sync
+          save();
           if (action === 'confirm') {
             toast('Settlement confirmed — reloading data…');
-            // Force reload from server to pick up the new settlement entry
             await load();
-            initApp();
           } else {
             toast('Settlement rejected — payer has been notified');
-            save();
-            _loadSharedWithMe();
-            _syncSentShareStatuses();
-            if (_curPage === 'entries') renderEntries();
-            if (_curPage === 'dash') renderDash();
-            if (_curPage === 'notifs') renderNotifs();
           }
+          // Clear all pending trackers and re-sync from server
+          window._pendingSettlements = {};
+          window._settlementProofs = {};
+          await _syncSentShareStatuses();
+          _loadSharedWithMe();
+          initApp();
         } else {
           if (errEl) { errEl.textContent = data.error || 'Action failed.'; errEl.style.display = 'block'; }
           if (confirmBtn) { confirmBtn.disabled = false; confirmBtn.textContent = 'Confirm Settlement'; }

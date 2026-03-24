@@ -147,14 +147,20 @@ module.exports = async function handler(req, res) {
       const row = rows[0];
 
       // First view — mark viewed and push in-app notification to owner
+      // Skip "viewed" notification for settlement receipts — they're auto-generated
+      const _isSettlementReceipt = row.entry_data &&
+        (row.entry_data.linkedInvoiceId || row.entry_data.settledByRecipient ||
+         row.entry_data.txType === 'they_paid_you' || row.entry_data.txType === 'you_paid_them');
       if (!row.viewed) {
         // Also update entry_data.status to 'viewed' so recipient sees correct status
-        const _viewedEntryData = (row.entry_data && (row.entry_data.status === 'posted' || row.entry_data.status === 'sent' || !row.entry_data.status))
+        const _viewedEntryData = (!_isSettlementReceipt && row.entry_data && (row.entry_data.status === 'posted' || row.entry_data.status === 'sent' || !row.entry_data.status))
           ? { ...row.entry_data, status: 'viewed' } : row.entry_data;
         await sql`
           UPDATE share_tokens SET viewed = true, viewed_at = now(), entry_data = ${_viewedEntryData}
           WHERE token = ${token}
         `;
+        // Don't send "viewed" notification for settlement receipts
+        if (!_isSettlementReceipt) {
         try {
           const ownerId = row.user_id;
           const entryId = row.entry_id;
@@ -192,6 +198,7 @@ module.exports = async function handler(req, res) {
         } catch (innerErr) {
           console.error('[share/view] notif push failed:', innerErr.message);
         }
+        } // end if (!_isSettlementReceipt)
       }
 
       // Optionally detect if the current viewer is the linked recipient
@@ -218,6 +225,7 @@ module.exports = async function handler(req, res) {
         settlementConfirmed:    row.entry_data?.settlementConfirmed || false,
         confirmed:              row.confirmed || false,
         isLinkedUser,
+        isSettlementReceipt:    !!_isSettlementReceipt,
         viewed:                 true,
         viewedAt:               row.viewed_at,
         sharedAt:               row.created_at
