@@ -1786,13 +1786,15 @@
           let _dbgTotal = 0, _dbgConfirmed = 0, _dbgInserted = 0, _dbgUpdated = 0, _dbgSkipped = 0;
           for (const mr of records) {
             _dbgTotal++;
-            // Auto-confirm SELLER-initiated settlement receipts only.
-            // Buyer-initiated (settledByRecipient) already have credit entries from mark-paid.
-            if (!mr.confirmed && mr.entry && !mr.entry.settledByRecipient && (
+            // Auto-confirm SELLER-initiated settlement receipts regardless of dismissed status.
+            // These are not optional — they're settlement proof that must affect the ledger.
+            const _isSellerReceipt = mr.entry && !mr.entry.settledByRecipient && (
               mr.entry.linkedInvoiceId ||
               mr.entry.txType === 'they_paid_you' || mr.entry.txType === 'you_paid_them'
-            )) { mr.confirmed = true; }
-            if (mr.confirmed && !mr.recipientClosed && !(mr.entry?.dismissed)) {
+            );
+            if (!mr.confirmed && _isSellerReceipt) { mr.confirmed = true; }
+            // Settlement receipts bypass dismissed check — all others require it
+            if (mr.confirmed && !mr.recipientClosed && (_isSellerReceipt || !(mr.entry?.dismissed))) {
               _dbgConfirmed++;
               const _existingE = db.entries.find(e => e.shareToken === mr.token);
               // Run _insertSharedEntry if:
