@@ -870,6 +870,10 @@ module.exports = async function handler(req, res) {
           if (remaining  !== undefined) updated.remaining  = remaining;
           // Seller-initiated settlements don't need buyer confirmation.
           // Only mark-paid (buyer-initiated) sets settlementPending.
+          // Clean up any stale pending flags from seller-side syncs
+          if (updated.settlementPending && !updated.pendingSettlement) {
+            updated.settlementPending = false;
+          }
           await sql`UPDATE share_tokens SET entry_data = ${updated} WHERE token = ${row.token}`;
 
           // Also update recipient's isShared entry in their blob so their side reflects new status
@@ -879,12 +883,15 @@ module.exports = async function handler(req, res) {
               if (recipBlob) {
                 const recipData = await _decompress(recipBlob.data || {});
                 const recipEntry = (recipData.entries || []).find(e => e.shareToken === row.token);
-                if (recipEntry && recipEntry.status !== status) {
-                  recipEntry.status = status;
-                  if (settledAmt !== undefined) recipEntry.settledAmt = settledAmt;
-                  if (remaining  !== undefined) recipEntry.remaining  = remaining;
-                  const rRecompressed = await _compress(recipData);
-                  await sql`UPDATE user_data SET data = ${rRecompressed}, updated_at = now() WHERE user_id = ${row.linked_user_id}`;
+                if (recipEntry) {
+                  let changed = false;
+                  if (recipEntry.status !== status) { recipEntry.status = status; changed = true; }
+                  if (settledAmt !== undefined && recipEntry.settledAmt !== settledAmt) { recipEntry.settledAmt = settledAmt; changed = true; }
+                  if (remaining  !== undefined && recipEntry.remaining !== remaining) { recipEntry.remaining  = remaining; changed = true; }
+                  if (changed) {
+                    const rRecompressed = await _compress(recipData);
+                    await sql`UPDATE user_data SET data = ${rRecompressed}, updated_at = now() WHERE user_id = ${row.linked_user_id}`;
+                  }
                 }
               }
             } catch (_recipErr) {
