@@ -1623,7 +1623,10 @@
               const su = curUser();
               const sc = su ? db.contacts.find(c => c.userId===su.id && ((c.name||'').toLowerCase()===dn.toLowerCase() || (c.email||'').toLowerCase()===(e?.fromName||'').toLowerCase())) : null;
               const sLink = sc ? `<a href="#" onclick="cLink_open('${sc.id}');return false;" style="font-weight:700;color:var(--accent);text-decoration:none;">${esc(dn)}</a>` : `<strong>${esc(dn)}</strong>`;
-              const pill = `<span style="font-size:10px;background:rgba(251,191,36,.18);color:#d97706;border-radius:4px;padding:1px 5px;margin-left:3px;font-weight:700;">⏳ Pending</span>`;
+              const _isDashSettlement = e?.linkedInvoiceId || e?.settledByRecipient || e?.txType === 'they_paid_you' || e?.txType === 'you_paid_them';
+              const pill = _isDashSettlement
+                ? `<span style="font-size:9px;background:rgba(22,163,74,.1);color:#16a34a;border-radius:3px;padding:1px 5px;margin-left:3px;font-weight:700;">📋 Receipt</span>`
+                : `<span style="font-size:10px;background:rgba(251,191,36,.18);color:#d97706;border-radius:4px;padding:1px 5px;margin-left:3px;font-weight:700;">⏳ Pending</span>`;
               const siteUrl = e?.siteUrl || 'https://moneyinteractions.com';
               const isSettled = e?.status === 'settled' || e?.status === 'paid' || e?.status === 'fulfilled' || e?.status === 'cancelled';
               const _dashRecipLbl = {they_owe_you:'You Owe',you_owe_them:'They Owe Me',invoice:'Invoice Due',bill:'Bill Due',lend:'You Borrowed',borrow:'I Lent',they_paid_you:'I Settled Them',you_paid_them:'They Settled Me',gift:'Gift Received'};
@@ -2341,11 +2344,14 @@
               var txType = e && e.txType;
               var rawAmt = parseFloat(e && e.amount || 0);
               var siteUrl = (e && e.siteUrl) || 'https://moneyinteractions.com';
-              var isPendingCP = !r.confirmed && !(e && e.dismissed);
+              var _isCPSettlement = (e && e.linkedInvoiceId) || (e && e.settledByRecipient) || txType === 'they_paid_you' || txType === 'you_paid_them';
+              var isPendingCP = !r.confirmed && !(e && e.dismissed) && !_isCPSettlement;
               // REVERSED: show recipient's perspective (flip sender's txType)
               var dirLabel = _recipLabelMap[txType] || TXL[txType] || 'Shared';
               var dirColor = _recipColorMap[txType] || 'var(--accent)';
-              var pill = isPendingCP
+              var pill = _isCPSettlement
+                ? '<span style="font-size:9px;background:rgba(22,163,74,.1);color:#16a34a;border-radius:3px;padding:1px 5px;margin-left:3px;font-weight:700;">📋 Receipt</span>'
+                : isPendingCP
                 ? '<span style="font-size:10px;background:rgba(251,191,36,.18);color:#d97706;border-radius:4px;padding:1px 5px;margin-left:3px;font-weight:700;">⏳ Pending</span>'
                 : '<span style="font-size:10px;background:rgba(108,99,255,.12);color:var(--accent);border-radius:4px;padding:1px 5px;margin-left:3px;">🔗 Shared</span>';
               var isSettledCP = (e && e.status) === 'settled' || (e && e.status) === 'paid';
@@ -3293,8 +3299,11 @@
           const nameHtmlE = _senderC
             ? `<a href="#" onclick="cLink_open('${_senderC.id}');return false;" style="color:var(--accent);text-decoration:none;font-weight:700;">${esc(_dispName)}</a>`
             : `<strong>${esc(_dispName)}</strong>`;
-          const isPending = !r.confirmed && !(e?.dismissed);
-          const sharedPill = isPending
+          const _isSettlementShared = e?.linkedInvoiceId || e?.settledByRecipient || e?.txType === 'they_paid_you' || e?.txType === 'you_paid_them';
+          const isPending = !r.confirmed && !(e?.dismissed) && !_isSettlementShared;
+          const sharedPill = _isSettlementShared
+            ? `<span style="font-size:9px;background:rgba(22,163,74,.1);color:#16a34a;border-radius:3px;padding:1px 5px;margin-left:3px;font-weight:700;">📋 Receipt</span>`
+            : isPending
             ? `<span style="font-size:10px;background:rgba(251,191,36,.18);color:#d97706;border-radius:4px;padding:1px 5px;margin-left:3px;">⏳ Pending</span>`
             : `<span style="font-size:10px;background:rgba(108,99,255,.12);color:var(--accent);border-radius:4px;padding:1px 5px;margin-left:3px;">🔗 Shared</span>`;
           const isSettledE = e?.status === 'settled' || e?.status === 'paid' || e?.status === 'fulfilled' || e?.status === 'cancelled';
