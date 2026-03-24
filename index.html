@@ -625,22 +625,22 @@
               '| serverEntries:', data?.entries?.length);
 
             if (serverHasData) {
-              // Server is authoritative — but preserve isShared entries from localStorage
-              // that may have been added by _loadSharedWithMe between syncs
-              const _localShared = localBelongsToUser && _localData?.entries
-                ? _localData.entries.filter(e => e.isShared && e.shareToken)
-                : [];
+              // Preserve isShared entries from CURRENT in-memory db before overwriting.
+              // These may have been created by _loadSharedWithMe auto-confirm and not yet
+              // synced to server. Read from db (live) not _localData (snapshot from load start).
+              const _liveShared = (db.entries || []).filter(e => e.isShared && e.shareToken);
               db = data;
-              // Merge back any isShared entries that exist locally but not on server
-              if (_localShared.length > 0 && db.entries) {
+              // Merge back isShared entries that the server doesn't have yet
+              if (_liveShared.length > 0) {
+                if (!db.entries) db.entries = [];
                 const _srvTokens = new Set(db.entries.filter(e => e.shareToken).map(e => e.shareToken));
-                const _missing = _localShared.filter(e => !_srvTokens.has(e.shareToken));
-                if (_missing.length > 0) {
-                  db.entries.push(..._missing);
-                  console.log('[load] Merged', _missing.length, 'isShared entries from localStorage');
+                let _merged = 0;
+                for (const e of _liveShared) {
+                  if (!_srvTokens.has(e.shareToken)) { db.entries.push(e); _merged++; }
                 }
+                if (_merged) console.log('[load] Preserved', _merged, 'isShared entries from memory');
               }
-              console.log('[load] Using server data (' + (data.entries?.length||0) + ' entries)');
+              console.log('[load] Using server data (' + (db.entries?.length||0) + ' entries)');
             } else if (localHasData) {
               // Server blob is empty but this device has data for this user.
               // Recover: use local data and push to server immediately (AWAITED so it doesn't get dropped).
