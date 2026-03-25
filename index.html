@@ -853,21 +853,46 @@
       }
       // Retype old notification events as 'notification' if they lack a type
       db.notifs.forEach(n => { if (!n.type) n.type = 'notification'; });
-      // Fix contacts whose name is an email — find a better name from users list or email username
+      // Fix contacts whose name is an email — find a better name
       const _emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
       db.contacts.forEach(c => {
         if (!c.name || !_emailRe.test(c.name)) return;
-        // Try to find real name from db.users (allUsers synced for admin)
-        const matchedUser = db.users.find(u => (u.email||'').toLowerCase() === c.name.toLowerCase()
-          || (u.email||'').toLowerCase() === (c.email||'').toLowerCase());
+        const emailLower = (c.email || c.name).toLowerCase();
+        // 1. Check db.users (allUsers for admin, own user for standard)
+        const matchedUser = db.users.find(u => (u.email||'').toLowerCase() === emailLower);
         if (matchedUser && matchedUser.displayName && !_emailRe.test(matchedUser.displayName)) {
-          c.name = matchedUser.displayName;
-        } else if (c.email && !_emailRe.test(c.email)) {
-          // email field has a non-email value? unlikely but check
-        } else {
-          // Use username part of email as fallback
-          c.name = c.name.split('@')[0].replace(/[._]/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+          c.name = matchedUser.displayName; return;
         }
+        // 2. Check other contacts with the same email that have a real name
+        const sameEmail = db.contacts.find(c2 => c2.id !== c.id
+          && (c2.email||'').toLowerCase() === emailLower
+          && c2.name && !_emailRe.test(c2.name));
+        if (sameEmail) { c.name = sameEmail.name; return; }
+        // 3. Check isShared entries fromName for this contact
+        const sharedEntry = db.entries.find(e => e.isShared && e.cId === c.id && e.fromName && !_emailRe.test(e.fromName));
+        if (sharedEntry) { c.name = sharedEntry.fromName; return; }
+        // 4. Fallback: capitalize username part of email
+        c.name = c.name.split('@')[0].replace(/[._]/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+      });
+      // Merge duplicate contacts (same email, same userId) — keep the one with proper name
+      const _seen = new Map();
+      db.contacts = db.contacts.filter(c => {
+        if (!c.email || !c.userId) return true;
+        const key = c.userId + '|' + c.email.toLowerCase();
+        if (_seen.has(key)) {
+          const prev = _seen.get(key);
+          // Keep whichever has the better (non-email) name
+          if (_emailRe.test(prev.name) && !_emailRe.test(c.name)) {
+            // Current is better — replace prev's entries' cId to this one
+            db.entries.filter(e => e.cId === prev.id).forEach(e => { e.cId = c.id; });
+            return true; // keep current, prev already filtered
+          }
+          // Prev is better — reassign current's entries to prev
+          db.entries.filter(e => e.cId === c.id).forEach(e => { e.cId = prev.id; });
+          return false; // drop current duplicate
+        }
+        _seen.set(key, c);
+        return true;
       });
       // Mark settlement receipt entries as noLedger + isReceipt (backfill)
       db.entries.forEach(e => {
