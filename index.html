@@ -5793,6 +5793,18 @@
         // Mark notification as sent
         const notif = db.notifs.find(n => n.eid === eid && n.msg === message);
         if (notif) { notif.sent = true; save(); }
+        // Push reminder flag to the RECIPIENT's blob so they see the 🚩 badge too
+        if (!_isInitial && !e.isShared) {
+          fetch('/api/share', {
+            method: 'POST', credentials: 'include',
+            headers: { 'Content-Type': 'application/json', ...(localStorage.getItem('mxi_token') ? { 'Authorization': 'Bearer ' + localStorage.getItem('mxi_token') } : {}) },
+            body: JSON.stringify({
+              action: 'sender-notify',
+              entryId: eid,
+              senderName: u.displayName || u.email || 'Someone'
+            })
+          }).catch(() => {});
+        }
         if (_emailOk > 0 && _emailFail === 0) toast(_isInitial ? '✅ Notification sent to ' + toAddresses.join(', ') : '✅ Reminder sent to ' + toAddresses.join(', '));
         else if (_emailOk > 0) toast('⚠️ Sent to ' + _emailOk + ', failed ' + _emailFail);
         else toast('❌ Email failed — check Settings > Email Log', 4000);
