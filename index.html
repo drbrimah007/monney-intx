@@ -1135,19 +1135,22 @@
     // mobileLabelHtml: optional <div class="mobile-label">...</div> injected between amount and settlement lines
     function _fmtAmtCell(eid, mobileLabelHtml) {
       const _st = _getInvoiceSettlement(eid);
-      const base = fmt(_st.total || (db.entries.find(x=>x.id===eid)?.amount||0));
+      const _e = db.entries.find(x=>x.id===eid);
+      const _cur = _e?.currency;
+      const base = fmt(_st.total || (_e?.amount||0), _cur);
       if (_st.settled <= 0) return `<strong>${base}</strong>${mobileLabelHtml||''}`;
       const remColor = _st.remaining <= 0 ? 'var(--green)' : 'var(--amber)';
       return `<strong>${base}</strong>${mobileLabelHtml||''}`
-        + `<div style="font-size:11px;color:var(--muted);margin-top:1px;">Settled&nbsp;${fmt(_st.settled)}</div>`
-        + `<div style="font-size:11px;font-weight:700;color:${remColor};">Bal&nbsp;${fmt(_st.remaining)}</div>`;
+        + `<div style="font-size:11px;color:var(--muted);margin-top:1px;">Settled&nbsp;${fmt(_st.settled, _cur)}</div>`
+        + `<div style="font-size:11px;font-weight:700;color:${remColor};">Bal&nbsp;${fmt(_st.remaining, _cur)}</div>`;
     }
     // Returns plain text for modal RECORD headers and message bodies
     function _fmtAmtLine(eid) {
       const _st = _getInvoiceSettlement(eid);
       const e   = db.entries.find(x=>x.id===eid);
-      if (_st.settled <= 0) return fmt(e?.amount || 0);
-      return `${fmt(_st.total)} (Settled ${fmt(_st.settled)} · Bal ${fmt(_st.remaining)})`;
+      const _cur = e?.currency;
+      if (_st.settled <= 0) return fmt(e?.amount || 0, _cur);
+      return `${fmt(_st.total, _cur)} (Settled ${fmt(_st.settled, _cur)} · Bal ${fmt(_st.remaining, _cur)})`;
     }
     // Returns the display amount (remaining if partial, original if not)
     function _displayAmt(eid) {
@@ -1172,7 +1175,7 @@
         const contact = db.contacts.find(c => c.id === e.cId);
         const contactName = contact ? contact.name : '';
         const docNum = e.invoiceNumber || ('#' + String(e.entryNum || 0).padStart(4, '0'));
-        const amount = fmt(e.amount);
+        const amount = fmt(e.amount, e.currency);
         const type = TXL[e.txType] || e.txType || '';
         const date = e.date ? new Date(e.date).toLocaleDateString() : '';
         const status = ENTRY_STATUS[e.status] || e.status || '';
@@ -1181,8 +1184,8 @@
         if (e.linkedInvoiceId || e.txType === 'invoice' || e.txType === 'bill') {
           const st = _getInvoiceSettlement(e.id);
           if (st.settled > 0 || st.remaining > 0) {
-            settled = fmt(st.settled);
-            remaining = fmt(st.remaining);
+            settled = fmt(st.settled, e.currency);
+            remaining = fmt(st.remaining, e.currency);
           }
         }
         rows.push([contactName, docNum, amount, type, date, status, notes, settled, remaining].map(_csvEscape).join(','));
@@ -1599,7 +1602,7 @@
         } else {
           html += `<div class="tbl-wrap"><table><thead><tr><th>Amount</th><th>Type</th><th>Date</th><th>Status</th></tr></thead><tbody>`;
           sharedEntries.slice(0, 10).forEach(e => {
-            html += `<tr><td><strong>${fmt(e.amount)}</strong></td><td>${`<span style="font-weight:700;color:${txTypeColor(e.txType)}">${esc(TXL[e.txType]||e.txType)}</span>`}</td><td>${new Date(e.date).toLocaleDateString()}</td><td>${statusBadge(e.status, e)}</td></tr>`;
+            html += `<tr><td><strong>${fmt(e.amount, e.currency)}</strong></td><td>${`<span style="font-weight:700;color:${txTypeColor(e.txType)}">${esc(TXL[e.txType]||e.txType)}</span>`}</td><td>${new Date(e.date).toLocaleDateString()}</td><td>${statusBadge(e.status, e)}</td></tr>`;
           });
           html += `</tbody></table></div>`;
         }
@@ -1856,9 +1859,11 @@
 
       document.getElementById('content').innerHTML = html;
 
-      // Load "Shared with you" records asynchronously for standard users
+      // Load "Shared with you" records for ALL logged-in users, including admin.
+      // Admin accounts can be recipients of shared records too — excluding them meant
+      // confirmed entries were never migrated into their db.entries.
       // Skip if _dashSharedLoading is set (we're already inside a _loadSharedWithMe → renderDash cycle)
-      if (curRole() !== 'admin' && curRole() !== 'contact' && _IS_SERVER && !window._dashSharedLoading) {
+      if (_IS_SERVER && !window._dashSharedLoading) {
         _loadSharedWithMe();
       }
     }
@@ -2882,7 +2887,7 @@
             (f.rows || []).filter(r => r.text || r.numeric).forEach((r, ri) => {
               doc += `<tr style="background:${ri%2===0?'#fafafa':'#fff'};border-bottom:1px solid #eee;">
                 <td style="padding:10px;">${esc(r.text||'')}</td>
-                <td style="padding:10px;font-weight:600;text-align:right;">${r.numeric ? fmt(r.numeric) : '—'}</td>
+                <td style="padding:10px;font-weight:600;text-align:right;">${r.numeric ? fmt(r.numeric, e.currency) : '—'}</td>
               </tr>`;
             });
           } else {
@@ -2893,7 +2898,7 @@
             const isN  = !isNaN(numV) && String(v).trim() !== '';
             doc += `<tr style="background:${i%2===0?'#fafafa':'#fff'};border-bottom:1px solid #eee;border-top:${i===0?'2px solid #111':'none'}">
               <td style="padding:10px;">${esc(f.label)}</td>
-              <td style="padding:10px;font-weight:600;text-align:right;">${isN ? fmt(numV) : esc(String(v))}</td>
+              <td style="padding:10px;font-weight:600;text-align:right;">${isN ? fmt(numV, e.currency) : esc(String(v))}</td>
             </tr>`;
           }
         });
@@ -2911,7 +2916,7 @@
               border-top:${i===0?'2px solid #111':'1px solid #e0e0e0'};
               ${last?'border-bottom:2px solid #111;':''}">
             <span style="font-size:${last?'14px':'13px'};font-weight:${last?'800':'500'};color:${last?'#111':'#555'};${last?'text-transform:uppercase;letter-spacing:.04em;':''}">${esc(f.label)}</span>
-            <span style="font-size:${last?'22px':'15px'};font-weight:${last?'900':'600'};color:${last?'#111':'#333'};">${fmt(parseFloat(f.value)||0)}</span>
+            <span style="font-size:${last?'22px':'15px'};font-weight:${last?'900':'600'};color:${last?'#111':'#333'};">${fmt(parseFloat(f.value)||0, e.currency)}</span>
           </div>`;
         });
         doc += `</div>`;
@@ -2925,21 +2930,21 @@
           doc += `
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
               <span style="font-size:12px;color:#666;text-transform:uppercase;letter-spacing:.06em;">Invoice Total</span>
-              <span style="font-size:14px;font-weight:700;">${fmt(invSt.total)}</span>
+              <span style="font-size:14px;font-weight:700;">${fmt(invSt.total, e.currency)}</span>
             </div>
             <div style="display:flex;justify-content:space-between;align-items:center;padding-bottom:10px;border-bottom:1px solid #ddd;margin-bottom:10px;">
               <span style="font-size:12px;color:#059669;text-transform:uppercase;letter-spacing:.06em;">Settled</span>
-              <span style="font-size:14px;font-weight:700;color:#059669;">− ${fmt(invSt.settled)}</span>
+              <span style="font-size:14px;font-weight:700;color:#059669;">− ${fmt(invSt.settled, e.currency)}</span>
             </div>
             <div style="display:flex;justify-content:space-between;align-items:center;">
               <span style="font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;">Remaining</span>
-              <span style="font-size:26px;font-weight:900;color:${invSt.remaining<=0?'#059669':'#111'};">${fmt(invSt.remaining)}</span>
+              <span style="font-size:26px;font-weight:900;color:${invSt.remaining<=0?'#059669':'#111'};">${fmt(invSt.remaining, e.currency)}</span>
             </div>`;
         } else {
           doc += `
             <div style="display:flex;justify-content:space-between;align-items:center;">
               <span style="font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;">Total Due</span>
-              <span style="font-size:30px;font-weight:900;">${fmt(e.amount)}</span>
+              <span style="font-size:30px;font-weight:900;">${fmt(e.amount, e.currency)}</span>
             </div>`;
         }
         doc += `</div></div>`;
@@ -3044,7 +3049,7 @@
         <!-- Amount -->
         <div style="text-align:center;padding:28px 0 24px;margin-bottom:24px;border-top:1px solid #e5e7eb;border-bottom:1px solid #e5e7eb;">
           <div style="font-size:11px;color:#aaa;text-transform:uppercase;letter-spacing:.12em;margin-bottom:8px;">Amount</div>
-          <div style="font-size:52px;font-weight:900;color:${accentHex};letter-spacing:-.01em;">${fmt(e.amount)}</div>
+          <div style="font-size:52px;font-weight:900;color:${accentHex};letter-spacing:-.01em;">${fmt(e.amount, e.currency)}</div>
         </div>`;
 
       // Settlement breakdown (mirrors invoice doc behaviour)
@@ -3076,15 +3081,15 @@
           <div style="border:2px solid #111;border-radius:8px;padding:16px 24px;min-width:260px;">
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
               <span style="font-size:12px;color:#666;text-transform:uppercase;letter-spacing:.06em;">Original Amount</span>
-              <span style="font-size:14px;font-weight:700;">${fmt(_txSt.total)}</span>
+              <span style="font-size:14px;font-weight:700;">${fmt(_txSt.total, e.currency)}</span>
             </div>
             <div style="display:flex;justify-content:space-between;align-items:center;padding-bottom:10px;border-bottom:1px solid #ddd;margin-bottom:10px;">
               <span style="font-size:12px;color:#059669;text-transform:uppercase;letter-spacing:.06em;">Settled</span>
-              <span style="font-size:14px;font-weight:700;color:#059669;">− ${fmt(_txSt.settled)}</span>
+              <span style="font-size:14px;font-weight:700;color:#059669;">− ${fmt(_txSt.settled, e.currency)}</span>
             </div>
             <div style="display:flex;justify-content:space-between;align-items:center;">
               <span style="font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;">Balance</span>
-              <span style="font-size:26px;font-weight:900;color:${_txSt.remaining<=0?'#059669':'#111'};">${fmt(_txSt.remaining)}</span>
+              <span style="font-size:26px;font-weight:900;color:${_txSt.remaining<=0?'#059669':'#111'};">${fmt(_txSt.remaining, e.currency)}</span>
             </div>
           </div>
         </div>`;
@@ -3226,10 +3231,10 @@
 
         // Settlement info
         const invSt = _getInvoiceSettlement(e.id);
-        let amtHtml = `<strong>${fmt(e.amount)}</strong>`;
+        let amtHtml = `<strong>${fmt(e.amount, e.currency)}</strong>`;
         if (invSt.settled > 0) {
-          amtHtml += `<br><span style="font-size:10px;color:#059669;">Settled ${fmt(invSt.settled)}</span>`;
-          amtHtml += `<br><span style="font-size:10px;font-weight:700;color:${invSt.remaining<=0?'#059669':'#b45309'};">Bal ${fmt(invSt.remaining)}</span>`;
+          amtHtml += `<br><span style="font-size:10px;color:#059669;">Settled ${fmt(invSt.settled, e.currency)}</span>`;
+          amtHtml += `<br><span style="font-size:10px;font-weight:700;color:${invSt.remaining<=0?'#059669':'#b45309'};">Bal ${fmt(invSt.remaining, e.currency)}</span>`;
         }
 
         rows += `<tr style="background:${i%2===0?'#fff':'#f9fafb'};">
@@ -3311,14 +3316,14 @@
           </div>
           <div style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:12px 14px;margin-bottom:14px;font-size:13px;line-height:1.8;">
             <div style="display:flex;justify-content:space-between;"><span style="color:var(--muted);">Record</span><strong>${esc(docRef)}</strong></div>
-            <div style="display:flex;justify-content:space-between;"><span style="color:var(--muted);">Total</span><span>${fmt(invSt.total)}</span></div>
-            ${invSt.settled > 0 ? `<div style="display:flex;justify-content:space-between;"><span style="color:var(--muted);">Already Settled</span><span style="color:var(--green);">${fmt(invSt.settled)}</span></div>` : ''}
-            <div style="display:flex;justify-content:space-between;border-top:1px solid var(--border);margin-top:6px;padding-top:6px;font-weight:700;"><span>Remaining</span><span>${fmt(remainingAmt)}</span></div>
+            <div style="display:flex;justify-content:space-between;"><span style="color:var(--muted);">Total</span><span>${fmt(invSt.total, e.currency)}</span></div>
+            ${invSt.settled > 0 ? `<div style="display:flex;justify-content:space-between;"><span style="color:var(--muted);">Already Settled</span><span style="color:var(--green);">${fmt(invSt.settled, e.currency)}</span></div>` : ''}
+            <div style="display:flex;justify-content:space-between;border-top:1px solid var(--border);margin-top:6px;padding-top:6px;font-weight:700;"><span>Remaining</span><span>${fmt(remainingAmt, e.currency)}</span></div>
           </div>
           <div class="fg">
             <label>Amount to settle</label>
             <input type="number" id="settleAmt" step="0.01" min="0.01"
-              placeholder="Leave blank for full remaining (${fmt(remainingAmt)})"
+              placeholder="Leave blank for full remaining (${fmt(remainingAmt, e.currency)})"
               style="width:100%;box-sizing:border-box;">
           </div>
           <div id="settleErr" style="color:var(--red);font-size:12px;margin-top:4px;display:none;"></div>
@@ -3472,9 +3477,9 @@
       document.getElementById('invoicePrintWrap')?.remove();
 
       if (overAmt > 0.004) {
-        toast(`Settlement recorded. ${fmt(applyAmt)} applied to ${docRef}. Overpayment receipt of ${fmt(overAmt)} created.`);
+        toast(`Settlement recorded. ${fmt(applyAmt, e.currency)} applied to ${docRef}. Overpayment receipt of ${fmt(overAmt, e.currency)} created.`);
       } else {
-        toast(`Settlement of ${fmt(applyAmt)} recorded`);
+        toast(`Settlement of ${fmt(applyAmt, e.currency)} recorded`);
       }
       refreshCurPage();
       _checkReconciliation(eid);
@@ -3483,7 +3488,8 @@
     function renderEntries() {
       const u = curUser();
       const role = curRole();
-      const isStd = role === 'standard' && _IS_SERVER;
+      // Any logged-in user (admin, standard, contact) can receive shared records.
+      const isStd = _IS_SERVER && (role === 'standard' || role === 'admin' || role === 'contact');
 
       // Tab state: 'mine' | 'shared' | 'all' (default 'all')
       window._entriesTab = window._entriesTab || 'all';
@@ -4713,7 +4719,7 @@
               body: JSON.stringify({
                 to: c.email,
                 subject: `${u?.name || appName} has closed a record`,
-                text: `Hi ${c.name},\n\n${u?.name || 'The sender'} has closed the following record:${closingNote}\n\nAmount: ${fmt(e.amount)}\n\nYou can view the record and close it from your side here:\n${shareUrl}\n\n— ${appName}`,
+                text: `Hi ${c.name},\n\n${u?.name || 'The sender'} has closed the following record:${closingNote}\n\nAmount: ${fmt(e.amount, e.currency)}\n\nYou can view the record and close it from your side here:\n${shareUrl}\n\n— ${appName}`,
                 appName, siteUrl
               })
             });
@@ -5391,6 +5397,7 @@
             paidAmt: 0,
             entryStatus: e?.status || 'posted',
             txType: 'you_owe_them',   // recipient's perspective: they owe me → "you owe them" label shown to sender
+            currency: e?.currency || dbEntry?.currency || db.settings.currency || 'USD',
             viewUrl: shareLink,
             siteUrl,
             appName,
@@ -5557,6 +5564,7 @@
               message,
               amount: r.amount || null,
               txType: r.txType || null,
+              currency: r.currency || db.settings.currency || 'USD',
               viewUrl: siteUrl,
               siteUrl, appName, tagline, logoData
             })
@@ -6747,7 +6755,7 @@
         p.items.forEach(n => {
           const c  = db.contacts.find(x => x.id === n.cId);
           const e  = db.entries.find(x => x.id === n.eid);
-          const amtStr = e ? fmt(e.amount) : '—';
+          const amtStr = e ? fmt(e.amount, e.currency) : '—';
           const sentTo = Array.isArray(n.sentTo) && n.sentTo.length
             ? n.sentTo.join(', ')
             : (n.who ? whoLabel(n.who) : '—');
@@ -7337,6 +7345,13 @@
             <div class="fg"><label>Phone</label><input type="tel" id="pphone" value="${esc(u.phone||'')}"></div>
           </div>
           <div class="fg"><label>Address</label><textarea id="paddr" rows="2">${esc(u.address||'')}</textarea></div>
+          <div class="fg">
+            <label>Currency</label>
+            <select id="pcurrency" onchange="db.settings.currency=this.value;save();renderSettings();">
+              ${Object.entries(CURRENCIES).map(([code, ci]) => '<option value="'+code+'" '+((db.settings.currency||'USD')===code?'selected':'')+'>'+ci.symbol+' '+ci.name+' ('+code+')</option>').join('')}
+            </select>
+            <span style="font-size:11px;color:var(--muted);">Used for formatting amounts across the app.</span>
+          </div>
           <button class="btn sm" onclick="saveProfile()">Save Profile</button>
         </div>
 
@@ -9130,6 +9145,9 @@
         if (r) {
           r.confirmed = true;
           _insertSharedEntry(r); // ── Unified Record Layer: insert into db.entries
+          // saveNow() MUST be called here — _loadSharedWithMe's migration loop finds
+          // the entry already present and skips it, so saveNow() would never fire there.
+          try { await saveNow(); } catch(_) { save(); }
         }
         toast('✅ Record confirmed — now tracked in Entries.');
         _loadSharedWithMe();
