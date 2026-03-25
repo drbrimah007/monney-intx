@@ -4,6 +4,24 @@
 
 const { sql }         = require('../../lib/db');
 const { requireAuth } = require('../../lib/auth');
+const zlib            = require('zlib');
+const { promisify }   = require('util');
+const gunzip          = promisify(zlib.gunzip);
+
+// Decompress blob if stored compressed by sync.js ({ _c:1, v:"<base64>" })
+async function maybeDecompress(raw) {
+  if (raw && raw._c === 1 && typeof raw.v === 'string') {
+    try {
+      const buf  = Buffer.from(raw.v, 'base64');
+      const json = await gunzip(buf);
+      return JSON.parse(json.toString('utf8'));
+    } catch (e) {
+      console.error('[admin/user-data] decompress failed:', e.message);
+      return {};
+    }
+  }
+  return raw; // already plain JSON (legacy uncompressed rows)
+}
 
 module.exports = async function handler(req, res) {
   if (req.method === 'OPTIONS') return res.status(200).end();
@@ -26,6 +44,9 @@ module.exports = async function handler(req, res) {
     `;
     if (!user) return res.status(404).json({ ok: false, error: 'User not found.' });
 
+    // Decompress the blob before returning — same as /api/data/load does
+    const data = await maybeDecompress(row?.data || {});
+
     // Also fetch confirmed share tokens linked to this user so admin
     // impersonation can display and migrate the user's incoming shared records.
     const shareRows = await sql`
@@ -47,7 +68,7 @@ module.exports = async function handler(req, res) {
 
     return res.json({
       ok: true,
-      data: row?.data || {},
+      data,
       user: {
         id: user.id,
         displayName: user.display_name,
