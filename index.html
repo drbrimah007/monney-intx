@@ -1900,13 +1900,33 @@
                 if (mr.entry.fulfilledAt && !_existingE.fulfilledAt) {
                   _existingE.fulfilledAt = mr.entry.fulfilledAt; _entryChanged = true;
                 }
-                // Refresh fromName if the token has a better (non-email) name than what was stored.
-                // This fixes entries that were inserted when fromName was still an email address.
+                // Refresh fromName on the entry if the token has a better (non-email) name.
+                // Also queue a contact-name suggestion if BOTH names are real (not emails)
+                // so the user can decide whether to update their contact record too.
                 if (mr.entry.fromName && mr.entry.fromName !== _existingE.fromName) {
                   const _newIsEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(mr.entry.fromName);
                   const _oldIsEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(_existingE.fromName || '');
-                  // Update if: token has a real name (not email), OR existing is an email and token has anything better
-                  if (!_newIsEmail || _oldIsEmail) { _existingE.fromName = mr.entry.fromName; _entryChanged = true; }
+                  if (!_newIsEmail || _oldIsEmail) {
+                    const _prevName = _existingE.fromName;
+                    _existingE.fromName = mr.entry.fromName; _entryChanged = true;
+                    // Both real names → queue contact-name suggestion so user can decide
+                    if (!_newIsEmail && !_oldIsEmail && _existingE.cId) {
+                      const _c = db.contacts.find(x => x.id === _existingE.cId);
+                      if (_c && _c.name === _prevName) {
+                        if (!db.settings._pendingNameSuggestions) db.settings._pendingNameSuggestions = [];
+                        const _already = db.settings._pendingNameSuggestions.some(
+                          s => s.contactId === _existingE.cId && s.newName === mr.entry.fromName
+                        );
+                        if (!_already) {
+                          db.settings._pendingNameSuggestions.push({
+                            id: uuid(), contactId: _existingE.cId,
+                            oldName: _prevName, newName: mr.entry.fromName,
+                            detectedAt: Date.now()
+                          });
+                        }
+                      }
+                    }
+                  }
                 }
                 // Settlement credits handled by auto-confirmed seller receipt tokens.
                 if (_entryChanged) migrated = true;
@@ -2191,7 +2211,32 @@
       if (q) PG['contacts'] = 1; // reset to page 1 on search
       const p2 = paginate(listed, 'contacts');
 
-      let html = `<div class="page-header"><h2>Contacts</h2><button class="btn sm" onclick="openNewContact()">+ Add Contact</button></div><div class="card">
+      // ── Name-change suggestion banners (like mobile "contact updated their info") ─
+      const _suggestions = (db.settings._pendingNameSuggestions || []).filter(s => {
+        const _sc = db.contacts.find(c => c.id === s.contactId);
+        return _sc && _sc.userId === u.id;
+      });
+      let html = `<div class="page-header"><h2>Contacts</h2><button class="btn sm" onclick="openNewContact()">+ Add Contact</button></div>`;
+      _suggestions.forEach(s => {
+        html += `<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;
+                   background:rgba(108,99,255,.08);border:1px solid rgba(108,99,255,.25);border-radius:10px;
+                   padding:12px 16px;margin-bottom:10px;">
+          <div style="display:flex;align-items:center;gap:10px;flex:1;">
+            <span style="font-size:20px;">📝</span>
+            <div>
+              <div style="font-size:14px;font-weight:600;">Name update detected</div>
+              <div style="font-size:13px;color:var(--muted);margin-top:2px;">
+                <strong>${esc(s.oldName)}</strong> updated their name to <strong>${esc(s.newName)}</strong> — update your contact?
+              </div>
+            </div>
+          </div>
+          <div style="display:flex;gap:8px;flex-shrink:0;margin-top:4px;">
+            <button class="btn sm" onclick="applyNameSuggestion('${s.id}')">✅ Update</button>
+            <button class="bs sm" onclick="dismissNameSuggestion('${s.id}')">Keep current</button>
+          </div>
+        </div>`;
+      });
+      html += `<div class="card">
         <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;flex-wrap:wrap;">
           <input type="search" id="contacts_search_input" placeholder="Search contacts…" value="${esc(window._search_contacts||'')}" style="flex:1;min-width:180px;max-width:340px;">
           <button class="bs sm${sortDesc?' on':''}" onclick="window._sort_contacts=!${sortDesc};renderContacts()" title="Sort order">${sortDesc?'↓ Latest first':'↑ Oldest first'}</button>
@@ -2366,6 +2411,25 @@
         logAudit(c.archived ? 'archive_contact' : 'unarchive_contact', { cid, name: c.name });
         renderContacts();
       }
+    }
+
+    // ── Name-change suggestions ──────────────────────────────────────────────
+    function applyNameSuggestion(sid) {
+      const list = db.settings._pendingNameSuggestions || [];
+      const s = list.find(x => x.id === sid);
+      if (!s) return;
+      const c = db.contacts.find(x => x.id === s.contactId);
+      if (c) { c.name = s.newName; }
+      db.settings._pendingNameSuggestions = list.filter(x => x.id !== sid);
+      save(); logAudit('apply_name_suggestion', { contactId: s.contactId, newName: s.newName });
+      toast(`✅ Contact updated to "${s.newName}"`);
+      renderContacts();
+    }
+
+    function dismissNameSuggestion(sid) {
+      db.settings._pendingNameSuggestions = (db.settings._pendingNameSuggestions || []).filter(x => x.id !== sid);
+      save();
+      renderContacts();
     }
 
     function delContact(cid) {
@@ -3804,7 +3868,32 @@
       }
       html += `<div class="grid2"><div class="fg"><label>Date</label><input type="date" id="nedate" value="${dateVal}"></div>
         <div class="fg"><label>Status</label><select id="nests">${statusOpts(e?.status||'posted', true)}</select></div></div>`;
-      html += `<div class="fg"><textarea id="ne_notify_msg" rows="2" style="width:100%;box-sizing:border-box;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg2);color:var(--text);font-size:14px;resize:vertical;" placeholder="For your attention.">${esc(e?.notifyMsg||'For your attention.')}</textarea></div>`;
+      // ── Notify on Save toggle ────────────────────────────────────────────
+      html += `<div style="border-top:1px solid var(--border);margin-top:10px;padding-top:10px;">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+          <button type="button" id="ne_notify_btn" class="bs sm" style="font-size:12px;" onclick="toggleFormNotify('ne')">🔔 Notify on Save</button>
+          <span id="ne_notify_sw" style="font-size:11px;color:var(--muted);">Off</span>
+        </div>
+        <div id="ne_notify_wrap" style="display:none;">
+          <div class="fg" style="margin-bottom:8px;">
+            <label style="font-size:12px;font-weight:600;">Message</label>
+            <textarea id="ne_notify_msg" rows="2" style="width:100%;box-sizing:border-box;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg2);color:var(--text);font-size:14px;resize:vertical;" placeholder="Add a note for the recipient..."></textarea>
+          </div>
+          <div class="fg" style="margin-bottom:8px;">
+            <label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;">Notify</label>
+            <div style="display:inline-flex;border:1px solid var(--border);border-radius:8px;overflow:hidden;">
+              <button type="button" id="ne_nwho_them" style="padding:6px 14px;font-size:12px;background:var(--accent);color:#fff;border:none;cursor:pointer;font-weight:600;" onclick="_setFormNwho('ne','them')">Contact</button>
+              <button type="button" id="ne_nwho_you" style="padding:6px 14px;font-size:12px;background:var(--bg3);color:var(--text);border:none;border-left:1px solid var(--border);cursor:pointer;" onclick="_setFormNwho('ne','you')">You</button>
+              <button type="button" id="ne_nwho_both" style="padding:6px 14px;font-size:12px;background:var(--bg3);color:var(--text);border:none;border-left:1px solid var(--border);cursor:pointer;" onclick="_setFormNwho('ne','both')">Both</button>
+            </div>
+          </div>
+          <div id="ne_notify_email_wrap" style="display:none;">
+            <div style="background:#fff8e1;border:1px solid #ffe082;border-radius:6px;padding:8px 12px;font-size:12px;color:#795548;">
+              ⚠️ Contact has no email. <input type="email" id="ne_notify_email" placeholder="Enter email" style="width:100%;margin-top:4px;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px;">
+            </div>
+          </div>
+        </div>
+      </div>`;
       // ── Template-driven fields ────────────────────────────────────────
       if (tpl && tpl.fields && tpl.fields.length > 0) {
         html += `<div id="tplFieldsWrap" style="border-top:1px solid var(--border);margin-top:6px;padding-top:14px;">
@@ -5355,6 +5444,21 @@
     }
 
     // Who-to-notify selector for inline form notify sections
+    // Toggle the inline "Notify on Save" section in new entry / recurring forms
+    function toggleFormNotify(prefix) {
+      const btn  = document.getElementById(prefix + '_notify_btn');
+      const sw   = document.getElementById(prefix + '_notify_sw');
+      const wrap = document.getElementById(prefix + '_notify_wrap');
+      if (!btn || !wrap) return;
+      const turningOn = wrap.style.display === 'none';
+      btn.classList.toggle('on', turningOn);
+      if (sw) sw.textContent = turningOn ? 'On' : 'Off';
+      wrap.style.display = turningOn ? 'block' : 'none';
+      if (turningOn) {
+        _setFormNwho(prefix, window['_formNwho_' + prefix] || 'them');
+      }
+    }
+
     function _setFormNwho(prefix, val) {
       window['_formNwho_' + prefix] = val;
       ['them','you','both'].forEach(v => {
