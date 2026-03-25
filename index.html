@@ -810,6 +810,11 @@
               if (platformSettings.logoData) db.settings.logoData = platformSettings.logoData;
             }
             migrate();
+            // Clear any stale impersonation flag — on reload the user data is not
+            // re-injected, so the admin would be stuck in a broken impersonation state.
+            if (db.settings && db.settings.impersonating) {
+              db.settings.impersonating = null;
+            }
             // Mirror to localStorage as offline cache
             localStorage.setItem('mxi_v2', JSON.stringify(db));
             _loadCompleted = true;
@@ -873,6 +878,8 @@
     }
 
     async function _syncToServer() {
+      // Never push to server while impersonating — db contains merged user+admin data
+      if (_impersonatingDataUserId) { return; }
       const _tok = localStorage.getItem('mxi_token');
       const _headers = { 'Content-Type': 'application/json' };
       if (_tok) _headers['Authorization'] = 'Bearer ' + _tok;
@@ -1516,6 +1523,8 @@
       _stripImpersonateData(_impersonatingDataUserId);
 
       db.settings.impersonating = { userId, mode };
+      // Cancel any pending debounced sync — we don't want stale state pushed to server
+      clearTimeout(_syncTimer); _syncTimer = null;
 
       // If on server, fetch the real user blob and inject into db in-memory
       // so the admin sees the user's actual entries/contacts/templates.
