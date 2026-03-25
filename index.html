@@ -4499,6 +4499,11 @@
       const dateStr = document.getElementById('nedate')?.value;
       const date   = dateStr ? new Date(dateStr).getTime() : Date.now();
       if (!cid) return alert('Contact required');
+      // Capture notify-on-save values BEFORE the modal is closed
+      const _neNotifyOn  = document.getElementById('ne_notify_btn')?.classList.contains('on') || false;
+      const _neNotifyMsg = document.getElementById('ne_notify_msg')?.value.trim() || '';
+      const _neNotifyWho = window._formNwho_ne || 'them';
+      const _neInlineEmail = document.getElementById('ne_notify_email')?.value.trim() || '';
 
       let txType, amount, invoiceNumber = null;
 
@@ -4603,11 +4608,21 @@
         }).catch(() => {});
       }
 
-      // Auto-notify removed — use "Send Reminder" on existing entries instead.
       closeEntryModal();
       toast(`Entry saved${invoiceNumber ? ' — ' + invoiceNumber : ''}`);
       // Always navigate to dashboard so Recent Entries refreshes (fixes mobile stale view)
       nav('dash');
+
+      // Wire up "Notify on Save" — if the toggle was on, send the notification now
+      if (_neNotifyOn && _IS_SERVER) {
+        // Save inline email if the contact had none
+        if (_neInlineEmail) {
+          const _ct = db.contacts.find(c => c.id === cid);
+          if (_ct && !_ct.email) { _ct.email = _neInlineEmail; saveNow(); }
+        }
+        const _notifyMsg = _neNotifyMsg || (invoiceNumber ? `Invoice ${invoiceNumber} has been created for your records.` : 'A new record has been created for your account.');
+        _sendReminder(newEid, _notifyMsg, _neNotifyWho);
+      }
     }
 
     function editEntry(eid) {
