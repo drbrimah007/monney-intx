@@ -593,7 +593,9 @@ module.exports = async function handler(req, res) {
               const ownerData = await _decompress(blobRow.data || {});
               const entry     = (ownerData.entries  || []).find(e => e.id === entryId);
               const contact   = entry ? (ownerData.contacts || []).find(c => c.id === entry.cId) : null;
-              const name      = contact?.name || entryData?.contactName || 'Someone';
+              const recipientName = contact?.name || entryData?.contactName || 'Someone';
+              const entryAmt = entry?.amount || entryData?.amount || null;
+              const entryCurrency = entry?.currency || entryData?.currency || 'USD';
               if (!ownerData.notifs) ownerData.notifs = [];
               ownerData.notifs.push({
                 id:        'n' + Math.random().toString(36).substr(2, 9),
@@ -601,7 +603,10 @@ module.exports = async function handler(req, res) {
                 cId:       entry?.cId || null,
                 eid:       entryId,
                 type:      'confirmed',
-                msg:       `${name} confirmed and is now tracking a record you shared with them.`,
+                msg:       `${recipientName} confirmed and is now tracking the record you shared with them.`,
+                _contactName: recipientName,
+                _amount:      entryAmt,
+                _currency:    entryCurrency,
                 channel:   'in-app',
                 sent:      true,
                 who:       'them',

@@ -7361,7 +7361,8 @@
         p.items.forEach(n => {
           const c  = db.contacts.find(x => x.id === n.cId);
           const e  = db.entries.find(x => x.id === n.eid);
-          const amtStr = e ? fmt(e.amount, e.currency) : '—';
+          // Use embedded _amount/_contactName as fallbacks for cross-blob notifications
+          const amtStr = e ? fmt(e.amount, e.currency) : (n._amount ? fmt(n._amount, n._currency) : '—');
           const sentTo = Array.isArray(n.sentTo) && n.sentTo.length
             ? n.sentTo.join(', ')
             : (n.who ? whoLabel(n.who) : '—');
@@ -7370,7 +7371,7 @@
           const rowClick = isClickable ? `onclick="_reviewSettlement('${esc(n.shareToken)}')" style="cursor:pointer;"` : '';
           const isInvite = n.type === 'invite' || n.type === 'invite_sent' || n.type === 'join_request';
           const inviteClick = isInvite ? `onclick="nav('groups')" style="cursor:pointer;"` : '';
-          const contactDisplay = c ? cLink(c.id, c.name) : (isInvite && n.who ? `<strong style="color:var(--accent);">${esc(n.who)}</strong>` : '<span style="color:var(--muted)">—</span>');
+          const contactDisplay = c ? cLink(c.id, c.name) : (n._contactName ? `<strong>${esc(n._contactName)}</strong>` : (isInvite && n.who ? `<strong style="color:var(--accent);">${esc(n.who)}</strong>` : '<span style="color:var(--muted)">—</span>'));
           html += `<tr ${rowClick || inviteClick}>
             <td>${contactDisplay}</td>
             <td style="font-size:13px;font-weight:600;white-space:nowrap;">${isInvite ? '' : esc(amtStr)}</td>
