@@ -856,8 +856,12 @@
       db.entries.forEach(e => { if (!ENTRY_STATUS[e.status]) e.status = 'posted'; });
       // Change all settlement/receipt entries status from 'settled' to 'payment' (shows as "Receipt")
       db.entries.forEach(e => {
-        if (e.status === 'settled' && (e.isReceipt || e.settledByRecipient || e.linkedInvoiceId)) {
+        if (e.status === 'settled' && (
+          e.isReceipt || e.settledByRecipient || e.linkedInvoiceId ||
+          (e.isShared && (e.txType === 'you_paid_them' || e.txType === 'they_paid_you'))
+        )) {
           e.status = 'payment';
+          if (!e.isReceipt) e.isReceipt = true;
         }
       });
       // Migration (one-time): clear stale reminderCount from entries that had it
@@ -7393,9 +7397,9 @@
       u.phone = document.getElementById('pphone').value;
       u.address = document.getElementById('paddr').value;
       u.notifPrefs = {
-        inapp: document.getElementById('pnotif_inapp').checked,
-        email: document.getElementById('pnotif_email').checked,
-        sms: document.getElementById('pnotif_sms').checked
+        inapp: document.getElementById('pnotif_inapp')?.checked ?? (u.notifPrefs?.inapp !== false),
+        email: document.getElementById('pnotif_email')?.checked ?? (u.notifPrefs?.email !== false),
+        sms:   document.getElementById('pnotif_sms')?.checked   ?? (u.notifPrefs?.sms   || false)
       };
       u.discoverable = document.getElementById('pdiscoverable').checked;
       updateUserInfo();
