@@ -6495,8 +6495,15 @@
       let html = `<div class="page-header"><h2>Templates</h2>
         <button class="btn sm" onclick="openTemplateBuilder()">+ New Template</button>
       </div>
+      <div onclick="nav('templatedb')" style="cursor:pointer;margin-bottom:14px;padding:14px 18px;background:linear-gradient(135deg,rgba(108,99,255,.10),rgba(59,130,246,.08));border:1.5px solid rgba(108,99,255,.25);border-radius:12px;display:flex;align-items:center;gap:12px;transition:all .15s;" onmouseenter="this.style.borderColor='var(--accent)';this.style.transform='translateY(-1px)'" onmouseleave="this.style.borderColor='rgba(108,99,255,.25)';this.style.transform='none'">
+        <span style="font-size:28px;">🌐</span>
+        <div style="flex:1;">
+          <div style="font-size:15px;font-weight:700;color:var(--accent);">Public Template DB</div>
+          <div style="font-size:12px;color:var(--muted);margin-top:2px;">Browse and copy ready-made templates from the community</div>
+        </div>
+        <span style="font-size:18px;color:var(--accent);">→</span>
+      </div>
       <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap;">
-        <button class="bs sm" onclick="nav('templatedb')" style="font-size:12px;flex-shrink:0;">🌐 Template DB</button>
         <input type="search" placeholder="Search templates…" value="${esc(window._search_templates||'')}" oninput="window._search_templates=this.value;PG.templates=1;renderTemplates()" style="flex:1;min-width:100px;">
         <button class="bs sm${sortDesc?' on':''}" onclick="window._sort_templates=!${sortDesc};renderTemplates()" style="flex-shrink:0;white-space:nowrap;">${sortDesc?'↓ Latest':'↑ Oldest'}</button>
         <label style="display:inline-flex;align-items:center;gap:5px;font-size:13px;cursor:pointer;flex-shrink:0;white-space:nowrap;padding:6px 10px;background:var(--bg3);border-radius:8px;border:1px solid var(--border);">
