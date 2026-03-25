@@ -1978,7 +1978,7 @@
                 <td><strong>${fmt(rawAmt)}</strong><div class="mobile-label" style="font-size:11px;font-weight:700;color:${dashTypeColor};margin-top:2px;">${esc(dashTypeLabel)}</div>${_dpSettleHtml}</td>
                 <td class="hide-mobile"><span style="font-weight:700;color:${dashTypeColor};">${esc(dashTypeLabel)}</span></td>
                 <td>${e?.date ? new Date(e.date).toLocaleDateString() : '—'}</td>
-                <td>${statusBadge(e?.status||'posted', e)}</td>
+                <td>${statusBadge(e?.status||'posted', e)}${_reminderBadge(e?.reminderCount, r.token)}</td>
                 <td><div class="action-menu"><button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button><div class="action-dropdown">${_pendingSharedMenuHtml(r)}</div></div></td>
               </tr>`;
             }
@@ -2007,7 +2007,7 @@
                 <td><strong>${fmt(rawAmt2)}</strong><div class="mobile-label" style="font-size:11px;font-weight:700;color:${dirColor2};margin-top:2px;">${esc(dirLabel2)}</div>${_dcSettleHtml}</td>
                 <td class="hide-mobile"><span style="font-weight:700;color:${dirColor2};">${esc(dirLabel2)}</span></td>
                 <td>${e.date ? new Date(e.date).toLocaleDateString() : '—'}</td>
-                <td>${statusBadge(e.status||'posted', e)}</td>
+                <td>${statusBadge(e.status||'posted', e)}${_reminderBadge(e.reminderCount, e.id)}</td>
                 <td><div class="action-menu"><button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button><div class="action-dropdown">${_sharedEntryMenuHtml(e.id)}</div></div></td>
               </tr>`;
             }
@@ -2896,7 +2896,7 @@
                 : '<strong>' + fmt(rawAmt) + '</strong>';
               html += '<td>' + _cpAmtHtml + '</td>';
               html += '<td>' + (e && e.date ? new Date(e.date).toLocaleDateString() : '—') + '</td>';
-              html += '<td>' + statusBadge((e && e.status) || 'posted', e) + '</td>';
+              html += '<td>' + statusBadge((e && e.status) || 'posted', e) + _reminderBadge(e?.reminderCount, r.token) + '</td>';
               html += '<td><div class="action-menu"><button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button><div class="action-dropdown">' + _pendingSharedMenuHtml(r) + '</div></div></td></tr>';
             } else {
               var e2 = item._data;
@@ -3982,7 +3982,7 @@
             <td>${_sAmtHtml}</td>
             <td class="hide-mobile"><span style="font-weight:700;color:${dirColor}">${esc(dirLabel)}</span></td>
             <td>${dt}</td>
-            <td>${statusBadge(e?.status||'posted', e)}</td>
+            <td>${statusBadge(e?.status||'posted', e)}${_reminderBadge(e?.reminderCount, r.token)}</td>
             <td><div class="action-menu"><button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button><div class="action-dropdown">${_pendingSharedMenuHtml(r)}</div></div></td>
           </tr>`;
         } else if (isSharedEntry) {
@@ -4030,7 +4030,7 @@
             <td>${_seAmtHtml}</td>
             <td class="hide-mobile"><span style="font-weight:700;color:${dirColor}">${esc(dirLabel)}</span></td>
             <td>${dt}</td>
-            <td>${statusBadge(e.status || 'posted', e)}</td>
+            <td>${statusBadge(e.status || 'posted', e)}${_reminderBadge(e.reminderCount, e.id)}</td>
             <td><div class="action-menu"><button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button><div class="action-dropdown">${_sharedEntryMenuHtml(e.id)}</div></div></td>
           </tr>`;
         } else {
