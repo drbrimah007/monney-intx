@@ -7398,12 +7398,14 @@
         sms: document.getElementById('pnotif_sms').checked
       };
       u.discoverable = document.getElementById('pdiscoverable').checked;
-      save();
       updateUserInfo();
       logAudit('update_profile', { uid: u.id });
       // Also update the server users table so changes persist across reloads
       if (_IS_SERVER) {
         try {
+          // saveNow: push the full blob immediately so phone/address/notifPrefs
+          // don't get lost if the user reloads before the debounce fires.
+          await saveNow();
           const _tok = localStorage.getItem('mxi_token');
           const _headers = { 'Content-Type': 'application/json' };
           if (_tok) _headers['Authorization'] = 'Bearer ' + _tok;
@@ -7418,6 +7420,7 @@
           toast('⚠️ Saved locally but server sync failed', 4000);
         }
       } else {
+        save();
         toast('Profile saved');
       }
     }
