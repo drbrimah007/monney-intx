@@ -31,6 +31,10 @@ module.exports = async function handler(req, res) {
   const payload = requireAuth(req, res);
   if (!payload) return;
 
+  // Prevent browser/CDN caching — data must always be fresh
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+  res.setHeader('Pragma', 'no-cache');
+
   try {
     const [row] = await sql`
       SELECT data FROM user_data WHERE user_id = ${payload.id} LIMIT 1

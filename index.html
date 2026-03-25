@@ -717,7 +717,7 @@
 
       if (_IS_SERVER) {
         try {
-          const res = await fetch('/api/data/load', { credentials: 'include' });
+          const res = await fetch('/api/data/load?_t=' + Date.now(), { credentials: 'include', cache: 'no-store' });
           if (res.ok) {
             const { data, user: srvUser, allUsers, platformSettings } = await res.json();
 
@@ -2073,7 +2073,7 @@
         const _swmHeaders = {};
         const _swmTok = localStorage.getItem('mxi_token');
         if (_swmTok) _swmHeaders['Authorization'] = 'Bearer ' + _swmTok;
-        const res  = await fetch('/api/share?linked=1', { credentials: 'include', headers: _swmHeaders });
+        const res  = await fetch('/api/share?linked=1&_t=' + Date.now(), { credentials: 'include', cache: 'no-store', headers: _swmHeaders });
         const data = await res.json();
         if (!data.ok || !data.shared || data.shared.length === 0) {
           // Populate entries-page placeholder with empty state if it exists
