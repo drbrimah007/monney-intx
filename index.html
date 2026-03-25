@@ -7175,7 +7175,7 @@
             <div class="fg"><label>Phone</label><input type="tel" id="pphone" value="${esc(u.phone||'')}"></div>
           </div>
           <div class="fg"><label>Address</label><textarea id="paddr" rows="2">${esc(u.address||'')}</textarea></div>
-          <button class="btn sm" onclick="saveProfile()">Save Profile</button>
+          <button class="btn sm" onclick="saveProfile(this)">Save Profile</button>
         </div>
 
         <!-- ── Invoice Logo ── -->
@@ -7239,7 +7239,7 @@
               <label class="toggle"><input type="checkbox" id="pdiscoverable" ${u.discoverable?'checked':''}><span class="slider"></span></label>
             </div>
           </div>
-          <button class="btn sm" style="margin-top:14px;" onclick="saveProfile()">Save Preferences</button>
+          <button class="btn sm" style="margin-top:14px;" onclick="saveProfile(this)">Save Preferences</button>
         </div>`;
 
         // ── Sent Invites section ──────────────────────────────────────────
@@ -7383,49 +7383,62 @@
       if (!silent) { save(); logAudit('update_notif_defaults', {}); toast('Notification defaults saved'); }
     }
 
-    async function saveProfile() {
-      const u = curUser();
-      const displayName = document.getElementById('pdisplayname').value.trim() || u.displayName;
-      const newUsername = (document.getElementById('pusername')?.value||'').trim().replace(/\s+/g,'_');
-      const newEmail = (document.getElementById('pemail')?.value||'').trim();
-      if (!displayName) { alert('Display name is required.'); return; }
-      if (!newEmail || !newEmail.includes('@')) { alert('A valid email is required.'); return; }
-      // Update local state
-      u.displayName = displayName;
-      if (newUsername) u.username = newUsername;
-      u.email = newEmail;
-      u.phone = document.getElementById('pphone').value;
-      u.address = document.getElementById('paddr').value;
-      u.notifPrefs = {
-        inapp: document.getElementById('pnotif_inapp')?.checked ?? (u.notifPrefs?.inapp !== false),
-        email: document.getElementById('pnotif_email')?.checked ?? (u.notifPrefs?.email !== false),
-        sms:   document.getElementById('pnotif_sms')?.checked   ?? (u.notifPrefs?.sms   || false)
-      };
-      u.discoverable = document.getElementById('pdiscoverable').checked;
-      updateUserInfo();
-      logAudit('update_profile', { uid: u.id });
-      // Also update the server users table so changes persist across reloads
-      if (_IS_SERVER) {
-        try {
-          // saveNow: push the full blob immediately so phone/address/notifPrefs
-          // don't get lost if the user reloads before the debounce fires.
+    async function saveProfile(btn) {
+      // Disable whichever button triggered the save to prevent double-clicks
+      const _btn = btn || event?.target;
+      const _origLabel = _btn?.textContent;
+      if (_btn) { _btn.disabled = true; _btn.textContent = 'Saving…'; }
+
+      try {
+        const u = curUser();
+        if (!u) throw new Error('No active user found.');
+
+        // Read fields with full null-safety so a missing element never crashes silently
+        const displayName = (document.getElementById('pdisplayname')?.value || '').trim() || u.displayName;
+        const newUsername = (document.getElementById('pusername')?.value  || '').trim().replace(/\s+/g,'_');
+        const newEmail    = (document.getElementById('pemail')?.value     || '').trim();
+
+        if (!displayName) { alert('Display name is required.'); return; }
+        if (!newEmail || !newEmail.includes('@')) { alert('A valid email is required.'); return; }
+
+        // Update in-memory user object
+        u.displayName  = displayName;
+        if (newUsername) u.username = newUsername;
+        u.email        = newEmail;
+        u.phone        = document.getElementById('pphone')?.value    || u.phone    || '';
+        u.address      = document.getElementById('paddr')?.value     || u.address  || '';
+        u.notifPrefs   = {
+          inapp: document.getElementById('pnotif_inapp')?.checked  ?? (u.notifPrefs?.inapp !== false),
+          email: document.getElementById('pnotif_email')?.checked  ?? (u.notifPrefs?.email !== false),
+          sms:   document.getElementById('pnotif_sms')?.checked    ?? (u.notifPrefs?.sms   || false)
+        };
+        u.discoverable = document.getElementById('pdiscoverable')?.checked ?? (u.discoverable || false);
+
+        updateUserInfo();
+        logAudit('update_profile', { uid: u.id });
+
+        if (_IS_SERVER) {
+          // Push full blob immediately so changes survive a reload
           await saveNow();
+          // Also update the users table so displayName/email are authoritative
           const _tok = localStorage.getItem('mxi_token');
-          const _headers = { 'Content-Type': 'application/json' };
-          if (_tok) _headers['Authorization'] = 'Bearer ' + _tok;
-          const res = await fetch('/api/auth/profile', {
-            method: 'POST', credentials: 'include', headers: _headers,
+          const _hdrs = { 'Content-Type': 'application/json' };
+          if (_tok) _hdrs['Authorization'] = 'Bearer ' + _tok;
+          const res  = await fetch('/api/auth/profile', {
+            method: 'POST', credentials: 'include', headers: _hdrs,
             body: JSON.stringify({ displayName, username: newUsername || u.username, email: newEmail })
           });
           const data = await res.json();
           if (!data.ok) { toast('⚠️ ' + (data.error || 'Profile sync failed'), 4000); return; }
-          toast('Profile saved');
-        } catch (e) {
-          toast('⚠️ Saved locally but server sync failed', 4000);
+        } else {
+          save();
         }
-      } else {
-        save();
-        toast('Profile saved');
+        toast('✅ Saved');
+      } catch (e) {
+        console.error('[saveProfile]', e);
+        toast('⚠️ Save failed: ' + e.message, 5000);
+      } finally {
+        if (_btn) { _btn.disabled = false; _btn.textContent = _origLabel; }
       }
     }
 
