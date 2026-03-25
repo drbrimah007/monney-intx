@@ -419,6 +419,8 @@
       releases: [],
       audit: [],
       emailLog: [],
+      groups: [],
+      investments: [],
       settings: {
         appName: 'Money IntX',
         logoData: '',
@@ -1330,7 +1332,7 @@
       let settingsItem = 'settings';
 
       if (role === 'admin') {
-        primaryItems = ['dash', 'contacts', 'entries', 'templates', 'templatedb', 'recurring', 'nok', 'notifs', 'audit', 'users'];
+        primaryItems = ['dash', 'contacts', 'entries', 'templates', 'templatedb', 'recurring', 'groups', 'investments', 'nok', 'notifs', 'audit', 'users'];
         moreItems = [];
       } else if (role === 'standard') {
         primaryItems = ['dash', 'contacts', 'entries', 'notifs'];
@@ -1338,6 +1340,8 @@
           { page: 'templates', label: 'Templates' },
           { page: 'templatedb', label: 'Template DB' },
           { page: 'recurring', label: 'Recurring' },
+          { page: 'groups', label: 'Groups' },
+          { page: 'investments', label: 'Investments' },
           { page: 'nok', label: 'Next of Kin' },
           { page: 'settings', label: 'Profile' }
         ];
@@ -1351,7 +1355,7 @@
       let html = '';
       const unreadNotifs = (db.notifs||[]).filter(n => n.userId === curUser().id && !n.read).length;
       const notifLabel = unreadNotifs > 0 ? `Notifications <span style="display:inline-flex;align-items:center;justify-content:center;background:#ef4444;color:#fff;font-size:10px;font-weight:700;border-radius:99px;min-width:17px;height:17px;padding:0 4px;margin-left:4px;line-height:1;">${unreadNotifs > 99 ? '99+' : unreadNotifs}</span>` : 'Notifications';
-      const navLabels = { dash: 'Dashboard', contacts: 'Contacts', entries: 'Entries', notifs: notifLabel, templates: 'Templates', templatedb: 'Template DB', recurring: 'Recurring', nok: 'Next of Kin', audit: 'Audit Log', users: 'Users' };
+      const navLabels = { dash: 'Dashboard', contacts: 'Contacts', entries: 'Entries', notifs: notifLabel, templates: 'Templates', templatedb: 'Template DB', recurring: 'Recurring', groups: 'Groups', investments: 'Investments', nok: 'Next of Kin', audit: 'Audit Log', users: 'Users' };
 
       // Primary nav items
       primaryItems.forEach(page => {
@@ -1399,7 +1403,7 @@
               { page: '__more__', icon: '⋯',  label: 'More' }
             ];
 
-        const morePages = ['settings','templates','templatedb','recurring','nok','audit','users'];
+        const morePages = ['settings','templates','templatedb','recurring','groups','investments','nok','audit','users'];
         const moreActive = morePages.includes(_curPage);
         tabBar.innerHTML = tabItems.map(t => {
           const isMore = t.page === '__more__';
@@ -1423,6 +1427,8 @@
         { page: 'templates', icon: '📄', label: 'Templates',    roles: ['admin','standard'] },
         { page: 'templatedb',icon: '🌐', label: 'Template DB',  roles: ['admin','standard'] },
         { page: 'recurring', icon: '🔁', label: 'Recurring',    roles: ['admin','standard'] },
+        { page: 'groups',    icon: '🤝', label: 'Groups',       roles: ['admin','standard'] },
+        { page: 'investments', icon: '📈', label: 'Investments', roles: ['admin','standard'] },
         { page: 'nok',       icon: '🔐', label: 'Next of Kin',  roles: ['admin','standard'] },
         { page: 'audit',     icon: '📝', label: 'Audit Log',    roles: ['admin'] },
         { page: 'users',     icon: '👥', label: 'Users',        roles: ['admin'] },
@@ -1603,6 +1609,8 @@
       else if (page === 'templatedb' && (role === 'admin' || role === 'standard')) { _curPage = 'templatedb'; renderTemplateDB(); }
       else if (page === 'recurring' && (role === 'admin' || role === 'standard')) { _curPage = 'recurring'; renderRecurring(); }
       else if (page === 'notifs') { _curPage = 'notifs'; renderNotifs(); }
+      else if (page === 'groups' && (role === 'admin' || role === 'standard')) { _curPage = 'groups'; renderGroups(); }
+      else if (page === 'investments' && (role === 'admin' || role === 'standard')) { _curPage = 'investments'; renderInvestments(); }
       else if (page === 'nok' && (role === 'admin' || role === 'standard')) { _curPage = 'nok'; renderNok(); }
       else if (page === 'users' && isAdmin()) { _curPage = 'users'; renderUsers(); }
       else if (page === 'audit' && isAdmin()) { _curPage = 'audit'; renderAudit(); }
@@ -1621,6 +1629,8 @@
         case 'templates': renderTemplates(); break;
         case 'templatedb': renderTemplateDB(); break;
         case 'recurring': renderRecurring(); break;
+        case 'groups':    renderGroups();    break;
+        case 'investments': renderInvestments(); break;
         case 'nok':       renderNok();       break;
         case 'notifs':    renderNotifs();    break;
         case 'users':     renderUsers();     break;
@@ -7229,6 +7239,633 @@
       </div>`;
       html += `</div>`;
       document.getElementById('content').innerHTML = html;
+    }
+
+    // ============ PAGE: GROUP SAVINGS ============
+    function renderGroups() {
+      const u = curUser();
+      if (!db.groups) db.groups = [];
+      const myGroups = isAdmin() ? db.groups : db.groups.filter(g => g.userId === u.id || (g.members||[]).some(m => m.contactId === u.id));
+      const showArchived = window._arch_groups || false;
+      const filtered = showArchived ? myGroups : myGroups.filter(g => !g.archived);
+
+      let html = `<div class="page-header"><h2>Group Savings</h2><button class="btn sm" onclick="openNewGroup()">+ New Group</button></div>`;
+      html += `<div style="margin-bottom:12px;"><label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;"><input type="checkbox" ${showArchived?'checked':''} onchange="window._arch_groups=this.checked;renderGroups()"> Show Archived</label></div>`;
+
+      if (filtered.length === 0) {
+        html += `<div class="card"><p style="color:var(--muted);font-size:14px;padding:12px 0;">No groups yet. Create one to start tracking group savings.</p></div>`;
+      } else {
+        filtered.forEach(g => {
+          const members = g.members || [];
+          const rounds = g.rounds || [];
+          const curRound = rounds[rounds.length - 1];
+          const paidCount = curRound ? (curRound.contributions||[]).filter(c => c.paid).length : 0;
+          const totalMembers = members.length;
+          const totalCollected = rounds.reduce((sum, r) => sum + (r.contributions||[]).filter(c => c.paid).reduce((s2, c) => s2 + (parseFloat(c.amount)||0), 0), 0);
+          const comments = (g.noticeBoard||[]).length;
+
+          html += `<div class="card" style="margin-bottom:12px;${g.archived?'opacity:.6;':''}" >
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px;">
+              <div>
+                <h3 style="margin:0 0 4px;">${esc(g.name)}</h3>
+                <div style="font-size:13px;color:var(--muted);">${esc(g.description||'')}</div>
+                <div style="display:flex;gap:12px;margin-top:8px;flex-wrap:wrap;">
+                  <span class="badge badge-blue">${members.length} member${members.length!==1?'s':''}</span>
+                  <span class="badge badge-green">${fmt(g.amount, g.currency)} / ${esc(g.frequency||'month')}</span>
+                  <span class="badge badge-gray">${rounds.length} round${rounds.length!==1?'s':''}</span>
+                  ${comments > 0 ? `<span class="badge badge-yellow">${comments} comment${comments!==1?'s':''}</span>` : ''}
+                </div>
+                ${curRound ? `<div style="margin-top:8px;font-size:12px;color:var(--muted);">Current round: ${paidCount}/${totalMembers} paid${g.useRotation && curRound.collectorId ? ` — Collector: ${esc((members.find(m=>m.id===curRound.collectorId)||{}).name||'—')}` : ''}</div>` : ''}
+              </div>
+              <div class="action-menu"><button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button><div class="action-dropdown">
+                <button onclick="openGroupDetail('${g.id}')">👁 View</button>
+                <button onclick="editGroup('${g.id}')">✏️ Edit</button>
+                <button onclick="addGroupRound('${g.id}')">➕ New Round</button>
+                <button onclick="toggleArchiveGroup('${g.id}')">${g.archived?'📤 Unarchive':'📥 Archive'}</button>
+                <button onclick="delGroup('${g.id}')" style="color:var(--red);">🗑 Delete</button>
+              </div></div>
+            </div>
+          </div>`;
+        });
+      }
+      document.getElementById('content').innerHTML = html;
+    }
+
+    function openNewGroup() {
+      const cur = db.settings.currency || 'USD';
+      const html = `<div class="modal-bg" onclick="this.remove()"><div class="modal" onclick="event.stopPropagation()">
+        <div class="modal-title">New Group</div>
+        <div class="fg"><label>Group Name *</label><input type="text" id="gname" placeholder="Friday Savings Club"></div>
+        <div class="fg"><label>Description</label><textarea id="gdesc" rows="2" placeholder="What's this group about?"></textarea></div>
+        <div class="frow">
+          <div class="fg" style="flex:1;"><label>Contribution Amount *</label><input type="number" id="gamount" min="0" step="0.01" placeholder="100"></div>
+          <div class="fg" style="flex:1;"><label>Currency</label><select id="gcurrency">${Object.entries(CURRENCIES).map(([code,ci])=>'<option value="'+code+'"'+(code===cur?' selected':'')+'>'+ci.symbol+' '+code+'</option>').join('')}</select></div>
+        </div>
+        <div class="fg"><label>Frequency</label><select id="gfreq"><option value="weekly">Weekly</option><option value="biweekly">Bi-weekly</option><option value="monthly" selected>Monthly</option><option value="custom">Custom</option></select></div>
+        <div class="fg"><label style="display:flex;align-items:center;gap:8px;cursor:pointer;"><input type="checkbox" id="grotation"> Enable rotation (track who collects each round)</label></div>
+        <div style="display:flex;gap:8px;margin-top:16px;"><button class="btn" onclick="saveNewGroup()">Create Group</button><button class="bs" onclick="this.closest('.modal-bg').remove()">Cancel</button></div>
+      </div></div>`;
+      document.body.insertAdjacentHTML('beforeend', html);
+    }
+
+    function saveNewGroup() {
+      const name = document.getElementById('gname').value.trim();
+      const amount = parseFloat(document.getElementById('gamount').value) || 0;
+      if (!name) { toast('Group name is required'); return; }
+      if (amount <= 0) { toast('Amount must be greater than 0'); return; }
+      const g = {
+        id: 'g_' + Math.random().toString(36).substr(2, 9),
+        userId: curUser().id,
+        name,
+        description: document.getElementById('gdesc').value.trim(),
+        amount,
+        currency: document.getElementById('gcurrency').value,
+        frequency: document.getElementById('gfreq').value,
+        members: [],
+        rounds: [],
+        useRotation: document.getElementById('grotation').checked,
+        rotationOrder: [],
+        noticeBoard: [],
+        archived: false,
+        createdAt: Date.now()
+      };
+      if (!db.groups) db.groups = [];
+      db.groups.push(g);
+      save();
+      document.querySelector('.modal-bg:last-of-type')?.remove();
+      toast('Group created');
+      renderGroups();
+    }
+
+    function editGroup(gid) {
+      const g = (db.groups||[]).find(x => x.id === gid);
+      if (!g) return;
+      const cur = g.currency || db.settings.currency || 'USD';
+      const html = `<div class="modal-bg" onclick="this.remove()"><div class="modal" onclick="event.stopPropagation()">
+        <div class="modal-title">Edit Group</div>
+        <div class="fg"><label>Group Name *</label><input type="text" id="egnm" value="${esc(g.name)}"></div>
+        <div class="fg"><label>Description</label><textarea id="egdesc" rows="2">${esc(g.description||'')}</textarea></div>
+        <div class="frow">
+          <div class="fg" style="flex:1;"><label>Amount *</label><input type="number" id="egamt" min="0" step="0.01" value="${g.amount}"></div>
+          <div class="fg" style="flex:1;"><label>Currency</label><select id="egcur">${Object.entries(CURRENCIES).map(([code,ci])=>'<option value="'+code+'"'+(code===cur?' selected':'')+'>'+ci.symbol+' '+code+'</option>').join('')}</select></div>
+        </div>
+        <div class="fg"><label>Frequency</label><select id="egfreq"><option value="weekly"${g.frequency==='weekly'?' selected':''}>Weekly</option><option value="biweekly"${g.frequency==='biweekly'?' selected':''}>Bi-weekly</option><option value="monthly"${g.frequency==='monthly'?' selected':''}>Monthly</option><option value="custom"${g.frequency==='custom'?' selected':''}>Custom</option></select></div>
+        <div class="fg"><label style="display:flex;align-items:center;gap:8px;cursor:pointer;"><input type="checkbox" id="egrot" ${g.useRotation?'checked':''}> Enable rotation</label></div>
+        <div style="display:flex;gap:8px;margin-top:16px;"><button class="btn" onclick="saveEditGroup('${g.id}')">Save</button><button class="bs" onclick="this.closest('.modal-bg').remove()">Cancel</button></div>
+      </div></div>`;
+      document.body.insertAdjacentHTML('beforeend', html);
+    }
+
+    function saveEditGroup(gid) {
+      const g = (db.groups||[]).find(x => x.id === gid);
+      if (!g) return;
+      const name = document.getElementById('egnm').value.trim();
+      if (!name) { toast('Name required'); return; }
+      g.name = name;
+      g.description = document.getElementById('egdesc').value.trim();
+      g.amount = parseFloat(document.getElementById('egamt').value) || g.amount;
+      g.currency = document.getElementById('egcur').value;
+      g.frequency = document.getElementById('egfreq').value;
+      g.useRotation = document.getElementById('egrot').checked;
+      save();
+      document.querySelector('.modal-bg:last-of-type')?.remove();
+      toast('Group updated');
+      renderGroups();
+    }
+
+    function toggleArchiveGroup(gid) {
+      const g = (db.groups||[]).find(x => x.id === gid);
+      if (!g) return;
+      g.archived = !g.archived;
+      save(); toast(g.archived ? 'Group archived' : 'Group unarchived'); renderGroups();
+    }
+
+    function delGroup(gid) {
+      if (!confirm('Delete this group? This cannot be undone.')) return;
+      db.groups = (db.groups||[]).filter(x => x.id !== gid);
+      save(); toast('Group deleted'); renderGroups();
+    }
+
+    function addGroupRound(gid) {
+      const g = (db.groups||[]).find(x => x.id === gid);
+      if (!g) return;
+      const roundNum = (g.rounds||[]).length + 1;
+      const contributions = (g.members||[]).map(m => ({ memberId: m.id, paid: false, amount: 0, paidAt: null }));
+      // If rotation is enabled, auto-pick next collector
+      let collectorId = null;
+      if (g.useRotation && g.rotationOrder && g.rotationOrder.length > 0) {
+        const idx = ((g.rounds||[]).length) % g.rotationOrder.length;
+        collectorId = g.rotationOrder[idx];
+      }
+      const round = { id: 'r_' + Math.random().toString(36).substr(2, 9), roundNum, collectorId, dueDate: new Date().toISOString().split('T')[0], contributions, createdAt: Date.now() };
+      if (!g.rounds) g.rounds = [];
+      g.rounds.push(round);
+      save(); toast('Round ' + roundNum + ' started'); renderGroups();
+    }
+
+    function markContribution(gid, roundId, memberId) {
+      const g = (db.groups||[]).find(x => x.id === gid);
+      if (!g) return;
+      const round = (g.rounds||[]).find(r => r.id === roundId);
+      if (!round) return;
+      const c = (round.contributions||[]).find(x => x.memberId === memberId);
+      if (!c) return;
+      c.paid = !c.paid;
+      c.amount = c.paid ? g.amount : 0;
+      c.paidAt = c.paid ? Date.now() : null;
+      save();
+      openGroupDetail(gid); // refresh
+    }
+
+    function addGroupMember(gid) {
+      const g = (db.groups||[]).find(x => x.id === gid);
+      if (!g) return;
+      const u = curUser();
+      const myContacts = db.contacts.filter(c => c.userId === u.id && !c.archived);
+      const existing = new Set((g.members||[]).map(m => m.contactId));
+      const available = myContacts.filter(c => !existing.has(c.id));
+      if (available.length === 0) { toast('No more contacts to add'); return; }
+      const opts = available.map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join('');
+      const html = `<div class="modal-bg" onclick="this.remove()"><div class="modal" style="max-width:400px;" onclick="event.stopPropagation()">
+        <div class="modal-title">Add Member</div>
+        <div class="fg"><label>Select Contact</label><select id="gaddmember">${opts}</select></div>
+        <div style="display:flex;gap:8px;margin-top:12px;"><button class="btn sm" onclick="_doAddGroupMember('${gid}')">Add</button><button class="bs sm" onclick="this.closest('.modal-bg').remove()">Cancel</button></div>
+      </div></div>`;
+      document.body.insertAdjacentHTML('beforeend', html);
+    }
+
+    function _doAddGroupMember(gid) {
+      const g = (db.groups||[]).find(x => x.id === gid);
+      if (!g) return;
+      const cid = document.getElementById('gaddmember').value;
+      const contact = db.contacts.find(c => c.id === cid);
+      if (!contact) return;
+      if (!g.members) g.members = [];
+      g.members.push({ id: 'm_' + Math.random().toString(36).substr(2, 9), contactId: cid, name: contact.name, joinedAt: Date.now() });
+      if (g.useRotation) { if (!g.rotationOrder) g.rotationOrder = []; g.rotationOrder.push(g.members[g.members.length-1].id); }
+      save();
+      document.querySelector('.modal-bg:last-of-type')?.remove();
+      toast(contact.name + ' added');
+      openGroupDetail(gid);
+    }
+
+    function removeGroupMember(gid, mid) {
+      const g = (db.groups||[]).find(x => x.id === gid);
+      if (!g) return;
+      if (!confirm('Remove this member?')) return;
+      g.members = (g.members||[]).filter(m => m.id !== mid);
+      if (g.rotationOrder) g.rotationOrder = g.rotationOrder.filter(x => x !== mid);
+      save(); openGroupDetail(gid);
+    }
+
+    function addGroupComment(gid) {
+      const g = (db.groups||[]).find(x => x.id === gid);
+      if (!g) return;
+      const el = document.getElementById('gcomment_' + gid);
+      const msg = el ? el.value.trim() : '';
+      if (!msg) { toast('Enter a message'); return; }
+      if (!g.noticeBoard) g.noticeBoard = [];
+      g.noticeBoard.push({ id: 'nc_' + Math.random().toString(36).substr(2, 9), userId: curUser().id, userName: curUser().displayName || curUser().email, msg, createdAt: Date.now() });
+      save();
+      openGroupDetail(gid);
+    }
+
+    function openGroupDetail(gid) {
+      const g = (db.groups||[]).find(x => x.id === gid);
+      if (!g) return;
+      // Remove any existing detail modal
+      document.querySelectorAll('.grp-detail-modal').forEach(el => el.remove());
+      const members = g.members || [];
+      const rounds = g.rounds || [];
+      const board = (g.noticeBoard || []).slice().reverse();
+      const activeTab = window._grpTab || 'overview';
+
+      let tabContent = '';
+      if (activeTab === 'overview') {
+        tabContent = `<div style="margin-bottom:16px;">
+          <div style="font-size:13px;color:var(--muted);margin-bottom:4px;">Contribution: <strong>${fmt(g.amount, g.currency)}</strong> / ${esc(g.frequency||'month')}</div>
+          ${g.description ? `<div style="font-size:13px;color:var(--muted);margin-bottom:8px;">${esc(g.description)}</div>` : ''}
+          ${g.useRotation ? `<div style="font-size:12px;color:var(--accent);margin-bottom:8px;">Rotation enabled</div>` : ''}
+        </div>
+        <div class="section-title">Members (${members.length})</div>
+        <div style="margin-bottom:12px;">${members.length === 0 ? '<p style="color:var(--muted);font-size:13px;">No members yet.</p>' :
+          members.map(m => `<div class="trow" style="padding:8px 0;">
+            <div class="avatar">${(m.name||'?')[0].toUpperCase()}</div>
+            <div style="flex:1;"><div style="font-weight:600;">${esc(m.name)}</div><div style="font-size:11px;color:var(--muted);">Joined ${new Date(m.joinedAt).toLocaleDateString()}</div></div>
+            <button class="gh sm" onclick="removeGroupMember('${g.id}','${m.id}')" title="Remove" style="color:var(--red);">✕</button>
+          </div>`).join('')}
+        </div>
+        <button class="bs sm" onclick="document.querySelector('.grp-detail-modal')?.remove();addGroupMember('${g.id}')">+ Add Member</button>`;
+      } else if (activeTab === 'rounds') {
+        tabContent = `<button class="btn sm" onclick="document.querySelector('.grp-detail-modal')?.remove();addGroupRound('${g.id}')" style="margin-bottom:16px;">+ New Round</button>`;
+        if (rounds.length === 0) {
+          tabContent += `<p style="color:var(--muted);font-size:13px;">No rounds yet. Start one to track contributions.</p>`;
+        } else {
+          [...rounds].reverse().forEach(r => {
+            const paid = (r.contributions||[]).filter(c => c.paid).length;
+            const total = (r.contributions||[]).length;
+            const collector = g.useRotation && r.collectorId ? (members.find(m => m.id === r.collectorId)||{}).name : null;
+            tabContent += `<div class="card card-sm" style="margin-bottom:10px;">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+                <strong>Round ${r.roundNum}</strong>
+                <span class="badge ${paid===total?'badge-green':'badge-yellow'}">${paid}/${total} paid</span>
+              </div>
+              ${collector ? `<div style="font-size:12px;color:var(--accent);margin-bottom:8px;">Collector: ${esc(collector)}</div>` : ''}
+              ${(r.contributions||[]).map(c => {
+                const mem = members.find(m => m.id === c.memberId);
+                return `<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);font-size:13px;">
+                  <span>${esc(mem?.name||'Unknown')}</span>
+                  <button class="bs sm ${c.paid?'on':''}" onclick="markContribution('${g.id}','${r.id}','${c.memberId}')">${c.paid ? '✓ Paid' : 'Mark Paid'}</button>
+                </div>`;
+              }).join('')}
+            </div>`;
+          });
+        }
+      } else if (activeTab === 'rotation' && g.useRotation) {
+        const order = g.rotationOrder || [];
+        tabContent = `<div class="section-title">Rotation Order</div>`;
+        if (order.length === 0) {
+          tabContent += `<p style="color:var(--muted);font-size:13px;">Add members to set rotation order.</p>`;
+        } else {
+          const nextIdx = rounds.length % order.length;
+          tabContent += order.map((mid, i) => {
+            const mem = members.find(m => m.id === mid);
+            return `<div class="trow" style="padding:8px 0;${i===nextIdx?'background:rgba(108,99,255,.08);border-radius:8px;padding:8px;':''}">
+              <span style="font-weight:700;color:var(--muted);width:28px;">#${i+1}</span>
+              <div class="avatar">${(mem?.name||'?')[0].toUpperCase()}</div>
+              <span style="flex:1;font-weight:600;">${esc(mem?.name||'Unknown')}</span>
+              ${i===nextIdx ? '<span class="badge badge-blue">Next</span>' : ''}
+            </div>`;
+          }).join('');
+        }
+      } else if (activeTab === 'board') {
+        tabContent = `<div style="margin-bottom:16px;">
+          <textarea id="gcomment_${g.id}" rows="2" placeholder="Write a message…" style="margin-bottom:8px;"></textarea>
+          <button class="btn sm" onclick="addGroupComment('${g.id}')">Post</button>
+        </div>`;
+        if (board.length === 0) {
+          tabContent += `<p style="color:var(--muted);font-size:13px;">No messages yet.</p>`;
+        } else {
+          board.forEach(n => {
+            tabContent += `<div style="padding:10px 0;border-bottom:1px solid var(--border);">
+              <div style="display:flex;justify-content:space-between;align-items:baseline;"><strong style="font-size:13px;">${esc(n.userName||'User')}</strong><span style="font-size:11px;color:var(--muted);">${new Date(n.createdAt).toLocaleString()}</span></div>
+              <div style="font-size:14px;margin-top:4px;white-space:pre-line;">${esc(n.msg)}</div>
+            </div>`;
+          });
+        }
+      }
+
+      const modal = `<div class="modal-bg grp-detail-modal" onclick="this.remove()"><div class="modal" style="max-width:580px;" onclick="event.stopPropagation()">
+        <div class="modal-title">${esc(g.name)}</div>
+        <div class="tabs" style="margin-bottom:16px;">
+          <button class="tab ${activeTab==='overview'?'on':''}" onclick="window._grpTab='overview';openGroupDetail('${g.id}')">Overview</button>
+          <button class="tab ${activeTab==='rounds'?'on':''}" onclick="window._grpTab='rounds';openGroupDetail('${g.id}')">Rounds</button>
+          ${g.useRotation ? `<button class="tab ${activeTab==='rotation'?'on':''}" onclick="window._grpTab='rotation';openGroupDetail('${g.id}')">Rotation</button>` : ''}
+          <button class="tab ${activeTab==='board'?'on':''}" onclick="window._grpTab='board';openGroupDetail('${g.id}')">Notice Board${board.length>0?' ('+board.length+')':''}</button>
+        </div>
+        ${tabContent}
+      </div></div>`;
+      document.body.insertAdjacentHTML('beforeend', modal);
+    }
+
+    // ============ PAGE: INVESTMENTS ============
+    function renderInvestments() {
+      const u = curUser();
+      if (!db.investments) db.investments = [];
+      const myInv = isAdmin() ? db.investments : db.investments.filter(inv => inv.userId === u.id);
+      const showArchived = window._arch_investments || false;
+      const filtered = showArchived ? myInv : myInv.filter(inv => !inv.archived);
+
+      // Summary stats
+      let totalInvested = 0, totalReturns = 0;
+      filtered.forEach(inv => {
+        const deposits = (inv.transactions||[]).filter(t => t.type === 'deposit').reduce((s, t) => s + (parseFloat(t.amount)||0), 0);
+        const withdrawals = (inv.transactions||[]).filter(t => t.type === 'withdrawal').reduce((s, t) => s + (parseFloat(t.amount)||0), 0);
+        const dividends = (inv.transactions||[]).filter(t => t.type === 'dividend' || t.type === 'return').reduce((s, t) => s + (parseFloat(t.amount)||0), 0);
+        totalInvested += (parseFloat(inv.initialAmount)||0) + deposits;
+        totalReturns += withdrawals + dividends;
+      });
+      const netGL = totalReturns - totalInvested;
+
+      const INV_TYPES = { general: 'General', stocks: 'Stocks', realestate: 'Real Estate', business: 'Business', crypto: 'Crypto', other: 'Other' };
+      const INV_STATUS = { active: 'badge-green', matured: 'badge-blue', closed: 'badge-gray', lost: 'badge-red' };
+
+      let html = `<div class="page-header"><h2>Investments</h2><button class="btn sm" onclick="openNewInvestment()">+ New Investment</button></div>`;
+      html += `<div class="grid3" style="margin-bottom:16px;">
+        <div class="stat-card"><div class="stat-lbl">Total Invested</div><div class="stat-val">${fmt(totalInvested)}</div></div>
+        <div class="stat-card"><div class="stat-lbl">Total Returns</div><div class="stat-val" style="color:var(--green)">${fmt(totalReturns)}</div></div>
+        <div class="stat-card"><div class="stat-lbl">Net Gain/Loss</div><div class="stat-val" style="color:${netGL>=0?'var(--green)':'var(--red)'}">${fmt(netGL)}</div></div>
+      </div>`;
+      html += `<div style="margin-bottom:12px;"><label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;"><input type="checkbox" ${showArchived?'checked':''} onchange="window._arch_investments=this.checked;renderInvestments()"> Show Archived</label></div>`;
+
+      if (filtered.length === 0) {
+        html += `<div class="card"><p style="color:var(--muted);font-size:14px;padding:12px 0;">No investments yet. Track your first one.</p></div>`;
+      } else {
+        html += `<div class="card"><div class="tbl-wrap"><table><thead><tr><th>Name</th><th class="hide-mobile">Type</th><th>Invested</th><th>Value</th><th class="hide-mobile">Gain/Loss</th><th>Status</th><th style="width:60px;"></th></tr></thead><tbody>`;
+        filtered.forEach(inv => {
+          const deposits = (inv.transactions||[]).filter(t => t.type === 'deposit').reduce((s, t) => s + (parseFloat(t.amount)||0), 0);
+          const withdrawals = (inv.transactions||[]).filter(t => t.type === 'withdrawal').reduce((s, t) => s + (parseFloat(t.amount)||0), 0);
+          const dividends = (inv.transactions||[]).filter(t => t.type === 'dividend' || t.type === 'return').reduce((s, t) => s + (parseFloat(t.amount)||0), 0);
+          const invested = (parseFloat(inv.initialAmount)||0) + deposits;
+          const currentVal = invested - withdrawals + dividends;
+          const gl = currentVal - invested;
+          const comments = (inv.noticeBoard||[]).length;
+          html += `<tr${inv.archived?' class="archived"':''}>
+            <td><strong style="cursor:pointer;color:var(--accent);" onclick="openInvestmentDetail('${inv.id}')">${esc(inv.name)}</strong>${comments>0?` <span class="badge badge-yellow" style="font-size:10px;">${comments}</span>`:''}</td>
+            <td class="hide-mobile"><span class="badge badge-gray">${esc(INV_TYPES[inv.type]||inv.type)}</span></td>
+            <td>${fmt(invested, inv.currency)}</td>
+            <td><strong>${fmt(currentVal, inv.currency)}</strong></td>
+            <td class="hide-mobile"><span style="color:${gl>=0?'var(--green)':'var(--red)'};">${gl>=0?'+':''}${fmt(gl, inv.currency)}</span></td>
+            <td><span class="badge ${INV_STATUS[inv.status]||'badge-gray'}">${esc((inv.status||'active').charAt(0).toUpperCase()+(inv.status||'active').slice(1))}</span></td>
+            <td><div class="action-menu"><button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button><div class="action-dropdown">
+              <button onclick="openInvestmentDetail('${inv.id}')">👁 View</button>
+              <button onclick="editInvestment('${inv.id}')">✏️ Edit</button>
+              <button onclick="addInvestmentTx('${inv.id}')">💰 Transaction</button>
+              <button onclick="toggleArchiveInv('${inv.id}')">${inv.archived?'📤 Unarchive':'📥 Archive'}</button>
+              <button onclick="delInvestment('${inv.id}')" style="color:var(--red);">🗑 Delete</button>
+            </div></div></td>
+          </tr>`;
+        });
+        html += `</tbody></table></div></div>`;
+      }
+      document.getElementById('content').innerHTML = html;
+    }
+
+    function openNewInvestment() {
+      const cur = db.settings.currency || 'USD';
+      const html = `<div class="modal-bg" onclick="this.remove()"><div class="modal" onclick="event.stopPropagation()">
+        <div class="modal-title">New Investment</div>
+        <div class="fg"><label>Name *</label><input type="text" id="invname" placeholder="Tesla Stocks"></div>
+        <div class="fg"><label>Description</label><textarea id="invdesc" rows="2" placeholder="Details about this investment"></textarea></div>
+        <div class="frow">
+          <div class="fg" style="flex:1;"><label>Type</label><select id="invtype"><option value="general">General</option><option value="stocks">Stocks</option><option value="realestate">Real Estate</option><option value="business">Business</option><option value="crypto">Crypto</option><option value="other">Other</option></select></div>
+          <div class="fg" style="flex:1;"><label>Status</label><select id="invstatus"><option value="active">Active</option><option value="matured">Matured</option><option value="closed">Closed</option><option value="lost">Lost</option></select></div>
+        </div>
+        <div class="frow">
+          <div class="fg" style="flex:1;"><label>Initial Amount *</label><input type="number" id="invamt" min="0" step="0.01" placeholder="5000"></div>
+          <div class="fg" style="flex:1;"><label>Currency</label><select id="invcur">${Object.entries(CURRENCIES).map(([code,ci])=>'<option value="'+code+'"'+(code===cur?' selected':'')+'>'+ci.symbol+' '+code+'</option>').join('')}</select></div>
+        </div>
+        <div class="frow">
+          <div class="fg" style="flex:1;"><label>Start Date</label><input type="date" id="invdate" value="${new Date().toISOString().split('T')[0]}"></div>
+          <div class="fg" style="flex:1;"><label>Expected Return %</label><input type="number" id="invreturn" min="0" step="0.1" placeholder="12"></div>
+        </div>
+        <div style="display:flex;gap:8px;margin-top:16px;"><button class="btn" onclick="saveNewInvestment()">Create</button><button class="bs" onclick="this.closest('.modal-bg').remove()">Cancel</button></div>
+      </div></div>`;
+      document.body.insertAdjacentHTML('beforeend', html);
+    }
+
+    function saveNewInvestment() {
+      const name = document.getElementById('invname').value.trim();
+      const amt = parseFloat(document.getElementById('invamt').value) || 0;
+      if (!name) { toast('Name is required'); return; }
+      if (amt <= 0) { toast('Initial amount must be greater than 0'); return; }
+      const inv = {
+        id: 'inv_' + Math.random().toString(36).substr(2, 9),
+        userId: curUser().id,
+        name,
+        description: document.getElementById('invdesc').value.trim(),
+        type: document.getElementById('invtype').value,
+        initialAmount: amt,
+        currency: document.getElementById('invcur').value,
+        startDate: document.getElementById('invdate').value,
+        expectedReturn: parseFloat(document.getElementById('invreturn').value) || 0,
+        status: document.getElementById('invstatus').value,
+        transactions: [],
+        noticeBoard: [],
+        archived: false,
+        createdAt: Date.now()
+      };
+      if (!db.investments) db.investments = [];
+      db.investments.push(inv);
+      save();
+      document.querySelector('.modal-bg:last-of-type')?.remove();
+      toast('Investment created');
+      renderInvestments();
+    }
+
+    function editInvestment(iid) {
+      const inv = (db.investments||[]).find(x => x.id === iid);
+      if (!inv) return;
+      const cur = inv.currency || db.settings.currency || 'USD';
+      const html = `<div class="modal-bg" onclick="this.remove()"><div class="modal" onclick="event.stopPropagation()">
+        <div class="modal-title">Edit Investment</div>
+        <div class="fg"><label>Name *</label><input type="text" id="einvnm" value="${esc(inv.name)}"></div>
+        <div class="fg"><label>Description</label><textarea id="einvdesc" rows="2">${esc(inv.description||'')}</textarea></div>
+        <div class="frow">
+          <div class="fg" style="flex:1;"><label>Type</label><select id="einvtype">${['general','stocks','realestate','business','crypto','other'].map(t=>'<option value="'+t+'"'+(inv.type===t?' selected':'')+'>'+t.charAt(0).toUpperCase()+t.slice(1)+'</option>').join('')}</select></div>
+          <div class="fg" style="flex:1;"><label>Status</label><select id="einvst">${['active','matured','closed','lost'].map(s=>'<option value="'+s+'"'+(inv.status===s?' selected':'')+'>'+s.charAt(0).toUpperCase()+s.slice(1)+'</option>').join('')}</select></div>
+        </div>
+        <div class="frow">
+          <div class="fg" style="flex:1;"><label>Initial Amount</label><input type="number" id="einvamt" value="${inv.initialAmount}" min="0" step="0.01"></div>
+          <div class="fg" style="flex:1;"><label>Currency</label><select id="einvcur">${Object.entries(CURRENCIES).map(([code,ci])=>'<option value="'+code+'"'+(code===cur?' selected':'')+'>'+ci.symbol+' '+code+'</option>').join('')}</select></div>
+        </div>
+        <div class="frow">
+          <div class="fg" style="flex:1;"><label>Start Date</label><input type="date" id="einvdt" value="${inv.startDate||''}"></div>
+          <div class="fg" style="flex:1;"><label>Expected Return %</label><input type="number" id="einvret" value="${inv.expectedReturn||''}" min="0" step="0.1"></div>
+        </div>
+        <div style="display:flex;gap:8px;margin-top:16px;"><button class="btn" onclick="saveEditInvestment('${inv.id}')">Save</button><button class="bs" onclick="this.closest('.modal-bg').remove()">Cancel</button></div>
+      </div></div>`;
+      document.body.insertAdjacentHTML('beforeend', html);
+    }
+
+    function saveEditInvestment(iid) {
+      const inv = (db.investments||[]).find(x => x.id === iid);
+      if (!inv) return;
+      const name = document.getElementById('einvnm').value.trim();
+      if (!name) { toast('Name required'); return; }
+      inv.name = name;
+      inv.description = document.getElementById('einvdesc').value.trim();
+      inv.type = document.getElementById('einvtype').value;
+      inv.status = document.getElementById('einvst').value;
+      inv.initialAmount = parseFloat(document.getElementById('einvamt').value) || inv.initialAmount;
+      inv.currency = document.getElementById('einvcur').value;
+      inv.startDate = document.getElementById('einvdt').value;
+      inv.expectedReturn = parseFloat(document.getElementById('einvret').value) || 0;
+      save();
+      document.querySelector('.modal-bg:last-of-type')?.remove();
+      toast('Investment updated');
+      renderInvestments();
+    }
+
+    function toggleArchiveInv(iid) {
+      const inv = (db.investments||[]).find(x => x.id === iid);
+      if (!inv) return;
+      inv.archived = !inv.archived;
+      save(); toast(inv.archived ? 'Investment archived' : 'Investment unarchived'); renderInvestments();
+    }
+
+    function delInvestment(iid) {
+      if (!confirm('Delete this investment? This cannot be undone.')) return;
+      db.investments = (db.investments||[]).filter(x => x.id !== iid);
+      save(); toast('Investment deleted'); renderInvestments();
+    }
+
+    function addInvestmentTx(iid) {
+      const inv = (db.investments||[]).find(x => x.id === iid);
+      if (!inv) return;
+      const html = `<div class="modal-bg" onclick="this.remove()"><div class="modal" style="max-width:420px;" onclick="event.stopPropagation()">
+        <div class="modal-title">Add Transaction</div>
+        <div style="font-size:13px;color:var(--muted);margin-bottom:12px;">${esc(inv.name)}</div>
+        <div class="fg"><label>Type</label><select id="itxtype"><option value="deposit">Deposit</option><option value="withdrawal">Withdrawal</option><option value="dividend">Dividend</option><option value="return">Return</option></select></div>
+        <div class="fg"><label>Amount *</label><input type="number" id="itxamt" min="0" step="0.01" placeholder="500"></div>
+        <div class="fg"><label>Date</label><input type="date" id="itxdate" value="${new Date().toISOString().split('T')[0]}"></div>
+        <div class="fg"><label>Note</label><input type="text" id="itxnote" placeholder="Optional note"></div>
+        <div style="display:flex;gap:8px;margin-top:12px;"><button class="btn" onclick="saveInvestmentTx('${iid}')">Save</button><button class="bs" onclick="this.closest('.modal-bg').remove()">Cancel</button></div>
+      </div></div>`;
+      document.body.insertAdjacentHTML('beforeend', html);
+    }
+
+    function saveInvestmentTx(iid) {
+      const inv = (db.investments||[]).find(x => x.id === iid);
+      if (!inv) return;
+      const amt = parseFloat(document.getElementById('itxamt').value) || 0;
+      if (amt <= 0) { toast('Amount required'); return; }
+      if (!inv.transactions) inv.transactions = [];
+      inv.transactions.push({
+        id: 'itx_' + Math.random().toString(36).substr(2, 9),
+        type: document.getElementById('itxtype').value,
+        amount: amt,
+        date: document.getElementById('itxdate').value,
+        note: document.getElementById('itxnote').value.trim(),
+        createdAt: Date.now()
+      });
+      save();
+      document.querySelector('.modal-bg:last-of-type')?.remove();
+      toast('Transaction recorded');
+      renderInvestments();
+    }
+
+    function addInvestmentComment(iid) {
+      const inv = (db.investments||[]).find(x => x.id === iid);
+      if (!inv) return;
+      const el = document.getElementById('icomment_' + iid);
+      const msg = el ? el.value.trim() : '';
+      if (!msg) { toast('Enter a message'); return; }
+      if (!inv.noticeBoard) inv.noticeBoard = [];
+      inv.noticeBoard.push({ id: 'nc_' + Math.random().toString(36).substr(2, 9), userId: curUser().id, userName: curUser().displayName || curUser().email, msg, createdAt: Date.now() });
+      save();
+      openInvestmentDetail(iid);
+    }
+
+    function openInvestmentDetail(iid) {
+      const inv = (db.investments||[]).find(x => x.id === iid);
+      if (!inv) return;
+      document.querySelectorAll('.inv-detail-modal').forEach(el => el.remove());
+      const txs = (inv.transactions || []).slice().reverse();
+      const board = (inv.noticeBoard || []).slice().reverse();
+      const activeTab = window._invTab || 'overview';
+
+      const deposits = (inv.transactions||[]).filter(t => t.type === 'deposit').reduce((s, t) => s + (parseFloat(t.amount)||0), 0);
+      const withdrawals = (inv.transactions||[]).filter(t => t.type === 'withdrawal').reduce((s, t) => s + (parseFloat(t.amount)||0), 0);
+      const dividends = (inv.transactions||[]).filter(t => t.type === 'dividend' || t.type === 'return').reduce((s, t) => s + (parseFloat(t.amount)||0), 0);
+      const totalIn = (parseFloat(inv.initialAmount)||0) + deposits;
+      const totalOut = withdrawals + dividends;
+      const currentVal = totalIn - withdrawals + dividends;
+      const roi = totalIn > 0 ? ((currentVal - totalIn) / totalIn * 100).toFixed(1) : '0.0';
+
+      const INV_TYPES = { general: 'General', stocks: 'Stocks', realestate: 'Real Estate', business: 'Business', crypto: 'Crypto', other: 'Other' };
+      const TX_LABELS = { deposit: 'Deposit', withdrawal: 'Withdrawal', dividend: 'Dividend', return: 'Return' };
+      const TX_COLORS = { deposit: 'var(--blue)', withdrawal: 'var(--red)', dividend: 'var(--green)', return: 'var(--green)' };
+
+      let tabContent = '';
+      if (activeTab === 'overview') {
+        tabContent = `
+          ${inv.description ? `<div style="font-size:13px;color:var(--muted);margin-bottom:16px;">${esc(inv.description)}</div>` : ''}
+          <div class="grid2" style="margin-bottom:16px;">
+            <div class="stat-card"><div class="stat-lbl">Total In</div><div class="stat-val" style="font-size:18px;">${fmt(totalIn, inv.currency)}</div></div>
+            <div class="stat-card"><div class="stat-lbl">Total Out</div><div class="stat-val" style="font-size:18px;">${fmt(totalOut, inv.currency)}</div></div>
+            <div class="stat-card"><div class="stat-lbl">Current Value</div><div class="stat-val" style="font-size:18px;">${fmt(currentVal, inv.currency)}</div></div>
+            <div class="stat-card"><div class="stat-lbl">ROI</div><div class="stat-val" style="font-size:18px;color:${parseFloat(roi)>=0?'var(--green)':'var(--red)'};">${roi}%</div></div>
+          </div>
+          <div style="font-size:13px;color:var(--muted);">
+            <div>Type: <strong>${esc(INV_TYPES[inv.type]||inv.type)}</strong></div>
+            <div>Started: <strong>${inv.startDate ? new Date(inv.startDate).toLocaleDateString() : '—'}</strong></div>
+            ${inv.expectedReturn ? `<div>Expected Return: <strong>${inv.expectedReturn}%</strong></div>` : ''}
+            <div>Status: <strong>${esc((inv.status||'active').charAt(0).toUpperCase()+(inv.status||'active').slice(1))}</strong></div>
+          </div>`;
+      } else if (activeTab === 'transactions') {
+        tabContent = `<button class="btn sm" onclick="document.querySelector('.inv-detail-modal')?.remove();addInvestmentTx('${inv.id}')" style="margin-bottom:16px;">+ Add Transaction</button>`;
+        if (txs.length === 0) {
+          tabContent += `<p style="color:var(--muted);font-size:13px;">No transactions yet.</p>`;
+        } else {
+          tabContent += `<div class="tbl-wrap"><table><thead><tr><th>Type</th><th>Amount</th><th>Date</th><th class="hide-mobile">Note</th></tr></thead><tbody>`;
+          txs.forEach(t => {
+            tabContent += `<tr>
+              <td><span style="font-weight:700;color:${TX_COLORS[t.type]||'var(--muted)'};">${esc(TX_LABELS[t.type]||t.type)}</span></td>
+              <td>${fmt(t.amount, inv.currency)}</td>
+              <td>${t.date ? new Date(t.date).toLocaleDateString() : '—'}</td>
+              <td class="hide-mobile" style="font-size:12px;color:var(--muted);">${esc(t.note||'—')}</td>
+            </tr>`;
+          });
+          tabContent += `</tbody></table></div>`;
+        }
+      } else if (activeTab === 'board') {
+        tabContent = `<div style="margin-bottom:16px;">
+          <textarea id="icomment_${inv.id}" rows="2" placeholder="Write a message…" style="margin-bottom:8px;"></textarea>
+          <button class="btn sm" onclick="addInvestmentComment('${inv.id}')">Post</button>
+        </div>`;
+        if (board.length === 0) {
+          tabContent += `<p style="color:var(--muted);font-size:13px;">No messages yet.</p>`;
+        } else {
+          board.forEach(n => {
+            tabContent += `<div style="padding:10px 0;border-bottom:1px solid var(--border);">
+              <div style="display:flex;justify-content:space-between;align-items:baseline;"><strong style="font-size:13px;">${esc(n.userName||'User')}</strong><span style="font-size:11px;color:var(--muted);">${new Date(n.createdAt).toLocaleString()}</span></div>
+              <div style="font-size:14px;margin-top:4px;white-space:pre-line;">${esc(n.msg)}</div>
+            </div>`;
+          });
+        }
+      }
+
+      const modal = `<div class="modal-bg inv-detail-modal" onclick="this.remove()"><div class="modal" style="max-width:580px;" onclick="event.stopPropagation()">
+        <div class="modal-title">${esc(inv.name)}</div>
+        <div class="tabs" style="margin-bottom:16px;">
+          <button class="tab ${activeTab==='overview'?'on':''}" onclick="window._invTab='overview';openInvestmentDetail('${inv.id}')">Overview</button>
+          <button class="tab ${activeTab==='transactions'?'on':''}" onclick="window._invTab='transactions';openInvestmentDetail('${inv.id}')">Transactions${txs.length>0?' ('+txs.length+')':''}</button>
+          <button class="tab ${activeTab==='board'?'on':''}" onclick="window._invTab='board';openInvestmentDetail('${inv.id}')">Notice Board${board.length>0?' ('+board.length+')':''}</button>
+        </div>
+        ${tabContent}
+      </div></div>`;
+      document.body.insertAdjacentHTML('beforeend', modal);
     }
 
     // ============ PAGE: SETTINGS ============
