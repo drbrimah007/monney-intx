@@ -976,7 +976,7 @@ module.exports = async function handler(req, res) {
             amount:          thisPayment,
             note:            `Payment (by recipient) for ${docRef}`,
             date:            Date.now(),
-            status:          'settled',
+            status:          'payment',
             archived:        false,
             shared:          false,
             responses:       [],

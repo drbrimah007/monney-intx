@@ -4,7 +4,16 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <link rel="icon" type="image/png" href="favicon.png">
-  <link rel="apple-touch-icon" href="favicon.png">
+  <link rel="icon" type="image/svg+xml" href="/logo.svg">
+  <link rel="apple-touch-icon" href="/logo.svg">
+  <meta property="og:title" content="Money IntX">
+  <meta property="og:description" content="Making Money Matters Memorable — Track invoices, settlements, and financial interactions.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://monney-intx.vercel.app">
+  <meta property="og:image" content="https://monney-intx.vercel.app/logo.svg">
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:title" content="Money IntX">
+  <meta name="twitter:description" content="Making Money Matters Memorable">
   <title>Money Intx — Financial Tracking</title>
   <style>
     :root {
@@ -401,6 +410,7 @@
       disputed: 'Disputed',
       paid: 'Settled',
       settled: 'Settled',
+      payment: 'Payment',
       partially_settled: 'Partially Settled',
       overdue: 'Overdue',
       voided: 'Voided',
@@ -549,6 +559,7 @@
       const label = ENTRY_STATUS[safeStatus(s)] || (s ? s.charAt(0).toUpperCase() + s.slice(1) : 'Posted');
       const cls =
         (s==='settled' || s==='paid') ? 'badge-green'  :
+        (s==='payment')            ? 'badge-green'  :
         (s==='fulfilled')          ? 'badge-green'  :
         (s==='accepted')           ? 'badge-green'  :
         (s==='overdue')            ? 'badge-red'    :
@@ -843,6 +854,12 @@
       });
       // Ensure each entry has a valid status
       db.entries.forEach(e => { if (!ENTRY_STATUS[e.status]) e.status = 'posted'; });
+      // Change receipt entries status from 'settled' to 'payment'
+      db.entries.forEach(e => {
+        if ((e.isReceipt || e.settledByRecipient) && e.status === 'settled') {
+          e.status = 'payment';
+        }
+      });
       // Migration (one-time): clear stale reminderCount from entries that had it
       // auto-set by old code. Now reminderCount is ONLY set by explicit "Send Reminder".
       if (!localStorage.getItem('mxi_mig_reminder_v2')) {
@@ -2598,9 +2615,9 @@
     /* ── Status chip for white docs (inline, no dark CSS vars) ─────── */
     function _docStatusChip(s) {
       const label = ENTRY_STATUS[safeStatus(s)] || s;
-      const bg = (s==='settled') ? '#d1fae5' : (s==='overdue'||s==='disputed') ? '#fee2e2' :
+      const bg = (s==='settled'||s==='payment') ? '#d1fae5' : (s==='overdue'||s==='disputed') ? '#fee2e2' :
                  (s==='partially_settled') ? '#fef3c7' : (s==='voided'||s==='draft') ? '#f3f4f6' : '#dbeafe';
-      const col = (s==='settled') ? '#065f46' : (s==='overdue'||s==='disputed') ? '#991b1b' :
+      const col = (s==='settled'||s==='payment') ? '#065f46' : (s==='overdue'||s==='disputed') ? '#991b1b' :
                   (s==='partially_settled') ? '#92400e' : (s==='voided'||s==='draft') ? '#6b7280' : '#1e40af';
       return `<span style="display:inline-block;background:${bg};color:${col};border-radius:4px;padding:3px 10px;font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;">${esc(label)}</span>`;
     }
@@ -8417,7 +8434,7 @@
         txType:       _flipTxType(entry.txType || 'they_owe_you'),
         senderTxType: entry.txType || 'they_owe_you', // original sender perspective
         date:         entry.date || new Date().toISOString().slice(0,10),
-        status:       entry.status || 'posted',
+        status:       isSettlementReceipt ? 'payment' : (entry.status || 'posted'),
         notes:        entry.note || '',
         invoiceNumber:entry.invoiceNumber || '',
         isShared:     true,          // KEY: unified record layer
