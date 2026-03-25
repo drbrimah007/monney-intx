@@ -705,10 +705,12 @@
 
     // ── load(): pull from server, fall back to localStorage ──────────────
     let _loadCompleted = false;
-    async function load() {
-      // If already loaded in this session, skip — prevents overwriting entries
+    let _lastServerUpdatedAt = 0; // track server blob timestamp for change detection
+    async function load(opts) {
+      const _forceRefresh = opts?.force || false;
+      // If already loaded in this session and not forcing, skip — prevents overwriting entries
       // created by _loadSharedWithMe. Explicit re-loads (login, signup) reset this flag.
-      if (_loadCompleted && _IS_SERVER) {
+      if (_loadCompleted && _IS_SERVER && !_forceRefresh) {
         return;
       }
       // Read localStorage first — we need it as a recovery source if server is blank
@@ -719,7 +721,8 @@
         try {
           const res = await fetch('/api/data/load?_t=' + Date.now(), { credentials: 'include', cache: 'no-store' });
           if (res.ok) {
-            const { data, user: srvUser, allUsers, platformSettings } = await res.json();
+            const { data, user: srvUser, allUsers, platformSettings, updatedAt } = await res.json();
+            if (updatedAt) _lastServerUpdatedAt = updatedAt;
 
             // Determine which data source to use
             const serverHasData = Object.keys(data).length > 0 &&
@@ -879,24 +882,67 @@
     async function _syncToServer() {
       // Never push to server while impersonating — db contains merged user+admin data
       if (_impersonatingDataUserId) { return; }
-      const _tok = localStorage.getItem('mxi_token');
-      const _headers = { 'Content-Type': 'application/json' };
-      if (_tok) _headers['Authorization'] = 'Bearer ' + _tok;
-      // Strip shared items before syncing — they belong to other users' blobs
-      const _cleanDb = { ...db };
-      _cleanDb.groups = (db.groups || []).filter(g => !g._shared);
-      _cleanDb.investments = (db.investments || []).filter(i => !i._shared);
-      const res = await fetch('/api/data/sync', {
-        method: 'POST',
-        credentials: 'include',
-        headers: _headers,
-        body: JSON.stringify({ data: _cleanDb })
-      });
-      if (!res.ok) {
-        const errBody = await res.json().catch(() => ({}));
-        throw new Error('[sync] HTTP ' + res.status + ': ' + (errBody.error || 'unknown'));
+      _freshnessPaused = true; // pause polling during save to avoid race
+      try {
+        const _tok = localStorage.getItem('mxi_token');
+        const _headers = { 'Content-Type': 'application/json' };
+        if (_tok) _headers['Authorization'] = 'Bearer ' + _tok;
+        // Strip shared items before syncing — they belong to other users' blobs
+        const _cleanDb = { ...db };
+        _cleanDb.groups = (db.groups || []).filter(g => !g._shared);
+        _cleanDb.investments = (db.investments || []).filter(i => !i._shared);
+        const res = await fetch('/api/data/sync', {
+          method: 'POST',
+          credentials: 'include',
+          headers: _headers,
+          body: JSON.stringify({ data: _cleanDb })
+        });
+        if (!res.ok) {
+          const errBody = await res.json().catch(() => ({}));
+          throw new Error('[sync] HTTP ' + res.status + ': ' + (errBody.error || 'unknown'));
+        }
+        // Update our timestamp so freshness check doesn't trigger a reload from our own save
+        _lastServerUpdatedAt = Date.now();
+      } finally {
+        // Resume polling after a short delay to let server settle
+        setTimeout(() => { _freshnessPaused = false; }, 3000);
       }
     }
+    // ── Cross-device freshness polling ──────────────────────────────────
+    // Checks every 15s if another device has saved newer data.
+    // If the server blob is newer than what we loaded, auto-refresh.
+    let _freshnessTimer = null;
+    let _freshnessPaused = false; // pause during saves to avoid race
+    function _startFreshnessPolling() {
+      if (!_IS_SERVER || _freshnessTimer) return;
+      _freshnessTimer = setInterval(_checkFreshness, 15000);
+    }
+    function _stopFreshnessPolling() {
+      if (_freshnessTimer) { clearInterval(_freshnessTimer); _freshnessTimer = null; }
+    }
+    async function _checkFreshness() {
+      if (_freshnessPaused || !_IS_SERVER || _impersonatingDataUserId) return;
+      try {
+        const _tok = localStorage.getItem('mxi_token');
+        const _h = {};
+        if (_tok) _h['Authorization'] = 'Bearer ' + _tok;
+        const res = await fetch('/api/data/freshness?_t=' + Date.now(), {
+          credentials: 'include', cache: 'no-store', headers: _h
+        });
+        if (!res.ok) return;
+        const { updatedAt } = await res.json();
+        if (updatedAt && _lastServerUpdatedAt && updatedAt > _lastServerUpdatedAt + 1000) {
+          // Server blob is newer — another device saved. Reload silently.
+          console.log('[freshness] Server blob newer, reloading data…');
+          _lastServerUpdatedAt = updatedAt;
+          await load({ force: true });
+          refreshCurPage();
+          // Also reload shared records
+          _loadSharedWithMe();
+        }
+      } catch(_) { /* network error — skip this cycle */ }
+    }
+
     function migrate() {
       const def = defDB();
       if (!db.users) db.users = [];
@@ -1635,9 +1681,29 @@
       // Clean up bulk bar + select mode when navigating away from entries
       if (page !== 'entries') { document.getElementById('_bulkBar')?.remove(); window._selectMode = false; window._selectedEntries = new Set(); }
       const role = curRole();
-      if (page === 'dash' && (role === 'admin' || role === 'standard' || role === 'contact')) { _curPage = 'dash'; renderDash(); }
+      if (page === 'dash' && (role === 'admin' || role === 'standard' || role === 'contact')) {
+        _curPage = 'dash';
+        renderDash();
+        // Always pull fresh data from server when hitting the dashboard
+        // This ensures cross-device changes are always visible
+        if (_IS_SERVER && _loadCompleted) {
+          load({ force: true }).then(() => {
+            renderDash();
+            _loadSharedWithMe();
+          }).catch(() => {});
+        }
+      }
       else if (page === 'contacts' && (role === 'admin' || role === 'standard')) { _curPage = 'contacts'; renderContacts(); }
-      else if (page === 'entries') { _curPage = 'entries'; renderEntries(); }
+      else if (page === 'entries') {
+        _curPage = 'entries';
+        renderEntries();
+        if (_IS_SERVER && _loadCompleted) {
+          load({ force: true }).then(() => {
+            renderEntries();
+            _loadSharedWithMe();
+          }).catch(() => {});
+        }
+      }
       else if (page === 'templates' && (role === 'admin' || role === 'standard')) { _curPage = 'templates'; renderTemplates(); }
       else if (page === 'templatedb' && (role === 'admin' || role === 'standard')) { _curPage = 'templatedb'; renderTemplateDB(); }
       else if (page === 'recurring' && (role === 'admin' || role === 'standard')) { _curPage = 'recurring'; renderRecurring(); }
@@ -12160,6 +12226,7 @@
       setTimeout(checkAndShowUsernamePrompt, 300);
       // Start background notification polling
       _startNotifPolling();
+      _startFreshnessPolling();
       // Backfill share tokens for existing entries that pre-date auto-linking (fire-and-forget)
       if (_IS_SERVER && curRole() === 'standard') {
         setTimeout(() => {

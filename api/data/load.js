@@ -37,7 +37,7 @@ module.exports = async function handler(req, res) {
 
   try {
     const [row] = await sql`
-      SELECT data FROM user_data WHERE user_id = ${payload.id} LIMIT 1
+      SELECT data, updated_at FROM user_data WHERE user_id = ${payload.id} LIMIT 1
     `;
 
     // Also grab the user's profile fields to merge in
@@ -89,8 +89,10 @@ module.exports = async function handler(req, res) {
       } catch (_) { /* non-critical */ }
     }
 
+    const updatedAt = row?.updated_at ? new Date(row.updated_at).getTime() : 0;
+
     return res.json({
-      ok: true, data,
+      ok: true, data, updatedAt,
       user: { id: user.id, displayName: user.display_name, email: user.email, username: user.username, role: user.role },
       ...(allUsers !== null ? { allUsers } : {}),
       ...(platformSettings ? { platformSettings } : {})
