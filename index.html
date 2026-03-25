@@ -1986,20 +1986,30 @@
         db.groups = db.groups.filter(g => !g._shared);
         db.investments = db.investments.filter(i => !i._shared);
 
-        // Merge new shared items in
+        // Merge new shared items in.
+        // After filtering out all _shared items above, we add server-returned items.
+        // Guard against edge case: if user owns an item with same ID (shouldn't happen
+        // but protects against data corruption), skip it to avoid duplicates.
         window._sharedGroupIds = new Set();
         window._sharedInvestmentIds = new Set();
         for (const g of (groups || [])) {
-          if (!db.groups.find(x => x.id === g.id)) {
+          const existingIdx = db.groups.findIndex(x => x.id === g.id);
+          if (existingIdx >= 0) {
+            // Local (owned) item with same ID exists — don't duplicate, but still track
+            console.warn('[shared-groups] skipping shared group with duplicate local ID:', g.id);
+          } else {
             db.groups.push(g);
-            window._sharedGroupIds.add(g.id);
           }
+          window._sharedGroupIds.add(g.id);
         }
         for (const inv of (investments || [])) {
-          if (!db.investments.find(x => x.id === inv.id)) {
+          const existingIdx = db.investments.findIndex(x => x.id === inv.id);
+          if (existingIdx >= 0) {
+            console.warn('[shared-groups] skipping shared investment with duplicate local ID:', inv.id);
+          } else {
             db.investments.push(inv);
-            window._sharedInvestmentIds.add(inv.id);
           }
+          window._sharedInvestmentIds.add(inv.id);
         }
 
         if (_curPage === 'groups') renderGroups();
@@ -2017,6 +2027,9 @@
         return;
       }
       // Shared item — push update to server
+      // Stamp a _lastModified timestamp for optimistic concurrency
+      item._lastModified = Date.now();
+      item._lastModifiedBy = curUser().id || curUser().email;
       try {
         const _tok = localStorage.getItem('mxi_token');
         const _headers = { 'Content-Type': 'application/json' };
@@ -2024,10 +2037,28 @@
         const cleanItem = { ...item };
         delete cleanItem._shared;
         delete cleanItem._ownerUserId;
-        await fetch('/api/shared-groups', {
+        const res = await fetch('/api/shared-groups', {
           method: 'POST', credentials: 'include', headers: _headers,
           body: JSON.stringify({ action: 'update-item', itemId: item.id, collection, updatedItem: cleanItem })
         });
+        if (!res.ok) {
+          const errBody = await res.json().catch(() => ({}));
+          console.error('[saveSharedItem] server rejected:', res.status, errBody.error);
+          if (res.status === 403) {
+            toast('Permission denied — you may no longer be a member');
+          } else {
+            toast('Failed to save — server error (' + res.status + ')');
+          }
+          // Reload shared items to get the authoritative server state
+          await _loadSharedGroupsAndInvestments();
+          return;
+        }
+        const body = await res.json().catch(() => ({}));
+        if (body.ok && !body.updated) {
+          console.warn('[saveSharedItem] item not found in any blob — may have been deleted');
+          toast('Item not found — it may have been removed');
+          await _loadSharedGroupsAndInvestments();
+        }
       } catch (e) {
         console.error('[saveSharedItem]', e.message);
         toast('Failed to save — check connection');
@@ -3105,6 +3136,26 @@
         </div>`;
       }
 
+      // Attached documents
+      if (e.attachments && e.attachments.length) {
+        doc += `<div style="margin-bottom:20px;">
+          <div style="font-size:10px;color:#aaa;text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px;">Attachments</div>`;
+        e.attachments.forEach(att => {
+          if (att.type && att.type.startsWith('image/')) {
+            doc += `<div style="margin-bottom:8px;">
+              <div style="font-size:11px;color:#666;margin-bottom:4px;">${esc(att.name)}</div>
+              <img src="${att.data}" alt="${esc(att.name)}" style="max-width:100%;max-height:300px;border-radius:6px;border:1px solid #e5e5e5;">
+            </div>`;
+          } else {
+            doc += `<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;padding:8px 12px;background:#f8f8f8;border:1px solid #e5e5e5;border-radius:6px;">
+              <span style="font-size:18px;">📄</span>
+              <a href="${att.data}" download="${esc(att.name)}" style="font-size:12px;color:#4a45a8;text-decoration:underline;font-weight:600;">${esc(att.name)}</a>
+            </div>`;
+          }
+        });
+        doc += `</div>`;
+      }
+
       // Fulfillment details (if fulfilled)
       if (e.status === 'fulfilled' && (e.fulfillTracking || e.fulfillBol || e.fulfillNotes)) {
         doc += `<div style="margin-top:20px;padding:14px 16px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;">
@@ -3266,6 +3317,26 @@
           <div style="font-size:10px;color:#aaa;text-transform:uppercase;letter-spacing:.08em;margin-bottom:4px;">Note</div>
           <div style="font-size:13px;color:#333;">${esc(e.note)}</div>
         </div>`;
+      }
+
+      // Attached documents
+      if (e.attachments && e.attachments.length) {
+        doc += `<div style="margin-bottom:20px;">
+          <div style="font-size:10px;color:#aaa;text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px;">Attachments</div>`;
+        e.attachments.forEach(att => {
+          if (att.type && att.type.startsWith('image/')) {
+            doc += `<div style="margin-bottom:8px;">
+              <div style="font-size:11px;color:#666;margin-bottom:4px;">${esc(att.name)}</div>
+              <img src="${att.data}" alt="${esc(att.name)}" style="max-width:100%;max-height:300px;border-radius:6px;border:1px solid #e5e5e5;">
+            </div>`;
+          } else {
+            doc += `<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;padding:8px 12px;background:#f8f8f8;border:1px solid #e5e5e5;border-radius:6px;">
+              <span style="font-size:18px;">📄</span>
+              <a href="${att.data}" download="${esc(att.name)}" style="font-size:12px;color:#4a45a8;text-decoration:underline;font-weight:600;">${esc(att.name)}</a>
+            </div>`;
+          }
+        });
+        doc += `</div>`;
       }
 
       // Invoice signature (transaction record — only if toggle on)
@@ -3497,6 +3568,11 @@
               placeholder="Leave blank for full remaining (${fmt(remainingAmt, e.currency)})"
               style="width:100%;box-sizing:border-box;">
           </div>
+          <div class="fg" style="margin-top:8px;">
+            <label>Attach Document <span style="color:var(--muted);font-weight:400;">(optional)</span></label>
+            <input type="file" id="settleAttachDoc" accept="image/*,.pdf" style="font-size:13px;">
+            <span style="font-size:11px;color:var(--muted);margin-top:2px;">Proof of payment — image or PDF, max 5 MB</span>
+          </div>
           <div id="settleErr" style="color:var(--red);font-size:12px;margin-top:4px;display:none;"></div>
           <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;border-top:1px solid var(--border);padding-top:14px;">
             <button class="bs sm" onclick="document.getElementById('settleBg').remove()">Cancel</button>
@@ -3609,6 +3685,9 @@
       const overAmt   = Math.round((parsedAmt - applyAmt) * 100) / 100;
       const creditType = (e.txType==='they_owe_you'||e.txType==='invoice'||e.txType==='bill') ? 'they_paid_you' : 'you_paid_them';
 
+      // Read optional settlement proof attachment
+      const _settleAttachments = await _readAttachFiles('settleAttachDoc', 5);
+
       // Create linked settlement entry for the applied amount
       db.settings.entryCounter = (db.settings.entryCounter||0) + 1;
       db.entries.push({
@@ -3619,7 +3698,8 @@
         responses: [], templateId: null, templateData: {},
         invoiceNumber: null, entryNum: db.settings.entryCounter, createdAt: Date.now(),
         linkedInvoiceId: eid,
-        currency: e.currency || db.settings.currency || 'USD'
+        currency: e.currency || db.settings.currency || 'USD',
+        attachments: _settleAttachments.length ? _settleAttachments : undefined
       });
 
       // Recompute invoice status from all linked settlements
@@ -4150,7 +4230,59 @@
       }
       // Notify toggle removed — reminders are a separate explicit action via "Send Reminder"
       // on existing entries, not auto-triggered when creating/editing.
+
+      // ── Optional file attachment ───────────────────────────────────────
+      const existingAttachments = e?.attachments || [];
+      html += `<div class="fg" style="margin-top:10px;">
+        <label>Attach Document <span style="color:var(--muted);font-weight:400;">(optional)</span></label>
+        <input type="file" id="neAttachDoc" accept="image/*,.pdf" multiple style="font-size:13px;">
+        <span style="font-size:11px;color:var(--muted);margin-top:2px;">Images or PDF, max 5 MB each</span>
+      </div>`;
+      if (existingAttachments.length) {
+        html += `<div id="neExistingAttach" style="margin-bottom:10px;">
+          <div style="font-size:11px;color:var(--muted);margin-bottom:6px;">Current attachments:</div>`;
+        existingAttachments.forEach((att, i) => {
+          html += `<div class="ne-existing-att" data-att-idx="${i}" style="display:flex;align-items:center;gap:8px;margin-bottom:4px;padding:6px 10px;background:var(--bg3);border:1px solid var(--border);border-radius:6px;font-size:12px;">
+            <span>${att.type && att.type.startsWith('image/') ? '🖼' : '📄'} ${esc(att.name)}</span>
+            <button type="button" class="gh sm" style="margin-left:auto;color:var(--red);font-size:11px;" onclick="this.closest('.ne-existing-att').dataset.removed='1';this.closest('.ne-existing-att').style.opacity='.35';this.textContent='Removed'">Remove</button>
+          </div>`;
+        });
+        html += `</div>`;
+      }
+
       return html;
+    }
+
+    // ── Read file attachments from a file input, return Promise<Array> ──
+    function _readAttachFiles(inputId, maxSizeMB) {
+      const input = document.getElementById(inputId);
+      if (!input || !input.files || input.files.length === 0) return Promise.resolve([]);
+      const maxBytes = (maxSizeMB || 5) * 1024 * 1024;
+      const promises = [];
+      for (let i = 0; i < input.files.length; i++) {
+        const file = input.files[i];
+        if (file.size > maxBytes) { toast(file.name + ' is too large (max ' + maxSizeMB + ' MB)'); continue; }
+        promises.push(new Promise(resolve => {
+          const reader = new FileReader();
+          reader.onload = ev => resolve({ name: file.name, type: file.type, data: ev.target.result });
+          reader.onerror = () => resolve(null);
+          reader.readAsDataURL(file);
+        }));
+      }
+      return Promise.all(promises).then(arr => arr.filter(Boolean));
+    }
+
+    // ── Collect kept existing attachments (excluding removed ones) ───────
+    function _keptExistingAttachments(entry) {
+      if (!entry || !entry.attachments) return [];
+      const kept = [];
+      document.querySelectorAll('.ne-existing-att').forEach(el => {
+        if (el.dataset.removed !== '1') {
+          const idx = parseInt(el.dataset.attIdx, 10);
+          if (!isNaN(idx) && entry.attachments[idx]) kept.push(entry.attachments[idx]);
+        }
+      });
+      return kept;
     }
 
     function openNewEntry(cid = null) {
@@ -4558,11 +4690,14 @@
       })) : null;
       const newEid = uuid();
       const contact = db.contacts.find(c => c.id === cid);
+      // Read optional file attachments
+      const _newAttachments = await _readAttachFiles('neAttachDoc', 5);
       db.entries.push({ id:newEid, userId:curUser().id, cId:cid, txType, amount,
         note, date, status:safeStatus(status), archived:false, shared:false, responses:[],
         templateId:_entryTpl?.id||null, templateData:tplData,
         templateSnapshot, invoiceNumber, entryNum, createdAt:Date.now(),
-        currency: db.settings.currency || 'USD' });
+        currency: db.settings.currency || 'USD',
+        attachments: _newAttachments.length ? _newAttachments : undefined });
       logAudit('add_entry',{cid,txType,amount,tpl:_entryTpl?.name||null,invoiceNumber});
       await saveNow(); // immediate sync for cross-device consistency
 
@@ -4653,6 +4788,18 @@
               <div class="fg"><label>Status</label><select id="eests">${statusOpts(e.status, true)}</select></div>
             </div>
             <div class="fg"><label>Note</label><textarea id="eenote" rows="2">${esc(e.note||'')}</textarea></div>
+            <div class="fg" style="margin-top:10px;">
+              <label>Attach Document <span style="color:var(--muted);font-weight:400;">(optional)</span></label>
+              <input type="file" id="eeAttachDoc" accept="image/*,.pdf" multiple style="font-size:13px;">
+              <span style="font-size:11px;color:var(--muted);margin-top:2px;">Images or PDF, max 5 MB each</span>
+            </div>
+            ${(e.attachments||[]).length ? `<div id="eeExistingAttach" style="margin-bottom:10px;">
+              <div style="font-size:11px;color:var(--muted);margin-bottom:6px;">Current attachments:</div>
+              ${(e.attachments||[]).map((att,i) => `<div class="ee-existing-att" data-att-idx="${i}" style="display:flex;align-items:center;gap:8px;margin-bottom:4px;padding:6px 10px;background:var(--bg3);border:1px solid var(--border);border-radius:6px;font-size:12px;">
+                <span>${att.type && att.type.startsWith('image/') ? '🖼' : '📄'} ${esc(att.name)}</span>
+                <button type="button" class="gh sm" style="margin-left:auto;color:var(--red);font-size:11px;" onclick="this.closest('.ee-existing-att').dataset.removed='1';this.closest('.ee-existing-att').style.opacity='.35';this.textContent='Removed'">Remove</button>
+              </div>`).join('')}
+            </div>` : ''}
             <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;border-top:1px solid var(--border);padding-top:14px;">
               <button class="bs" onclick="document.getElementById('editEntryBg').remove()">Cancel</button>
               <button class="btn" onclick="saveEditEntry('${eid}')">Save Changes</button>
@@ -4662,7 +4809,7 @@
       }
     }
 
-    function saveEditEntry(eid) {
+    async function saveEditEntry(eid) {
       const e = db.entries.find(x => x.id === eid);
       if (!e) return;
 
@@ -4717,12 +4864,17 @@
         e.date = dateStr ? new Date(dateStr).getTime() : e.date;
         e.amount = aggVal;
         e.templateData = tplData;
+        // Handle attachments (template edit uses neAttachDoc from entryFormBody)
+        const _tplNewAtt = await _readAttachFiles('neAttachDoc', 5);
+        const _tplKeptAtt = _keptExistingAttachments(e);
+        const _tplAllAtt = [..._tplKeptAtt, ..._tplNewAtt];
+        e.attachments = _tplAllAtt.length ? _tplAllAtt : (e.attachments || undefined);
         // Refresh snapshot to freeze current template state at edit time
         e.templateSnapshot = JSON.parse(JSON.stringify({
           id: _entryTpl.id, name: _entryTpl.name, txType: _entryTpl.txType,
           invoicePrefix: _entryTpl.invoicePrefix, fields: _entryTpl.fields
         }));
-        saveNow(); logAudit('edit_entry', {eid, cid, amount: aggVal, tpl: _entryTpl.name});
+        await saveNow(); logAudit('edit_entry', {eid, cid, amount: aggVal, tpl: _entryTpl.name});
         _pushShareStatus(eid); // sync edited data to share token snapshot
         document.getElementById('editEntryBg')?.remove();
         toast('Entry updated');
@@ -4744,7 +4896,18 @@
         e.cId = cid; e.txType = txType; e.amount = parseFloat(amt);
         e.note = note; e.status = safeStatus(status);
         e.date = dateStr ? new Date(dateStr).getTime() : e.date;
-        saveNow(); logAudit('edit_entry', {eid, cid, txType, amount: amt});
+        // Handle attachments (manual edit uses eeAttachDoc)
+        const _eeNewAtt = await _readAttachFiles('eeAttachDoc', 5);
+        const _eeKeptAtt = [];
+        document.querySelectorAll('.ee-existing-att').forEach(el => {
+          if (el.dataset.removed !== '1') {
+            const idx = parseInt(el.dataset.attIdx, 10);
+            if (!isNaN(idx) && e.attachments && e.attachments[idx]) _eeKeptAtt.push(e.attachments[idx]);
+          }
+        });
+        const _eeAllAtt = [..._eeKeptAtt, ..._eeNewAtt];
+        e.attachments = _eeAllAtt.length ? _eeAllAtt : (e.attachments || undefined);
+        await saveNow(); logAudit('edit_entry', {eid, cid, txType, amount: amt});
         _pushShareStatus(eid); // sync edited data to share token snapshot
         document.getElementById('editEntryBg')?.remove();
         toast('Entry updated');
@@ -8174,17 +8337,24 @@
     function renderGroups() {
       const u = curUser();
       if (!db.groups) db.groups = [];
-      // db.groups now includes shared items (merged by _loadSharedGroupsAndInvestments)
       const myGroups = isAdmin() ? db.groups : db.groups.filter(g => g.userId === u.id || g._shared || (g.members||[]).some(m => m.contactId === u.id));
       const showArchived = window._arch_groups || false;
       const filtered = showArchived ? myGroups : myGroups.filter(g => !g.archived);
 
+      // Summary stats across all visible groups
+      let totalMembers = 0, totalCollectedAll = 0, totalRounds = 0;
+      filtered.forEach(g => {
+        totalMembers += (g.members||[]).length;
+        totalRounds += (g.rounds||[]).length;
+        totalCollectedAll += (g.rounds||[]).reduce((sum, r) => sum + (r.contributions||[]).filter(c => c.paid).reduce((s2, c) => s2 + (parseFloat(c.amount)||0), 0), 0);
+      });
+
       let html = `<div style="max-width:780px;margin:0 auto;">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:10px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;flex-wrap:wrap;gap:10px;">
           <div style="display:flex;align-items:center;gap:12px;">
-            <img src="group-logo.png" alt="Groups" style="width:80px;height:80px;border-radius:50%;object-fit:cover;">
+            <img src="group-logo.png" alt="Groups" style="width:72px;height:72px;border-radius:50%;object-fit:cover;">
             <div>
-              <h2 style="margin:0;">Group Savings</h2>
+              <h2 style="margin:0;font-size:22px;">Group Savings</h2>
               <p style="font-size:13px;font-weight:600;color:var(--accent);margin:2px 0 0;">Contribution Circle</p>
               <p style="color:var(--muted);font-size:12px;margin:2px 0 0;">Contributions tracked separately. <span onclick="toast('Group contributions do not affect your contact ledger balances',4000)" style="cursor:pointer;color:var(--accent);">ℹ️</span></p>
             </div>
@@ -8195,6 +8365,15 @@
           </div>
         </div>`;
 
+      // Summary stat cards
+      if (filtered.length > 0) {
+        html += `<div class="grid3" style="margin-bottom:16px;">
+          <div class="stat-card"><div class="stat-lbl">Groups</div><div class="stat-val">${filtered.length}</div></div>
+          <div class="stat-card"><div class="stat-lbl">Total Members</div><div class="stat-val">${totalMembers}</div></div>
+          <div class="stat-card"><div class="stat-lbl">Total Collected</div><div class="stat-val" style="color:var(--green)">${fmt(totalCollectedAll)}</div></div>
+        </div>`;
+      }
+
       if (filtered.length === 0) {
         html += `<div class="card"><p style="color:var(--muted);font-size:14px;padding:12px 0;">No groups yet. Create one to start tracking group savings.</p></div>`;
       } else {
@@ -8203,48 +8382,49 @@
           const rounds = g.rounds || [];
           const curRound = rounds[rounds.length - 1];
           const paidCount = curRound ? (curRound.contributions||[]).filter(c => c.paid).length : 0;
-          const totalMembers = members.length;
-          const totalCollected = rounds.reduce((sum, r) => sum + (r.contributions||[]).filter(c => c.paid).reduce((s2, c) => s2 + (parseFloat(c.amount)||0), 0), 0);
           const comments = (g.noticeBoard||[]).length;
+          const _r = _getItemRole(g);
+          const _io = _r === 'owner', _ia = _r === 'admin', _im = _r === 'member';
 
-          html += `<div class="card" style="margin-bottom:12px;${g.archived?'opacity:.6;':''}">
-            <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px;">
-              <div>
-                <h3 style="margin:0 0 4px;">${esc(g.name)}</h3>
-                <div style="background:linear-gradient(135deg,rgba(255,255,255,0.04),rgba(108,99,255,0.07));border:1px solid rgba(255,255,255,0.09);border-radius:12px;padding:11px 15px;margin:8px 0 10px;font-size:13px;line-height:1.65;box-shadow:inset 0 1px 0 rgba(255,255,255,0.06);">${g.description ? '<span style="color:var(--text);">'+esc(g.description)+'</span>' : '<span style="opacity:0.38;font-style:italic;">A collective savings circle — members pool contributions each round, rotating who collects the pot.</span>'}</div>
-                <div style="display:flex;gap:12px;margin-top:8px;flex-wrap:wrap;">
-                  <span class="badge badge-blue">${members.length} member${members.length!==1?'s':''}</span>
-                  <span class="badge badge-green">${fmt(g.amount, g.currency)} / ${esc(g.frequency||'month')}</span>
-                  <span class="badge badge-gray">${rounds.length} round${rounds.length!==1?'s':''}</span>
-                  ${comments > 0 ? `<span class="badge badge-yellow">${comments} comment${comments!==1?'s':''}</span>` : ''}
-                </div>
-                ${curRound ? `<div style="margin-top:8px;font-size:12px;color:var(--muted);">Current round: ${paidCount}/${totalMembers} paid${g.useRotation && curRound.collectorId ? ` — Collector: ${esc((members.find(m=>m.id===curRound.collectorId)||{}).name||'—')}` : ''}</div>` : ''}
-                ${(() => { const _r = _getItemRole(g); const _io = _r === 'owner'; const _ia = _r === 'admin'; const _im = _r === 'member';
-                  return (_io || _ia) && members.length === 0 ? `<div style="margin-top:10px;"><button class="btn sm" onclick="addGroupMember('${g.id}')" style="background:var(--accent);">+ Add Members to Get Started</button></div>` : `<div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;">
-                    <button class="btn sm" onclick="openGroupDetail('${g.id}')">View Group</button>
-                    ${(_io || _ia) ? `<button class="bs sm" onclick="addGroupMember('${g.id}')">+ Add Member</button>` : ''}
-                    ${(_im || _ia || _io) ? `<button class="bs sm" onclick="window._grpTab='board';openGroupDetail('${g.id}')">💬 Notice Board${comments>0?' ('+comments+')':''}</button>` : ''}
-                  </div>`;
-                })()}
-              </div>
-              <div class="action-menu"><button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button><div class="action-dropdown">
-                ${(() => { const _r = _getItemRole(g); const _io = _r === 'owner'; const _ia = _r === 'admin'; const _im = _r === 'member'; return ''
-                  + ((_io || _ia) ? '<button onclick="addGroupMember(\'' + g.id + '\')">👤 Add Member</button>' : '')
-                  + ((_io || _ia || _im) ? '<button onclick="emailInviteToItem(\'' + g.id + '\',\'groups\',\'a Group Savings circle\')">✉ Invite by Email</button>' : '')
-                  + ((_io || _ia || _im) ? '<button onclick="openInviteLink(\'' + g.id + '\',\'groups\')">🔗 Copy Invite Link</button>' : '')
-                  + ((_io || _ia || _im) ? '<button onclick="window._grpTab=\'board\';openGroupDetail(\'' + g.id + '\')">💬 Notice Board</button>' : '')
-                  + ((_io || _ia) ? '<button onclick="editGroup(\'' + g.id + '\')">✏️ Edit</button>' : '')
-                  + ((_io || _ia) ? '<button onclick="addGroupRound(\'' + g.id + '\')">➕ New Round</button>' : '')
-                  + (_io ? '<button onclick="toggleArchiveGroup(\'' + g.id + '\')">' + (g.archived?'📤 Unarchive':'📥 Archive') + '</button>' : '')
-                  + (_io ? '<button onclick="delGroup(\'' + g.id + '\')" style="color:var(--red);">🗑 Delete</button>' : '')
-                  + ((!_io) ? '<button onclick="exitItem(\'' + g.id + '\',\'groups\')" style="color:var(--red);">🚪 Leave</button>' : '');
-                })()}
+          html += `<div class="card" style="margin-bottom:14px;${g.archived?'opacity:.6;':''}">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;">
+              <h3 style="margin:0;font-size:17px;">${esc(g.name)}</h3>
+              <div class="action-menu" style="flex-shrink:0;"><button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button><div class="action-dropdown">
+                ${((_io || _ia) ? '<button onclick="addGroupMember(\'' + g.id + '\')">👤 Add Member</button>' : '')}
+                ${((_io || _ia || _im) ? '<button onclick="emailInviteToItem(\'' + g.id + '\',\'groups\',\'a Group Savings circle\')">✉ Invite by Email</button>' : '')}
+                ${((_io || _ia || _im) ? '<button onclick="openInviteLink(\'' + g.id + '\',\'groups\')">🔗 Copy Invite Link</button>' : '')}
+                ${((_io || _ia || _im) ? '<button onclick="window._grpTab=\'board\';openGroupDetail(\'' + g.id + '\')">💬 Notice Board</button>' : '')}
+                ${((_io || _ia) ? '<button onclick="editGroup(\'' + g.id + '\')">✏️ Edit</button>' : '')}
+                ${((_io || _ia) ? '<button onclick="addGroupRound(\'' + g.id + '\')">➕ New Round</button>' : '')}
+                ${(_io ? '<button onclick="toggleArchiveGroup(\'' + g.id + '\')">' + (g.archived?'📤 Unarchive':'📥 Archive') + '</button>' : '')}
+                ${(_io ? '<button onclick="delGroup(\'' + g.id + '\')" style="color:var(--red);">🗑 Delete</button>' : '')}
+                ${((!_io) ? '<button onclick="exitItem(\'' + g.id + '\',\'groups\')" style="color:var(--red);">🚪 Leave</button>' : '')}
               </div></div>
+            </div>
+
+            <div style="background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:10px 14px;margin:10px 0;font-size:13px;line-height:1.6;">${g.description ? esc(g.description) : '<span style="opacity:0.38;font-style:italic;">A collective savings circle — members pool contributions each round, rotating who collects the pot.</span>'}</div>
+
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
+              <span class="badge badge-blue">${members.length} member${members.length!==1?'s':''}</span>
+              <span class="badge badge-green">${fmt(g.amount, g.currency)} / ${esc(g.frequency||'month')}</span>
+              <span class="badge badge-gray">${rounds.length} round${rounds.length!==1?'s':''}</span>
+              ${comments > 0 ? `<span class="badge badge-yellow">${comments} comment${comments!==1?'s':''}</span>` : ''}
+            </div>
+
+            ${curRound ? `<div style="font-size:12px;color:var(--muted);margin-bottom:8px;">Current round: ${paidCount}/${members.length} paid${g.useRotation && curRound.collectorId ? ` — Collector: ${esc((members.find(m=>m.id===curRound.collectorId)||{}).name||'—')}` : ''}</div>` : ''}
+
+            <div style="display:flex;gap:6px;flex-wrap:wrap;padding-top:4px;border-top:1px solid var(--border);">
+              ${(_io || _ia) && members.length === 0
+                ? `<button class="btn sm" onclick="addGroupMember('${g.id}')" style="background:var(--accent);">+ Add Members to Get Started</button>`
+                : `<button class="btn sm" onclick="openGroupDetail('${g.id}')">View Group</button>
+                   ${(_io || _ia) ? `<button class="bs sm" onclick="addGroupMember('${g.id}')">+ Add Member</button>` : ''}
+                   ${(_im || _ia || _io) ? `<button class="bs sm" onclick="window._grpTab='board';openGroupDetail('${g.id}')">💬 Notice Board${comments>0?' ('+comments+')':''}</button>` : ''}`
+              }
             </div>
           </div>`;
         });
       }
-      html += `</div>`; // close max-width wrapper
+      html += `</div>`;
       document.getElementById('content').innerHTML = html;
     }
 
@@ -9153,7 +9333,6 @@
     function renderInvestments() {
       const u = curUser();
       if (!db.investments) db.investments = [];
-      // Own investments + shared investments from other users' blobs
       const myInv = isAdmin() ? db.investments : db.investments.filter(inv => inv.userId === u.id || inv._shared || (inv.members||[]).some(m => m.contactId === u.id));
       const showArchived = window._arch_investments || false;
       const filtered = showArchived ? myInv : myInv.filter(inv => !inv.archived);
@@ -9173,11 +9352,11 @@
       const INV_STATUS = { active: 'badge-green', matured: 'badge-blue', closed: 'badge-gray', lost: 'badge-red' };
 
       let html = `<div style="max-width:780px;margin:0 auto;">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:10px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;flex-wrap:wrap;gap:10px;">
           <div style="display:flex;align-items:center;gap:12px;">
-            <img src="investment-logo.png" alt="Investments" style="width:80px;height:80px;border-radius:50%;object-fit:cover;">
+            <img src="investment-logo.png" alt="Investments" style="width:72px;height:72px;border-radius:50%;object-fit:cover;">
             <div>
-              <h2 style="margin:0;">Investments</h2>
+              <h2 style="margin:0;font-size:22px;">Investments</h2>
               <p style="font-size:13px;font-weight:600;color:var(--accent);margin:2px 0 0;">Build Wealth Together</p>
               <p style="color:var(--muted);font-size:12px;margin:2px 0 0;">Investment amounts tracked separately. <span onclick="toast('Investment amounts do not affect your contact ledger balances',4000)" style="cursor:pointer;color:var(--accent);">ℹ️</span></p>
             </div>
@@ -9187,14 +9366,17 @@
             <button class="btn sm" onclick="openNewInvestment()">+ New Investment</button>
           </div>
         </div>`;
+
+      // Summary stat cards
       html += `<div class="grid3" style="margin-bottom:16px;">
         <div class="stat-card"><div class="stat-lbl">Total Invested</div><div class="stat-val">${fmt(totalInvested)}</div></div>
         <div class="stat-card"><div class="stat-lbl">Total Returns</div><div class="stat-val" style="color:var(--green)">${fmt(totalReturns)}</div></div>
         <div class="stat-card"><div class="stat-lbl">Net Gain/Loss</div><div class="stat-val" style="color:${netGL>=0?'var(--green)':'var(--red)'}">${fmt(netGL)}</div></div>
       </div>`;
+
       // Filter controls
       const typeFilter = window._inv_type_filter || 'all';
-      html += `<div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;flex-wrap:wrap;">
+      html += `<div style="display:flex;gap:8px;align-items:center;margin-bottom:14px;flex-wrap:wrap;">
         <select style="max-width:180px;" onchange="window._inv_type_filter=this.value;renderInvestments()">
           <option value="all"${typeFilter==='all'?' selected':''}>All Types</option>
           ${Object.entries(INV_TYPES).map(([k,v])=>`<option value="${k}"${typeFilter===k?' selected':''}>${v}</option>`).join('')}
@@ -9215,50 +9397,51 @@
           const gl = currentVal - invested;
           const roi = invested > 0 ? ((currentVal - invested) / invested * 100).toFixed(1) : '0.0';
           const comments = (inv.noticeBoard||[]).length;
-          html += `<div class="card" style="margin-bottom:12px;${inv.archived?'opacity:.6;':''}">
-            <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px;">
-              <div style="flex:1;min-width:200px;">
-                <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
-                  <h3 style="margin:0;cursor:pointer;color:var(--accent);" onclick="openInvestmentDetail('${inv.id}')">${esc(inv.name)}</h3>
-                  <span class="badge badge-gray">${esc(INV_TYPES[inv.type]||inv.type)}</span>
-                  <span class="badge ${INV_STATUS[inv.status]||'badge-gray'}">${esc((inv.status||'active').charAt(0).toUpperCase()+(inv.status||'active').slice(1))}</span>
-                </div>
-                <div style="background:linear-gradient(135deg,rgba(255,255,255,0.04),rgba(232,30,130,0.06));border:1px solid rgba(255,255,255,0.09);border-radius:12px;padding:11px 15px;margin:0 0 10px;font-size:13px;line-height:1.65;box-shadow:inset 0 1px 0 rgba(255,255,255,0.06);">${inv.description ? '<span style="color:var(--text);">'+esc(inv.description)+'</span>' : '<span style="opacity:0.38;font-style:italic;">Track the progress, partners, and returns on this investment over time.</span>'}</div>
-                <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:8px;">
-                  <div><div style="font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;">Invested</div><div style="font-size:18px;font-weight:800;">${fmt(invested, inv.currency)}</div></div>
-                  <div><div style="font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;">Current Value</div><div style="font-size:18px;font-weight:800;">${fmt(currentVal, inv.currency)}</div></div>
-                  <div><div style="font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;">Gain/Loss</div><div style="font-size:18px;font-weight:800;color:${gl>=0?'var(--green)':'var(--red)'};">${gl>=0?'+':''}${fmt(gl, inv.currency)}</div></div>
-                  ${inv.expectedReturn ? `<div><div style="font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;">Expected Return</div><div style="font-size:18px;font-weight:800;">${inv.expectedReturn}%</div></div>` : ''}
-                  <div><div style="font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;">ROI</div><div style="font-size:18px;font-weight:800;color:${parseFloat(roi)>=0?'var(--green)':'var(--red)'};">${roi}%</div></div>
-                </div>
-                ${(inv.members||[]).length > 0 ? `<div style="margin-bottom:8px;"><span style="font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;">Partners:</span> ${(inv.members||[]).map(m => '<span class="badge badge-blue" style="margin:2px;">'+esc(m.name)+'</span>').join('')}</div>` : ''}
-                ${(() => { const _r = _getItemRole(inv); const _io = _r === 'owner'; const _ia = _r === 'admin'; const _im = _r === 'member';
-                  return `<div style="display:flex;gap:6px;flex-wrap:wrap;">
-                    ${(_im || _ia || _io) ? `<button class="bs sm" onclick="addInvestmentTx('${inv.id}')">💰 Transaction</button>` : ''}
-                    ${(_io || _ia) ? `<button class="bs sm" onclick="addInvMember('${inv.id}')">👤 Add Member</button>` : ''}
-                    ${(_im || _ia || _io) ? `<button class="bs sm" onclick="window._invTab='board';openInvestmentDetail('${inv.id}')">💬 Notice Board${comments>0?' ('+comments+')':''}</button>` : ''}
-                  </div>`;
-                })()}
+          const _r = _getItemRole(inv);
+          const _io = _r === 'owner', _ia = _r === 'admin', _im = _r === 'member';
+
+          html += `<div class="card" style="margin-bottom:14px;${inv.archived?'opacity:.6;':''}">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;">
+              <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                <h3 style="margin:0;font-size:17px;cursor:pointer;color:var(--accent);" onclick="openInvestmentDetail('${inv.id}')">${esc(inv.name)}</h3>
+                <span class="badge badge-gray">${esc(INV_TYPES[inv.type]||inv.type)}</span>
+                <span class="badge ${INV_STATUS[inv.status]||'badge-gray'}">${esc((inv.status||'active').charAt(0).toUpperCase()+(inv.status||'active').slice(1))}</span>
               </div>
-              <div class="action-menu"><button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button><div class="action-dropdown">
-                ${(() => { const _r = _getItemRole(inv); const _io = _r === 'owner'; const _ia = _r === 'admin'; const _im = _r === 'member'; return ''
-                  + '<button onclick="openInvestmentDetail(\'' + inv.id + '\')">👁 View</button>'
-                  + ((_io || _ia) ? '<button onclick="addInvMember(\'' + inv.id + '\')">👤 Add Member</button>' : '')
-                  + ((_io || _ia || _im) ? '<button onclick="emailInviteToItem(\'' + inv.id + '\',\'investments\',\'an Investment\')">✉ Invite by Email</button>' : '')
-                  + ((_io || _ia || _im) ? '<button onclick="openInviteLink(\'' + inv.id + '\',\'investments\')">🔗 Copy Invite Link</button>' : '')
-                  + ((_io || _ia || _im) ? '<button onclick="window._invTab=\'board\';openInvestmentDetail(\'' + inv.id + '\')">💬 Notice Board</button>' : '')
-                  + ((_io || _ia) ? '<button onclick="editInvestment(\'' + inv.id + '\')">✏️ Edit</button>' : '')
-                  + ((_io || _ia || _im) ? '<button onclick="addInvestmentTx(\'' + inv.id + '\')">💰 Transaction</button>' : '')
-                  + ((_io || _ia) ? '<button onclick="toggleArchiveInv(\'' + inv.id + '\')">' + (inv.archived?'📤 Unarchive':'📥 Archive') + '</button>' : '')
-                  + (_io ? '<button onclick="delInvestment(\'' + inv.id + '\')" style="color:var(--red);">🗑 Delete</button>' : '')
-                  + ((!_io) ? '<button onclick="exitItem(\'' + inv.id + '\',\'investments\')" style="color:var(--red);">🚪 Leave</button>' : '');
-                })()}
+              <div class="action-menu" style="flex-shrink:0;"><button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button><div class="action-dropdown">
+                ${'<button onclick="openInvestmentDetail(\'' + inv.id + '\')">👁 View</button>'}
+                ${((_io || _ia) ? '<button onclick="addInvMember(\'' + inv.id + '\')">👤 Add Member</button>' : '')}
+                ${((_io || _ia || _im) ? '<button onclick="emailInviteToItem(\'' + inv.id + '\',\'investments\',\'an Investment\')">✉ Invite by Email</button>' : '')}
+                ${((_io || _ia || _im) ? '<button onclick="openInviteLink(\'' + inv.id + '\',\'investments\')">🔗 Copy Invite Link</button>' : '')}
+                ${((_io || _ia || _im) ? '<button onclick="window._invTab=\'board\';openInvestmentDetail(\'' + inv.id + '\')">💬 Notice Board</button>' : '')}
+                ${((_io || _ia) ? '<button onclick="editInvestment(\'' + inv.id + '\')">✏️ Edit</button>' : '')}
+                ${((_io || _ia || _im) ? '<button onclick="addInvestmentTx(\'' + inv.id + '\')">💰 Transaction</button>' : '')}
+                ${((_io || _ia) ? '<button onclick="toggleArchiveInv(\'' + inv.id + '\')">' + (inv.archived?'📤 Unarchive':'📥 Archive') + '</button>' : '')}
+                ${(_io ? '<button onclick="delInvestment(\'' + inv.id + '\')" style="color:var(--red);">🗑 Delete</button>' : '')}
+                ${((!_io) ? '<button onclick="exitItem(\'' + inv.id + '\',\'investments\')" style="color:var(--red);">🚪 Leave</button>' : '')}
               </div></div>
+            </div>
+
+            <div style="background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:10px 14px;margin:10px 0;font-size:13px;line-height:1.6;">${inv.description ? esc(inv.description) : '<span style="opacity:0.38;font-style:italic;">Track the progress, partners, and returns on this investment over time.</span>'}</div>
+
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(100px,1fr));gap:12px;margin-bottom:10px;">
+              <div><div style="font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;">Invested</div><div style="font-size:17px;font-weight:800;">${fmt(invested, inv.currency)}</div></div>
+              <div><div style="font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;">Current Value</div><div style="font-size:17px;font-weight:800;">${fmt(currentVal, inv.currency)}</div></div>
+              <div><div style="font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;">Gain/Loss</div><div style="font-size:17px;font-weight:800;color:${gl>=0?'var(--green)':'var(--red)'};">${gl>=0?'+':''}${fmt(gl, inv.currency)}</div></div>
+              ${inv.expectedReturn ? `<div><div style="font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;">Expected Return</div><div style="font-size:17px;font-weight:800;">${inv.expectedReturn}%</div></div>` : ''}
+              <div><div style="font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;">ROI</div><div style="font-size:17px;font-weight:800;color:${parseFloat(roi)>=0?'var(--green)':'var(--red)'};">${roi}%</div></div>
+            </div>
+
+            ${(inv.members||[]).length > 0 ? `<div style="margin-bottom:8px;"><span style="font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;">Partners:</span> ${(inv.members||[]).map(m => '<span class="badge badge-blue" style="margin:2px;">'+esc(m.name)+'</span>').join('')}</div>` : ''}
+
+            <div style="display:flex;gap:6px;flex-wrap:wrap;padding-top:4px;border-top:1px solid var(--border);">
+              ${(_im || _ia || _io) ? `<button class="bs sm" onclick="addInvestmentTx('${inv.id}')">💰 Transaction</button>` : ''}
+              ${(_io || _ia) ? `<button class="bs sm" onclick="addInvMember('${inv.id}')">👤 Add Member</button>` : ''}
+              ${(_im || _ia || _io) ? `<button class="bs sm" onclick="window._invTab='board';openInvestmentDetail('${inv.id}')">💬 Notice Board${comments>0?' ('+comments+')':''}</button>` : ''}
             </div>
           </div>`;
         });
       }
-      html += `</div>`; // close max-width wrapper
+      html += `</div>`;
       document.getElementById('content').innerHTML = html;
     }
 
