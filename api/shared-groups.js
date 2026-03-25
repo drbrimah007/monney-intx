@@ -155,6 +155,52 @@ module.exports = async function handler(req, res) {
       }
     }
 
+    // ── Action: update an item in the owner's blob (for shared item mutations) ──
+    if (action === 'update-item') {
+      const { itemId, collection, updatedItem } = req.body || {};
+      if (!itemId || !collection || !updatedItem) {
+        return res.status(400).json({ ok: false, error: 'itemId, collection, updatedItem required.' });
+      }
+      try {
+        const allBlobs = await sql`SELECT user_id, data FROM user_data`;
+        for (const row of allBlobs) {
+          const data = await decompress(row.data || {});
+          const items = data[collection] || [];
+          const idx = items.findIndex(x => x.id === itemId);
+          if (idx < 0) continue;
+
+          // Verify caller is a member or the owner
+          const callerEmail = (await sql`SELECT email FROM users WHERE id = ${payload.id} LIMIT 1`)[0]?.email;
+          const contacts = data.contacts || [];
+          const callerContactIds = contacts
+            .filter(c => {
+              if (c.linkedUserId === payload.id) return true;
+              if (callerEmail && c.email && c.email.toLowerCase() === callerEmail.toLowerCase()) return true;
+              return false;
+            }).map(c => c.id);
+          const isOwner = items[idx].userId === payload.id || row.user_id === payload.id;
+          const isMember = (items[idx].members || []).some(m => callerContactIds.includes(m.contactId));
+          if (!isOwner && !isMember) {
+            return res.status(403).json({ ok: false, error: 'Not a member of this item.' });
+          }
+
+          // Replace the item, preserving _shared-unsafe fields
+          delete updatedItem._shared;
+          delete updatedItem._ownerUserId;
+          updatedItem.userId = items[idx].userId; // preserve original owner
+          items[idx] = updatedItem;
+
+          const compressed = await compress(data);
+          await sql`UPDATE user_data SET data = ${compressed}, updated_at = now() WHERE user_id = ${row.user_id}`;
+          return res.json({ ok: true, updated: true });
+        }
+        return res.json({ ok: true, updated: false, reason: 'Item not found.' });
+      } catch (e) {
+        console.error('[shared-groups/POST update]', e.message);
+        return res.status(500).json({ ok: false, error: 'Failed to update item.' });
+      }
+    }
+
     return res.status(400).json({ ok: false, error: 'Unknown action.' });
   }
 

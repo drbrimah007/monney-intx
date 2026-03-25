@@ -871,16 +871,18 @@
     }
 
     async function _syncToServer() {
-      // Include Bearer token as a fallback alongside the HttpOnly cookie.
-      // This makes sync resilient if the cookie is absent (e.g. first load on a new device).
       const _tok = localStorage.getItem('mxi_token');
       const _headers = { 'Content-Type': 'application/json' };
       if (_tok) _headers['Authorization'] = 'Bearer ' + _tok;
+      // Strip shared items before syncing — they belong to other users' blobs
+      const _cleanDb = { ...db };
+      _cleanDb.groups = (db.groups || []).filter(g => !g._shared);
+      _cleanDb.investments = (db.investments || []).filter(i => !i._shared);
       const res = await fetch('/api/data/sync', {
         method: 'POST',
         credentials: 'include',
         headers: _headers,
-        body: JSON.stringify({ data: db })
+        body: JSON.stringify({ data: _cleanDb })
       });
       if (!res.ok) {
         const errBody = await res.json().catch(() => ({}));
@@ -1935,8 +1937,11 @@
       try { await _loadSharedWithMeInner(); } finally { _sharedWithMeRunning = false; }
     }
     // ── Load groups/investments where current user is an invited member ──
-    window._sharedGroups = [];
-    window._sharedInvestments = [];
+    // Shared items are merged INTO db.groups/db.investments with _shared flag.
+    // _saveSharedItem() pushes mutations back to the owner's blob via server.
+    window._sharedGroupIds = new Set();
+    window._sharedInvestmentIds = new Set();
+
     async function _loadSharedGroupsAndInvestments() {
       try {
         const _tok = localStorage.getItem('mxi_token');
@@ -1945,15 +1950,61 @@
         const res = await fetch('/api/shared-groups', { credentials: 'include', headers: _headers });
         if (!res.ok) return;
         const { groups, investments } = await res.json();
-        window._sharedGroups = groups || [];
-        window._sharedInvestments = investments || [];
-        // Re-render if currently on those pages
+
+        // Remove old shared items from db arrays
+        if (!db.groups) db.groups = [];
+        if (!db.investments) db.investments = [];
+        db.groups = db.groups.filter(g => !g._shared);
+        db.investments = db.investments.filter(i => !i._shared);
+
+        // Merge new shared items in
+        window._sharedGroupIds = new Set();
+        window._sharedInvestmentIds = new Set();
+        for (const g of (groups || [])) {
+          if (!db.groups.find(x => x.id === g.id)) {
+            db.groups.push(g);
+            window._sharedGroupIds.add(g.id);
+          }
+        }
+        for (const inv of (investments || [])) {
+          if (!db.investments.find(x => x.id === inv.id)) {
+            db.investments.push(inv);
+            window._sharedInvestmentIds.add(inv.id);
+          }
+        }
+
         if (_curPage === 'groups') renderGroups();
         if (_curPage === 'investments') renderInvestments();
       } catch (e) {
         console.error('[shared-groups] load failed:', e.message);
       }
     }
+
+    // Save a shared item back to the owner's blob via server
+    async function _saveSharedItem(item, collection) {
+      if (!item._shared) {
+        // Local item — just save normally
+        await saveNow();
+        return;
+      }
+      // Shared item — push update to server
+      try {
+        const _tok = localStorage.getItem('mxi_token');
+        const _headers = { 'Content-Type': 'application/json' };
+        if (_tok) _headers['Authorization'] = 'Bearer ' + _tok;
+        const cleanItem = { ...item };
+        delete cleanItem._shared;
+        delete cleanItem._ownerUserId;
+        await fetch('/api/shared-groups', {
+          method: 'POST', credentials: 'include', headers: _headers,
+          body: JSON.stringify({ action: 'update-item', itemId: item.id, collection, updatedItem: cleanItem })
+        });
+      } catch (e) {
+        console.error('[saveSharedItem]', e.message);
+        toast('Failed to save — check connection');
+      }
+    }
+
 
     async function _loadSharedWithMeInner() {
       const el = document.getElementById('shared-with-me');
@@ -7269,11 +7320,8 @@
     function renderGroups() {
       const u = curUser();
       if (!db.groups) db.groups = [];
-      // Own groups + shared groups from other users' blobs
-      const ownGroups = isAdmin() ? db.groups : db.groups.filter(g => g.userId === u.id || (g.members||[]).some(m => m.contactId === u.id));
-      const existingIds = new Set(ownGroups.map(g => g.id));
-      const shared = (window._sharedGroups || []).filter(g => !existingIds.has(g.id));
-      const myGroups = [...ownGroups, ...shared];
+      // db.groups now includes shared items (merged by _loadSharedGroupsAndInvestments)
+      const myGroups = isAdmin() ? db.groups : db.groups.filter(g => g.userId === u.id || g._shared || (g.members||[]).some(m => m.contactId === u.id));
       const showArchived = window._arch_groups || false;
       const filtered = showArchived ? myGroups : myGroups.filter(g => !g.archived);
 
@@ -7312,18 +7360,26 @@
                   ${comments > 0 ? `<span class="badge badge-yellow">${comments} comment${comments!==1?'s':''}</span>` : ''}
                 </div>
                 ${curRound ? `<div style="margin-top:8px;font-size:12px;color:var(--muted);">Current round: ${paidCount}/${totalMembers} paid${g.useRotation && curRound.collectorId ? ` — Collector: ${esc((members.find(m=>m.id===curRound.collectorId)||{}).name||'—')}` : ''}</div>` : ''}
-                ${members.length === 0 ? `<div style="margin-top:10px;"><button class="btn sm" onclick="addGroupMember('${g.id}')" style="background:var(--accent);">+ Add Members to Get Started</button></div>` : `<div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;"><button class="bs sm" onclick="addGroupMember('${g.id}')">+ Add Member</button><button class="bs sm" onclick="window._grpTab='board';openGroupDetail('${g.id}')">💬 Notice Board${comments>0?' ('+comments+')':''}</button></div>`}
+                ${(() => { const _r = _getItemRole(g); const _io = _r === 'owner'; const _ia = _r === 'admin'; const _im = _r === 'member';
+                  return (_io || _ia) && members.length === 0 ? `<div style="margin-top:10px;"><button class="btn sm" onclick="addGroupMember('${g.id}')" style="background:var(--accent);">+ Add Members to Get Started</button></div>` : `<div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;">
+                    ${(_io || _ia) ? `<button class="bs sm" onclick="addGroupMember('${g.id}')">+ Add Member</button>` : ''}
+                    ${(_im || _ia || _io) ? `<button class="bs sm" onclick="window._grpTab='board';openGroupDetail('${g.id}')">💬 Notice Board${comments>0?' ('+comments+')':''}</button>` : ''}
+                  </div>`;
+                })()}
               </div>
               <div class="action-menu"><button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button><div class="action-dropdown">
-                <button onclick="openGroupDetail('${g.id}')">👁 View</button>
-                <button onclick="addGroupMember('${g.id}')">👤 Add Member</button>
-                <button onclick="emailInviteToItem('${g.id}','groups','a Group Savings circle')">✉ Invite by Email</button>
-                <button onclick="openInviteLink('${g.id}','groups')">🔗 Copy Invite Link</button>
-                <button onclick="window._grpTab='board';openGroupDetail('${g.id}')">💬 Notice Board</button>
-                <button onclick="editGroup('${g.id}')">✏️ Edit</button>
-                <button onclick="addGroupRound('${g.id}')">➕ New Round</button>
-                <button onclick="toggleArchiveGroup('${g.id}')">${g.archived?'📤 Unarchive':'📥 Archive'}</button>
-                <button onclick="delGroup('${g.id}')" style="color:var(--red);">🗑 Delete</button>
+                ${(() => { const _r = _getItemRole(g); const _io = _r === 'owner'; const _ia = _r === 'admin'; const _im = _r === 'member'; return ''
+                  + '<button onclick="openGroupDetail(\'' + g.id + '\')">👁 View</button>'
+                  + ((_io || _ia) ? '<button onclick="addGroupMember(\'' + g.id + '\')">👤 Add Member</button>' : '')
+                  + ((_io || _ia || _im) ? '<button onclick="emailInviteToItem(\'' + g.id + '\',\'groups\',\'a Group Savings circle\')">✉ Invite by Email</button>' : '')
+                  + ((_io || _ia || _im) ? '<button onclick="openInviteLink(\'' + g.id + '\',\'groups\')">🔗 Copy Invite Link</button>' : '')
+                  + ((_io || _ia || _im) ? '<button onclick="window._grpTab=\'board\';openGroupDetail(\'' + g.id + '\')">💬 Notice Board</button>' : '')
+                  + ((_io || _ia) ? '<button onclick="editGroup(\'' + g.id + '\')">✏️ Edit</button>' : '')
+                  + ((_io || _ia) ? '<button onclick="addGroupRound(\'' + g.id + '\')">➕ New Round</button>' : '')
+                  + (_io ? '<button onclick="toggleArchiveGroup(\'' + g.id + '\')">' + (g.archived?'📤 Unarchive':'📥 Archive') + '</button>' : '')
+                  + (_io ? '<button onclick="delGroup(\'' + g.id + '\')" style="color:var(--red);">🗑 Delete</button>' : '')
+                  + ((!_io) ? '<button onclick="exitItem(\'' + g.id + '\',\'groups\')" style="color:var(--red);">🚪 Leave</button>' : '');
+                })()}
               </div></div>
             </div>
           </div>`;
@@ -7465,7 +7521,7 @@
       const round = { id: 'r_' + Math.random().toString(36).substr(2, 9), roundNum, collectorId, dueDate: new Date().toISOString().split('T')[0], contributions, createdAt: Date.now() };
       if (!g.rounds) g.rounds = [];
       g.rounds.push(round);
-      save(); toast('Round ' + roundNum + ' started'); renderGroups();
+      _saveSharedItem(g, 'groups'); toast('Round ' + roundNum + ' started'); renderGroups();
     }
 
     function markContribution(gid, roundId, memberId) {
@@ -7478,8 +7534,8 @@
       c.paid = !c.paid;
       c.amount = c.paid ? g.amount : 0;
       c.paidAt = c.paid ? Date.now() : null;
-      save();
-      openGroupDetail(gid); // refresh
+      _saveSharedItem(g, 'groups');
+      openGroupDetail(gid);
     }
 
     function addGroupMember(gid) {
@@ -7500,23 +7556,35 @@
     }
 
     // ── Permission helpers for groups/investments ──────────────────
-    // Roles: 'owner' (creator), 'admin' (can add members directly), 'member' (view, comment, exit)
+    // Roles: 'owner' (creator — full control)
+    //        'admin' (everything except delete group)
+    //        'member' (notice board, docs, copy invite, email invite, exit, receive reminders)
+    //        'invitee' (view only — waiting for owner/admin to upgrade)
     function _getItemRole(item) {
       const u = curUser();
       if (item.userId === u.id) return 'owner';
-      if (item._shared) {
-        // Shared items — check member role
-        const mem = (item.members||[]).find(m => {
+      // Find my member record — match by name/email for shared items
+      let mem = null;
+      const uEmail = (u.email||'').toLowerCase();
+      const uName = (u.displayName||'').toLowerCase();
+      for (const m of (item.members||[])) {
+        if (item._shared) {
+          // Shared: match by member name or partial match
+          if ((m.name||'').toLowerCase() === uName || (m.name||'').toLowerCase() === uEmail) { mem = m; break; }
+        } else {
           const contact = db.contacts.find(c => c.id === m.contactId);
-          return contact && (contact.linkedUserId === u.id || (contact.email||'').toLowerCase() === (u.email||'').toLowerCase());
-        });
-        return mem?.role || 'member';
+          if (contact && (contact.linkedUserId === u.id || (contact.email||'').toLowerCase() === uEmail)) { mem = m; break; }
+        }
       }
-      const mem = (item.members||[]).find(m => m.contactId && db.contacts.find(c => c.id === m.contactId)?.linkedUserId === u.id);
-      return mem?.role || 'member';
+      // For shared items, if no name match found, we're still a member (server verified) — use first matching or default
+      if (!mem && item._shared) mem = (item.members||[])[0];
+      return mem?.role || 'invitee';
     }
-    function _isItemOwner(item) { return item.userId === curUser().id || _getItemRole(item) === 'owner'; }
+    function _isItemOwner(item) { return item.userId === curUser().id; }
     function _canManageMembers(item) { const r = _getItemRole(item); return r === 'owner' || r === 'admin'; }
+    function _canEdit(item) { const r = _getItemRole(item); return r === 'owner' || r === 'admin'; }
+    function _canComment(item) { const r = _getItemRole(item); return r !== 'invitee'; }
+    function _canUploadDocs(item) { const r = _getItemRole(item); return r !== 'invitee'; }
 
     // Email invite — type an email to invite someone not yet a contact
     function emailInviteToItem(itemId, itemCollection, itemType) {
@@ -7617,11 +7685,11 @@
     // Change member role (owner only)
     function changeMemberRole(itemId, collection, memberId, newRole) {
       const item = (db[collection]||[]).find(x => x.id === itemId);
-      if (!item || !_isItemOwner(item)) return;
+      if (!item || !_canManageMembers(item)) return;
       const mem = (item.members||[]).find(m => m.id === memberId);
       if (!mem) return;
       mem.role = newRole;
-      saveNow(); toast('Role updated to ' + newRole);
+      _saveSharedItem(item, collection); toast('Role updated to ' + newRole);
       if (collection === 'groups') openGroupDetail(itemId);
       else openInvestmentDetail(itemId);
     }
@@ -7843,12 +7911,12 @@
       if (!msg) { toast('Enter a message'); return; }
       if (!g.noticeBoard) g.noticeBoard = [];
       g.noticeBoard.push({ id: 'nc_' + Math.random().toString(36).substr(2, 9), userId: curUser().id, userName: curUser().displayName || curUser().email, msg, createdAt: Date.now() });
-      save();
+      _saveSharedItem(g, 'groups');
       openGroupDetail(gid);
     }
 
     // ── Shared doc/receipt upload helpers ──────────────────────────
-    function _uploadDoc(targetArr, refreshFn, label) {
+    function _uploadDoc(targetArr, refreshFn, label, sharedItem, sharedCollection) {
       const inp = document.createElement('input');
       inp.type = 'file';
       inp.accept = 'image/*,.pdf,.doc,.docx,.xls,.xlsx,.csv,.txt';
@@ -7868,7 +7936,8 @@
             uploadedBy: curUser().displayName || curUser().email,
             uploadedAt: Date.now()
           });
-          save();
+          if (sharedItem) _saveSharedItem(sharedItem, sharedCollection);
+          else save();
           toast(file.name + ' uploaded');
           if (refreshFn) refreshFn();
         };
@@ -7922,23 +7991,23 @@
       const g = (db.groups||[]).find(x => x.id === gid);
       if (!g) return;
       if (!g.docs) g.docs = [];
-      _uploadDoc(g.docs, () => openGroupDetail(gid), label);
+      _uploadDoc(g.docs, () => openGroupDetail(gid), label, g, 'groups');
     }
     function _delGroupDoc(gid, docId) {
       const g = (db.groups||[]).find(x => x.id === gid);
       if (!g) return;
-      _deleteDoc(g.docs||[], docId, () => openGroupDetail(gid));
+      _deleteDoc(g.docs||[], docId, () => { _saveSharedItem(g, 'groups'); openGroupDetail(gid); });
     }
     function _uploadInvDoc(iid, label) {
       const inv = (db.investments||[]).find(x => x.id === iid);
       if (!inv) return;
       if (!inv.docs) inv.docs = [];
-      _uploadDoc(inv.docs, () => openInvestmentDetail(iid), label);
+      _uploadDoc(inv.docs, () => openInvestmentDetail(iid), label, inv, 'investments');
     }
     function _delInvDoc(iid, docId) {
       const inv = (db.investments||[]).find(x => x.id === iid);
       if (!inv) return;
-      _deleteDoc(inv.docs||[], docId, () => openInvestmentDetail(iid));
+      _deleteDoc(inv.docs||[], docId, () => { _saveSharedItem(inv, 'investments'); openInvestmentDetail(iid); });
     }
 
     function openGroupDetail(gid) {
@@ -7981,9 +8050,10 @@
                 <div style="font-weight:600;">${esc(m.name)}${roleBadge}</div>
                 <div style="font-size:11px;color:var(--muted);">Joined ${new Date(m.joinedAt).toLocaleDateString()}</div>
               </div>
-              ${_amOwner ? `<select style="width:auto;font-size:11px;padding:3px 6px;" onchange="changeMemberRole('${g.id}','groups','${m.id}',this.value)">
+              ${(_amOwner || _canManage) ? `<select style="width:auto;font-size:11px;padding:3px 6px;" onchange="changeMemberRole('${g.id}','groups','${m.id}',this.value)">
+                <option value="invitee"${mRole==='invitee'?' selected':''}>Invitee</option>
                 <option value="member"${mRole==='member'?' selected':''}>Member</option>
-                <option value="admin"${mRole==='admin'?' selected':''}>Admin</option>
+                ${_amOwner ? `<option value="admin"${mRole==='admin'?' selected':''}>Admin</option>` : ''}
               </select>` : ''}
               ${_canManage ? `<button class="gh sm" onclick="removeGroupMember('${g.id}','${m.id}')" title="Remove" style="color:var(--red);">✕</button>` : ''}
             </div>`;
@@ -8079,10 +8149,7 @@
       const u = curUser();
       if (!db.investments) db.investments = [];
       // Own investments + shared investments from other users' blobs
-      const ownInv = isAdmin() ? db.investments : db.investments.filter(inv => inv.userId === u.id || (inv.members||[]).some(m => m.contactId === u.id));
-      const existingInvIds = new Set(ownInv.map(inv => inv.id));
-      const sharedInv = (window._sharedInvestments || []).filter(inv => !existingInvIds.has(inv.id));
-      const myInv = [...ownInv, ...sharedInv];
+      const myInv = isAdmin() ? db.investments : db.investments.filter(inv => inv.userId === u.id || inv._shared || (inv.members||[]).some(m => m.contactId === u.id));
       const showArchived = window._arch_investments || false;
       const filtered = showArchived ? myInv : myInv.filter(inv => !inv.archived);
 
@@ -8418,7 +8485,7 @@
       if (!msg) { toast('Enter a message'); return; }
       if (!inv.noticeBoard) inv.noticeBoard = [];
       inv.noticeBoard.push({ id: 'nc_' + Math.random().toString(36).substr(2, 9), userId: curUser().id, userName: curUser().displayName || curUser().email, msg, createdAt: Date.now() });
-      save();
+      _saveSharedItem(inv, 'investments');
       openInvestmentDetail(iid);
     }
 
