@@ -7276,11 +7276,12 @@
                   ${comments > 0 ? `<span class="badge badge-yellow">${comments} comment${comments!==1?'s':''}</span>` : ''}
                 </div>
                 ${curRound ? `<div style="margin-top:8px;font-size:12px;color:var(--muted);">Current round: ${paidCount}/${totalMembers} paid${g.useRotation && curRound.collectorId ? ` — Collector: ${esc((members.find(m=>m.id===curRound.collectorId)||{}).name||'—')}` : ''}</div>` : ''}
-                ${members.length === 0 ? `<div style="margin-top:10px;"><button class="btn sm" onclick="addGroupMember('${g.id}')" style="background:var(--accent);">+ Add Members to Get Started</button></div>` : `<div style="margin-top:8px;"><button class="bs sm" onclick="addGroupMember('${g.id}')">+ Add Member</button></div>`}
+                ${members.length === 0 ? `<div style="margin-top:10px;"><button class="btn sm" onclick="addGroupMember('${g.id}')" style="background:var(--accent);">+ Add Members to Get Started</button></div>` : `<div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;"><button class="bs sm" onclick="addGroupMember('${g.id}')">+ Add Member</button><button class="bs sm" onclick="window._grpTab='board';openGroupDetail('${g.id}')">💬 Notice Board${comments>0?' ('+comments+')':''}</button></div>`}
               </div>
               <div class="action-menu"><button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button><div class="action-dropdown">
                 <button onclick="openGroupDetail('${g.id}')">👁 View</button>
                 <button onclick="addGroupMember('${g.id}')">👤 Add Member</button>
+                <button onclick="window._grpTab='board';openGroupDetail('${g.id}')">💬 Notice Board</button>
                 <button onclick="editGroup('${g.id}')">✏️ Edit</button>
                 <button onclick="addGroupRound('${g.id}')">➕ New Round</button>
                 <button onclick="toggleArchiveGroup('${g.id}')">${g.archived?'📤 Unarchive':'📥 Archive'}</button>
@@ -7640,6 +7641,7 @@
             <td><span class="badge ${INV_STATUS[inv.status]||'badge-gray'}">${esc((inv.status||'active').charAt(0).toUpperCase()+(inv.status||'active').slice(1))}</span></td>
             <td><div class="action-menu"><button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button><div class="action-dropdown">
               <button onclick="openInvestmentDetail('${inv.id}')">👁 View</button>
+              <button onclick="window._invTab='board';openInvestmentDetail('${inv.id}')">💬 Notice Board</button>
               <button onclick="editInvestment('${inv.id}')">✏️ Edit</button>
               <button onclick="addInvestmentTx('${inv.id}')">💰 Transaction</button>
               <button onclick="toggleArchiveInv('${inv.id}')">${inv.archived?'📤 Unarchive':'📥 Archive'}</button>
