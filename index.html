@@ -7351,17 +7351,21 @@
         createdAt: Date.now()
       };
       // Add selected members from checkboxes
+      const _invitedContacts = [];
       document.querySelectorAll('.gmember-cb:checked').forEach(cb => {
         const contact = db.contacts.find(c => c.id === cb.value);
         if (contact) {
           const mid = 'm_' + Math.random().toString(36).substr(2, 9);
           g.members.push({ id: mid, contactId: contact.id, name: contact.name, joinedAt: Date.now() });
           if (g.useRotation) g.rotationOrder.push(mid);
+          _invitedContacts.push(contact);
         }
       });
       if (!db.groups) db.groups = [];
       db.groups.push(g);
       save();
+      // Send invites to all added members
+      _invitedContacts.forEach(c => _sendMemberInvite(c, g.name, 'a Group Savings circle'));
       document.querySelector('.modal-bg:last-of-type')?.remove();
       toast('Group created' + (g.members.length > 0 ? ' with ' + g.members.length + ' member' + (g.members.length !== 1 ? 's' : '') : ''));
       renderGroups();
@@ -7464,6 +7468,48 @@
       document.body.insertAdjacentHTML('beforeend', html);
     }
 
+    // Send invite notification + email when adding member to group/investment
+    async function _sendMemberInvite(contact, itemName, itemType) {
+      const u = curUser();
+      const inviterName = u.displayName || u.email || 'Someone';
+      const msg = `${inviterName} invited you to ${itemType}: "${itemName}"`;
+      // In-app notification
+      db.notifs.push({
+        id: uuid(), userId: u.id, cId: contact.id, eid: null,
+        type: 'invite', msg, channel: 'in-app',
+        sent: true, who: 'them', sentTo: [contact.email||''],
+        read: false, createdAt: Date.now()
+      });
+      save();
+      // Email if contact has email
+      if (contact.email) {
+        try {
+          const _siteUrl = db.settings?.siteUrl || window.location.origin;
+          await fetch('/api/email', {
+            method: 'POST', credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              action: 'send-reminder',
+              recipientEmail: contact.email,
+              fromName: inviterName,
+              fromEmail: u.email || '',
+              message: msg,
+              viewUrl: _siteUrl,
+              siteUrl: _siteUrl,
+              appName: db.settings?.appName || 'Money IntX',
+              tagline: db.settings?.tagline || 'Making Money Matters Memorable',
+              logoData: db.settings?.logoData || ''
+            })
+          });
+          db.emailLog = db.emailLog || [];
+          db.emailLog.push({ id: uuid(), ts: Date.now(), type: 'invite', to: contact.email, status: 'sent' });
+          save();
+        } catch (e) {
+          console.error('[invite email]', e.message);
+        }
+      }
+    }
+
     function _doAddGroupMember(gid) {
       const g = (db.groups||[]).find(x => x.id === gid);
       if (!g) return;
@@ -7474,8 +7520,9 @@
       g.members.push({ id: 'm_' + Math.random().toString(36).substr(2, 9), contactId: cid, name: contact.name, joinedAt: Date.now() });
       if (g.useRotation) { if (!g.rotationOrder) g.rotationOrder = []; g.rotationOrder.push(g.members[g.members.length-1].id); }
       save();
+      _sendMemberInvite(contact, g.name, 'a Group Savings circle');
       document.querySelector('.modal-bg:last-of-type')?.remove();
-      toast(contact.name + ' added');
+      toast(contact.name + ' added & invited');
       openGroupDetail(gid);
     }
 
@@ -7704,7 +7751,7 @@
     function renderInvestments() {
       const u = curUser();
       if (!db.investments) db.investments = [];
-      const myInv = isAdmin() ? db.investments : db.investments.filter(inv => inv.userId === u.id);
+      const myInv = isAdmin() ? db.investments : db.investments.filter(inv => inv.userId === u.id || (inv.members||[]).some(m => m.contactId === u.id));
       const showArchived = window._arch_investments || false;
       const filtered = showArchived ? myInv : myInv.filter(inv => !inv.archived);
 
@@ -7856,15 +7903,19 @@
         createdAt: Date.now()
       };
       // Add selected members from checkboxes
+      const _invitedContacts2 = [];
       document.querySelectorAll('.invmember-cb:checked').forEach(cb => {
         const contact = db.contacts.find(c => c.id === cb.value);
         if (contact) {
           inv.members.push({ id: 'm_' + Math.random().toString(36).substr(2, 9), contactId: contact.id, name: contact.name, joinedAt: Date.now() });
+          _invitedContacts2.push(contact);
         }
       });
       if (!db.investments) db.investments = [];
       db.investments.push(inv);
       save();
+      // Send invites to all added members
+      _invitedContacts2.forEach(c => _sendMemberInvite(c, inv.name, 'an Investment'));
       document.querySelector('.modal-bg:last-of-type')?.remove();
       toast('Investment created');
       renderInvestments();
@@ -7950,8 +8001,9 @@
       if (!inv.members) inv.members = [];
       inv.members.push({ id: 'm_' + Math.random().toString(36).substr(2, 9), contactId: cid, name: contact.name, joinedAt: Date.now() });
       save();
+      _sendMemberInvite(contact, inv.name, 'an Investment');
       document.querySelector('.modal-bg:last-of-type')?.remove();
-      toast(contact.name + ' added');
+      toast(contact.name + ' added & invited');
       renderInvestments();
     }
 
