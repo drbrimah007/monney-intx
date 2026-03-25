@@ -6,6 +6,32 @@
 
 const { sql }         = require('../lib/db');
 const { requireAuth } = require('../lib/auth');
+const zlib            = require('zlib');
+const { promisify }   = require('util');
+const gunzip          = promisify(zlib.gunzip);
+const gzip            = promisify(zlib.gzip);
+
+// User data blobs are gzip-compressed by /api/data/sync as { _c:1, v:"<base64>" }.
+// We must decompress before reading and re-compress before writing.
+async function maybeDecompress(raw) {
+  if (raw && raw._c === 1 && typeof raw.v === 'string') {
+    try {
+      const buf  = Buffer.from(raw.v, 'base64');
+      const json = await gunzip(buf);
+      return JSON.parse(json.toString('utf8'));
+    } catch (e) {
+      console.error('[templates] decompress failed:', e.message);
+      return {};
+    }
+  }
+  return raw || {}; // legacy uncompressed row
+}
+
+async function recompress(obj) {
+  const json       = JSON.stringify(obj);
+  const compressed = await gzip(Buffer.from(json, 'utf8'));
+  return { _c: 1, v: compressed.toString('base64') };
+}
 
 module.exports = async function handler(req, res) {
   if (req.method === 'OPTIONS') return res.status(200).end();
@@ -17,7 +43,9 @@ module.exports = async function handler(req, res) {
       const rows = await sql`SELECT user_id, data FROM user_data`;
       const results = [];
       for (const row of rows) {
-        const templates = row.data?.templates || [];
+        // Decompress the blob — stored as { _c:1, v:"<base64>" } by sync.js
+        const data      = await maybeDecompress(row.data);
+        const templates = data.templates || [];
         for (const t of templates) {
           if (t.isPublic && !t.archived) {
             results.push({
@@ -55,7 +83,8 @@ module.exports = async function handler(req, res) {
       const [blobRow] = await sql`SELECT data FROM user_data WHERE user_id = ${payload.id} LIMIT 1`;
       if (!blobRow) return res.status(404).json({ ok: false, error: 'User data not found.' });
 
-      const data = blobRow.data || {};
+      // Decompress the blob before modifying
+      const data = await maybeDecompress(blobRow.data);
       const tpl  = (data.templates || []).find(t => t.id === templateId);
       if (!tpl) return res.status(404).json({ ok: false, error: 'Template not found.' });
 
@@ -68,7 +97,9 @@ module.exports = async function handler(req, res) {
         return res.status(400).json({ ok: false, error: 'Invalid action.' });
       }
 
-      await sql`UPDATE user_data SET data = ${data}, updated_at = now() WHERE user_id = ${payload.id}`;
+      // Re-compress before saving so we don't break the compressed format
+      const envelope = await recompress(data);
+      await sql`UPDATE user_data SET data = ${envelope}, updated_at = now() WHERE user_id = ${payload.id}`;
       return res.json({ ok: true, isPublic: tpl.isPublic });
     } catch (e) {
       console.error('[templates/POST]', e.message);
