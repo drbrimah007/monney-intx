@@ -7618,8 +7618,13 @@
       const INV_TYPES = { general: 'General', stocks: 'Stocks', realestate: 'Real Estate', business: 'Business', crypto: 'Crypto', other: 'Other' };
       const INV_STATUS = { active: 'badge-green', matured: 'badge-blue', closed: 'badge-gray', lost: 'badge-red' };
 
-      let html = `<div class="page-header"><h2>Investments</h2><button class="btn sm" onclick="openNewInvestment()">+ New Investment</button></div>
-      <p style="color:var(--muted);font-size:12px;margin-bottom:14px;">Track your investments, returns, and partners. Investment amounts do not affect your contact ledger balances.</p>`;
+      let html = `<div class="page-header" style="align-items:center;">
+        <div style="display:flex;align-items:center;gap:12px;">
+          <img src="investment-logo.png" alt="Investments" style="width:44px;height:44px;border-radius:50%;object-fit:cover;">
+          <div><h2 style="margin:0;">Investments</h2><p style="color:var(--muted);font-size:12px;margin:2px 0 0;">Track returns and partners — does not affect your ledger.</p></div>
+        </div>
+        <button class="btn sm" onclick="openNewInvestment()">+ New Investment</button>
+      </div>`;
       html += `<div class="grid3" style="margin-bottom:16px;">
         <div class="stat-card"><div class="stat-lbl">Total Invested</div><div class="stat-val">${fmt(totalInvested)}</div></div>
         <div class="stat-card"><div class="stat-lbl">Total Returns</div><div class="stat-val" style="color:var(--green)">${fmt(totalReturns)}</div></div>
