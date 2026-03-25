@@ -7911,6 +7911,18 @@
       openGroupDetail(gid);
     }
 
+    function _moveRotation(gid, fromIdx, direction) {
+      const g = (db.groups||[]).find(x => x.id === gid);
+      if (!g || !g.rotationOrder) return;
+      const toIdx = fromIdx + direction;
+      if (toIdx < 0 || toIdx >= g.rotationOrder.length) return;
+      const temp = g.rotationOrder[fromIdx];
+      g.rotationOrder[fromIdx] = g.rotationOrder[toIdx];
+      g.rotationOrder[toIdx] = temp;
+      _saveSharedItem(g, 'groups');
+      openGroupDetail(gid);
+    }
+
     async function removeGroupMember(gid, mid) {
       const g = (db.groups||[]).find(x => x.id === gid);
       if (!g) return;
@@ -8120,6 +8132,10 @@
               <div class="avatar">${(mem?.name||'?')[0].toUpperCase()}</div>
               <span style="flex:1;font-weight:600;">${esc(mem?.name||'Unknown')}</span>
               ${i===nextIdx ? '<span class="badge badge-blue">Next</span>' : ''}
+              ${_canManage ? `<div style="display:flex;gap:4px;">
+                ${i > 0 ? `<button class="gh sm" onclick="_moveRotation('${g.id}',${i},-1)" title="Move up" style="font-size:16px;">↑</button>` : ''}
+                ${i < order.length - 1 ? `<button class="gh sm" onclick="_moveRotation('${g.id}',${i},1)" title="Move down" style="font-size:16px;">↓</button>` : ''}
+              </div>` : ''}
             </div>`;
           }).join('');
         }
