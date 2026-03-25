@@ -8028,16 +8028,17 @@
       const showArchived = window._arch_groups || false;
       const filtered = showArchived ? myGroups : myGroups.filter(g => !g.archived);
 
-      let html = `<div class="page-header" style="align-items:center;">
-        <div style="display:flex;align-items:center;gap:12px;">
-          <img src="group-logo.png" alt="Groups" style="width:110px;height:110px;border-radius:50%;object-fit:cover;">
-          <div><h2 style="margin:0;">Group Savings</h2><p style="font-size:14px;font-weight:600;color:var(--accent);margin:2px 0 0;">Contribution Circle</p><p style="color:var(--muted);font-size:12px;margin:2px 0 0;">Contributions tracked separately. <span onclick="toast('Group contributions do not affect your contact ledger balances',4000)" style="cursor:pointer;color:var(--accent);">ℹ️</span></p></div>
+      let html = `<div style="max-width:780px;margin:0 auto;">
+        <div style="text-align:center;margin-bottom:18px;">
+          <img src="group-logo.png" alt="Groups" style="width:80px;height:80px;border-radius:50%;object-fit:cover;margin-bottom:8px;display:block;margin-left:auto;margin-right:auto;">
+          <h2 style="margin:0 0 4px;">Group Savings</h2>
+          <p style="font-size:14px;font-weight:600;color:var(--accent);margin:2px 0 0;">Contribution Circle</p>
+          <p style="color:var(--muted);font-size:12px;margin:2px 0 0;">Contributions tracked separately. <span onclick="toast('Group contributions do not affect your contact ledger balances',4000)" style="cursor:pointer;color:var(--accent);">ℹ️</span></p>
         </div>
-        <div style="display:flex;align-items:center;gap:10px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:8px;">
           <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;"><input type="checkbox" ${showArchived?'checked':''} onchange="window._arch_groups=this.checked;renderGroups()"> Archived</label>
           <button class="btn sm" onclick="openNewGroup()">+ New Group</button>
-        </div>
-      </div>`;
+        </div>`;
 
       if (filtered.length === 0) {
         html += `<div class="card"><p style="color:var(--muted);font-size:14px;padding:12px 0;">No groups yet. Create one to start tracking group savings.</p></div>`;
@@ -8051,7 +8052,7 @@
           const totalCollected = rounds.reduce((sum, r) => sum + (r.contributions||[]).filter(c => c.paid).reduce((s2, c) => s2 + (parseFloat(c.amount)||0), 0), 0);
           const comments = (g.noticeBoard||[]).length;
 
-          html += `<div class="card" style="margin-bottom:12px;max-width:66%;${g.archived?'opacity:.6;':''}" >
+          html += `<div class="card" style="margin-bottom:12px;${g.archived?'opacity:.6;':''}">
             <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px;">
               <div>
                 <h3 style="margin:0 0 4px;">${esc(g.name)}</h3>
@@ -8088,6 +8089,7 @@
           </div>`;
         });
       }
+      html += `</div>`; // close max-width wrapper
       document.getElementById('content').innerHTML = html;
     }
 
@@ -9008,16 +9010,17 @@
       const INV_TYPES = { general: 'General', stocks: 'Stocks', realestate: 'Real Estate', business: 'Business', crypto: 'Crypto', other: 'Other' };
       const INV_STATUS = { active: 'badge-green', matured: 'badge-blue', closed: 'badge-gray', lost: 'badge-red' };
 
-      let html = `<div class="page-header" style="align-items:center;">
-        <div style="display:flex;align-items:center;gap:12px;">
-          <img src="investment-logo.png" alt="Investments" style="width:110px;height:110px;border-radius:50%;object-fit:cover;">
-          <div><h2 style="margin:0;">Investments</h2><p style="font-size:14px;font-weight:600;color:var(--accent);margin:2px 0 0;">Build Wealth Together</p><p style="color:var(--muted);font-size:12px;margin:2px 0 0;">Investment amounts tracked separately. <span onclick="toast('Investment amounts do not affect your contact ledger balances',4000)" style="cursor:pointer;color:var(--accent);">ℹ️</span></p></div>
+      let html = `<div style="max-width:780px;margin:0 auto;">
+        <div style="text-align:center;margin-bottom:18px;">
+          <img src="investment-logo.png" alt="Investments" style="width:80px;height:80px;border-radius:50%;object-fit:cover;margin-bottom:8px;display:block;margin-left:auto;margin-right:auto;">
+          <h2 style="margin:0 0 4px;">Investments</h2>
+          <p style="font-size:14px;font-weight:600;color:var(--accent);margin:2px 0 0;">Build Wealth Together</p>
+          <p style="color:var(--muted);font-size:12px;margin:2px 0 0;">Investment amounts tracked separately. <span onclick="toast('Investment amounts do not affect your contact ledger balances',4000)" style="cursor:pointer;color:var(--accent);">ℹ️</span></p>
         </div>
-        <div style="display:flex;align-items:center;gap:10px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:8px;">
           <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;"><input type="checkbox" ${showArchived?'checked':''} onchange="window._arch_investments=this.checked;renderInvestments()"> Archived</label>
           <button class="btn sm" onclick="openNewInvestment()">+ New Investment</button>
-        </div>
-      </div>`;
+        </div>`;
       html += `<div class="grid3" style="margin-bottom:16px;">
         <div class="stat-card"><div class="stat-lbl">Total Invested</div><div class="stat-val">${fmt(totalInvested)}</div></div>
         <div class="stat-card"><div class="stat-lbl">Total Returns</div><div class="stat-val" style="color:var(--green)">${fmt(totalReturns)}</div></div>
@@ -9046,7 +9049,7 @@
           const gl = currentVal - invested;
           const roi = invested > 0 ? ((currentVal - invested) / invested * 100).toFixed(1) : '0.0';
           const comments = (inv.noticeBoard||[]).length;
-          html += `<div class="card" style="margin-bottom:12px;max-width:66%;${inv.archived?'opacity:.6;':''}">
+          html += `<div class="card" style="margin-bottom:12px;${inv.archived?'opacity:.6;':''}">
             <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px;">
               <div style="flex:1;min-width:200px;">
                 <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
@@ -9089,6 +9092,7 @@
           </div>`;
         });
       }
+      html += `</div>`; // close max-width wrapper
       document.getElementById('content').innerHTML = html;
     }
 
