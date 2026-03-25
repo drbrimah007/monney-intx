@@ -5715,11 +5715,15 @@
       if (who === 'you' || who === 'both')  { if (myEmail)        toAddresses.push(myEmail); }
       // Save in-app notification record (with full context)
       const _notifNow = Date.now();
+      const _rmContact = db.contacts.find(x => x.id === e.cId);
       db.notifs.push({
         id: uuid(), userId: u.id, cId: e.cId, eid,
         type: _isInitial ? 'notification' : 'reminder',
         isReminder: !_isInitial,
         msg: message, channel: 'email', sent: false,
+        _contactName: _rmContact?.name || contact?.name || null,
+        _amount: e.amount || null,
+        _currency: e.currency || null,
         who, sentTo: toAddresses,
         read: false, createdAt: _notifNow
       });
@@ -5733,7 +5737,8 @@
         e.lastReminderMethod = 'email';
         e.reminderCount      = (e.reminderCount || 0) + 1;
       }
-      save();
+      // Use saveNow so reminderCount persists immediately for the flag to show
+      try { await saveNow(); } catch(_) { save(); }
       logAudit(_isInitial ? 'send_notification' : 'send_reminder', { eid, to: who });
       if (toAddresses.length === 0) {
         toast('⚠️ No email on record for this contact — notification saved but not emailed.', 4000);
@@ -5823,6 +5828,7 @@
               entryStatus: e.status || null,
               txType: _emailTxType,
               isSelf: _isSelf,
+              isReminder: !_isInitial,
               currency: e.currency || db.settings.currency || 'USD',
               viewUrl: _viewUrl,
               siteUrl: _siteUrl,
@@ -5981,11 +5987,15 @@
       document.getElementById('selfRemindBg')?.remove();
       toast('⏰ Reminder set for ' + new Date(dateVal).toLocaleDateString());
       // Log as private self-reminder in notifs (not sent to anyone)
+      const _srContact = dbEntry?.cId ? db.contacts.find(x => x.id === dbEntry.cId) : null;
       db.notifs.push({
         id: uuid(), userId: curUser().id,
         cId: dbEntry?.cId || null, eid: dbEntry?.id || null,
         shareToken: token, type: 'self-reminder',
         msg: `Self-reminder: ${noteVal || 'Follow up on this record'}`,
+        _contactName: _srContact?.name || dbEntry?.fromName || null,
+        _amount: dbEntry?.amount || null,
+        _currency: dbEntry?.currency || null,
         channel: 'local', sent: false, isReminder: false,
         who: 'you', sentTo: [],
         read: true, createdAt: Date.now()
