@@ -8112,7 +8112,7 @@
                 const mem = members.find(m => m.id === c.memberId);
                 return `<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);font-size:13px;">
                   <span>${esc(mem?.name||'Unknown')}</span>
-                  <button class="bs sm ${c.paid?'on':''}" onclick="markContribution('${g.id}','${r.id}','${c.memberId}')">${c.paid ? '✓ Paid' : 'Mark Paid'}</button>
+                  <button class="bs sm ${c.paid?'on':''}" onclick="markContribution('${g.id}','${r.id}','${c.memberId}')">${c.paid ? '✓ Paid' : 'Mark Paid'}</button>${c.paid && c.paidAt ? `<span style="font-size:10px;color:var(--muted);margin-left:4px;">${new Date(c.paidAt).toLocaleDateString()}</span>` : ''}
                 </div>`;
               }).join('')}
             </div>`;
