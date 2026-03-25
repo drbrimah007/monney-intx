@@ -7249,8 +7249,13 @@
       const showArchived = window._arch_groups || false;
       const filtered = showArchived ? myGroups : myGroups.filter(g => !g.archived);
 
-      let html = `<div class="page-header"><h2>Group Savings</h2><button class="btn sm" onclick="openNewGroup()">+ New Group</button></div>
-      <p style="color:var(--muted);font-size:12px;margin-bottom:14px;">Group contributions are tracked separately and do not affect your contact ledger balances.</p>`;
+      let html = `<div class="page-header" style="align-items:center;">
+        <div style="display:flex;align-items:center;gap:12px;">
+          <img src="group-logo.png" alt="Groups" style="width:44px;height:44px;border-radius:50%;object-fit:cover;">
+          <div><h2 style="margin:0;">Group Savings</h2><p style="color:var(--muted);font-size:12px;margin:2px 0 0;">Contributions tracked separately — does not affect your ledger.</p></div>
+        </div>
+        <button class="btn sm" onclick="openNewGroup()">+ New Group</button>
+      </div>`;
       html += `<div style="margin-bottom:12px;"><label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;"><input type="checkbox" ${showArchived?'checked':''} onchange="window._arch_groups=this.checked;renderGroups()"> Show Archived</label></div>`;
 
       if (filtered.length === 0) {
