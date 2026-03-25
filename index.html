@@ -1870,7 +1870,6 @@
               //   (c) entry exists but cId is null — auto-contact creation missed it
               if (!_existingE || _existingE.noLedger || !_existingE.cId) {
                 _insertSharedEntry(mr);
-                _dbgInserted++;
                 migrated = true;
               } else if (_existingE && mr.entry) {
                 // ── Status + amount sync: keep recipient's isShared entry in sync with token ──
@@ -8279,10 +8278,13 @@
       }
       closeAuthModal();
       _loadCompleted = false; // reset so load() runs fresh for new session
+      _authFailed = false;   // reset auth failure flag for fresh session
       await load(); // pull their data from server
       await _acceptPendingInvite();
       await _linkPendingShare();
       initApp();
+      // Auto-sync to server after login so blob stays fresh
+      try { await saveNow(); } catch(_) {}
     }
 
     async function doSignup() {
@@ -9261,6 +9263,8 @@
       // Sync sent-share statuses immediately on load, then every 60 seconds
       _syncSentShareStatuses();
       setInterval(_syncSentShareStatuses, 60_000);
+      // Auto-sync to server every 5 minutes so blob stays fresh for reconciliation
+      setInterval(() => { if (!_authFailed) saveNow().catch(() => {}); }, 300_000);
       // Also re-check immediately when the user returns to the tab
       document.addEventListener('visibilitychange', () => {
         if (document.visibilityState === 'visible') {
