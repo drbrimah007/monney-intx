@@ -4075,32 +4075,7 @@
       }
       html += `<div class="grid2"><div class="fg"><label>Date</label><input type="date" id="nedate" value="${dateVal}"></div>
         <div class="fg"><label>Status</label><select id="nests">${statusOpts(e?.status||'posted', true)}</select></div></div>`;
-      // ── Notify on Save toggle ────────────────────────────────────────────
-      html += `<div style="border-top:1px solid var(--border);margin-top:10px;padding-top:10px;">
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
-          <button type="button" id="ne_notify_btn" class="bs sm" style="font-size:12px;" onclick="toggleFormNotify('ne')">🔔 Notify on Save</button>
-          <span id="ne_notify_sw" style="font-size:11px;color:var(--muted);">Off</span>
-        </div>
-        <div id="ne_notify_wrap" style="display:none;">
-          <div class="fg" style="margin-bottom:8px;">
-            <label style="font-size:12px;font-weight:600;">Message</label>
-            <textarea id="ne_notify_msg" rows="2" style="width:100%;box-sizing:border-box;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg2);color:var(--text);font-size:14px;resize:vertical;" placeholder="Add a note for the recipient..."></textarea>
-          </div>
-          <div class="fg" style="margin-bottom:8px;">
-            <label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;">Notify</label>
-            <div style="display:inline-flex;border:1px solid var(--border);border-radius:8px;overflow:hidden;">
-              <button type="button" id="ne_nwho_them" style="padding:6px 14px;font-size:12px;background:var(--accent);color:#fff;border:none;cursor:pointer;font-weight:600;" onclick="_setFormNwho('ne','them')">Contact</button>
-              <button type="button" id="ne_nwho_you" style="padding:6px 14px;font-size:12px;background:var(--bg3);color:var(--text);border:none;border-left:1px solid var(--border);cursor:pointer;" onclick="_setFormNwho('ne','you')">You</button>
-              <button type="button" id="ne_nwho_both" style="padding:6px 14px;font-size:12px;background:var(--bg3);color:var(--text);border:none;border-left:1px solid var(--border);cursor:pointer;" onclick="_setFormNwho('ne','both')">Both</button>
-            </div>
-          </div>
-          <div id="ne_notify_email_wrap" style="display:none;">
-            <div style="background:#fff8e1;border:1px solid #ffe082;border-radius:6px;padding:8px 12px;font-size:12px;color:#795548;">
-              ⚠️ Contact has no email. <input type="email" id="ne_notify_email" placeholder="Enter email" style="width:100%;margin-top:4px;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px;">
-            </div>
-          </div>
-        </div>
-      </div>`;
+      // Notify on Save is now in the button row below
       // ── Template-driven fields ────────────────────────────────────────
       if (tpl && tpl.fields && tpl.fields.length > 0) {
         html += `<div id="tplFieldsWrap" style="border-top:1px solid var(--border);margin-top:6px;padding-top:14px;">
@@ -4242,9 +4217,34 @@
           <button type="button" class="entry-type-tab" onclick="switchToRecurring()">🔁 Make Recurring</button>
         </div>
         <div id="entryFormBody">${entryFormBody(_entryFormCid, null, null, dir)}</div>
-        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;border-top:1px solid var(--border);padding-top:14px;">
-          <button class="bs" onclick="closeEntryModal()">Cancel</button>
-          <button class="btn" onclick="saveNewEntry()">Save Entry</button>
+        <div style="border-top:1px solid var(--border);margin-top:16px;padding-top:14px;">
+          <div id="ne_notify_wrap" style="display:none;margin-bottom:12px;">
+            <div class="fg" style="margin-bottom:8px;">
+              <label style="font-size:12px;font-weight:600;">Message</label>
+              <textarea id="ne_notify_msg" rows="2" style="width:100%;box-sizing:border-box;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg2);color:var(--text);font-size:14px;resize:vertical;" placeholder="Add a note for the recipient..."></textarea>
+            </div>
+            <div class="fg" style="margin-bottom:8px;">
+              <label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;">Notify</label>
+              <div style="display:inline-flex;border:1px solid var(--border);border-radius:8px;overflow:hidden;">
+                <button type="button" id="ne_nwho_them" style="padding:6px 14px;font-size:12px;background:var(--accent);color:#fff;border:none;cursor:pointer;font-weight:600;" onclick="_setFormNwho('ne','them')">Contact</button>
+                <button type="button" id="ne_nwho_you" style="padding:6px 14px;font-size:12px;background:var(--bg3);color:var(--text);border:none;border-left:1px solid var(--border);cursor:pointer;" onclick="_setFormNwho('ne','you')">You</button>
+                <button type="button" id="ne_nwho_both" style="padding:6px 14px;font-size:12px;background:var(--bg3);color:var(--text);border:none;border-left:1px solid var(--border);cursor:pointer;" onclick="_setFormNwho('ne','both')">Both</button>
+              </div>
+            </div>
+            <div id="ne_notify_email_wrap" style="display:none;">
+              <div style="background:#fff8e1;border:1px solid #ffe082;border-radius:6px;padding:8px 12px;font-size:12px;color:#795548;">
+                ⚠️ Contact has no email. <input type="email" id="ne_notify_email" placeholder="Enter email" style="width:100%;margin-top:4px;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px;">
+              </div>
+            </div>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <button type="button" id="ne_notify_btn" class="bs sm" style="font-size:12px;" onclick="toggleFormNotify('ne')">🔔 Notify on Save</button>
+            <span id="ne_notify_sw" style="font-size:11px;color:var(--muted);">Off</span>
+            <div style="margin-left:auto;display:flex;gap:8px;">
+              <button class="bs" onclick="closeEntryModal()">Cancel</button>
+              <button class="btn" onclick="saveNewEntry()">Save Entry</button>
+            </div>
+          </div>
         </div>`;
       if (_entryTpl) runTplCalcs();
     }
