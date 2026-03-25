@@ -141,10 +141,16 @@ module.exports = async function handler(req, res) {
         const blobB = blobCache.get(p.userBId);
         if (!blobA || !blobB) continue;
 
-        // Find A's contact for B: a contact in A's blob whose linkedUserId = B
-        const contactAforB = (blobA._contacts || []).find(c => c.linkedUserId === p.userBId);
-        const contactBforA = (blobB._contacts || []).find(c => c.linkedUserId === p.userAId);
+        // Find A's contact for B: by linkedUserId first, then by email fallback
+        const userBInfo = userInfoMap.get(p.userBId);
+        const userAInfo = userInfoMap.get(p.userAId);
+        const contactAforB = (blobA._contacts || []).find(c => c.linkedUserId === p.userBId)
+          || (userBInfo?.email && (blobA._contacts || []).find(c => (c.email||'').toLowerCase() === userBInfo.email.toLowerCase()));
+        const contactBforA = (blobB._contacts || []).find(c => c.linkedUserId === p.userAId)
+          || (userAInfo?.email && (blobB._contacts || []).find(c => (c.email||'').toLowerCase() === userAInfo.email.toLowerCase()));
 
+        const hasContactA = !!contactAforB;
+        const hasContactB = !!contactBforA;
         const balanceA = contactAforB ? computeLedger(blobA, contactAforB.id) : { toy: 0, yot: 0, net: 0 };
         const balanceB = contactBforA ? computeLedger(blobB, contactBforA.id) : { toy: 0, yot: 0, net: 0 };
 
@@ -155,6 +161,16 @@ module.exports = async function handler(req, res) {
         const mismatch = difference > 0.50;
         if (mismatch) mismatches++;
 
+        // Flag empty blobs or missing contacts
+        const aEmpty = (blobA._entries || []).length === 0;
+        const bEmpty = (blobB._entries || []).length === 0;
+        const warning = aEmpty || bEmpty || !hasContactA || !hasContactB
+          ? (aEmpty ? (userInfoMap.get(p.userAId)?.name || 'User A') + ' has no server data. ' : '')
+            + (bEmpty ? (userInfoMap.get(p.userBId)?.name || 'User B') + ' has no server data. ' : '')
+            + (!hasContactA && !aEmpty ? 'No matching contact in ' + (userInfoMap.get(p.userAId)?.name || 'A') + "'s data. " : '')
+            + (!hasContactB && !bEmpty ? 'No matching contact in ' + (userInfoMap.get(p.userBId)?.name || 'B') + "'s data. " : '')
+          : null;
+
         pairs.push({
           userA: userInfoMap.get(p.userAId) || { id: p.userAId, name: '?', email: '?' },
           userB: userInfoMap.get(p.userBId) || { id: p.userBId, name: '?', email: '?' },
@@ -162,7 +178,8 @@ module.exports = async function handler(req, res) {
           balanceB,
           mismatch,
           difference,
-          tokens: p.tokens
+          tokens: p.tokens,
+          ...(warning ? { warning } : {})
         });
       }
 
