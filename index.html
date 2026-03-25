@@ -7121,21 +7121,25 @@
       } else {
         _lockerListHtml = '<div style="display:flex;flex-direction:column;gap:10px;">';
         myLockers.forEach(function(l) {
-          let trusteeBlock = '';
-          if (l.primaryTrustee || (l.otherTrustees && l.otherTrustees.length > 0)) {
+          // Build trustee rows: each shows name (bold) + email + phone
+          function _trusteeCardLine(t, label) {
+            var to = _trusteeObj(t);
+            if (!to.name) return '';
+            var line = '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:5px 0;">'
+              + '<span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);min-width:46px;">' + label + '</span>'
+              + '<span style="font-size:13px;font-weight:600;">' + esc(to.name) + '</span>';
+            if (to.email) line += '<span style="font-size:12px;color:var(--muted);">' + esc(to.email) + '</span>';
+            if (to.phone) line += '<span style="font-size:12px;color:var(--muted);">' + esc(to.phone) + '</span>';
+            line += '</div>';
+            return line;
+          }
+          var allTrustees = [];
+          if (l.primaryTrustee) allTrustees.push({ t: l.primaryTrustee, label: 'Primary' });
+          (l.otherTrustees||[]).forEach(function(t){ allTrustees.push({ t: t, label: 'Other' }); });
+          var trusteeBlock = '';
+          if (allTrustees.length > 0) {
             trusteeBlock = '<div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border);">';
-            if (l.primaryTrustee) {
-              trusteeBlock += '<div style="display:flex;align-items:baseline;gap:6px;flex-wrap:wrap;">'
-                + '<span style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);">Primary</span>'
-                + '<span style="font-size:13px;font-weight:600;">' + esc(l.primaryTrustee) + '</span>'
-                + '</div>';
-            }
-            if (l.otherTrustees && l.otherTrustees.length > 0) {
-              trusteeBlock += '<div style="margin-top:4px;display:flex;align-items:baseline;gap:6px;flex-wrap:wrap;">'
-                + '<span style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);">Others</span>'
-                + '<span style="font-size:12px;color:var(--text);opacity:.75;">' + l.otherTrustees.map(function(t){return esc(t);}).join(', ') + '</span>'
-                + '</div>';
-            }
+            allTrustees.forEach(function(item){ trusteeBlock += _trusteeCardLine(item.t, item.label); });
             trusteeBlock += '</div>';
           }
           _lockerListHtml += '<div class="card" style="padding:14px 18px;">'
@@ -7411,32 +7415,77 @@
       const myLockers = (db.assetLockers||[]).filter(l=>l.userId===u.id);
       let lockerSection = '';
       if (myLockers.length > 0) {
-        const lockerRows = myLockers.map((l,i) => {
-          const hasTrustees = l.primaryTrustee || (l.otherTrustees&&l.otherTrustees.length>0);
-          const trusteeNames = [l.primaryTrustee, ...(l.otherTrustees||[])].filter(Boolean).join(', ');
-          return `<div style="padding:10px 14px;background:var(--bg2);border:1px solid var(--border);border-radius:10px;">
-            <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
-              <div>
-                <div style="font-size:13px;font-weight:700;">${esc(l.title)} <span class="badge badge-gray" style="font-size:10px;">${esc(l.type||'')}</span></div>
-                ${hasTrustees ? `<div style="font-size:12px;color:var(--muted);margin-top:3px;">👤 ${esc(trusteeNames)}</div>` : `<div style="font-size:12px;color:var(--muted);margin-top:3px;opacity:.5;">No trustees assigned</div>`}
-              </div>
-              <button class="bs sm" style="font-size:11px;" onclick="_toggleLockerPreviewDetail(this,'lokprev_${i}')">View Details ▾</button>
-            </div>
-            <div id="lokprev_${i}" style="display:none;margin-top:10px;border-top:1px solid var(--border);padding-top:10px;">
-              <div style="display:grid;grid-template-columns:70px 1fr;gap:4px 10px;font-size:12px;">
-                ${l.location?`<span style="color:var(--muted);font-weight:600;text-transform:uppercase;font-size:10px;padding-top:1px;">Location</span><span>${esc(l.location)}</span>`:''}
-                ${l.access?`<span style="color:var(--muted);font-weight:600;text-transform:uppercase;font-size:10px;padding-top:1px;">Access</span><span>${esc(l.access)}</span>`:''}
-                ${l.assetKey?`<span style="color:var(--muted);font-weight:600;text-transform:uppercase;font-size:10px;padding-top:1px;">Key</span><span style="font-family:monospace;">${esc(l.assetKey)}</span>`:''}
-                ${l.notes?`<span style="color:var(--muted);font-weight:600;text-transform:uppercase;font-size:10px;padding-top:1px;">Notes</span><span>${esc(l.notes)}</span>`:''}
-              </div>
-            </div>
-          </div>`;
-        }).join('');
-        lockerSection = `<div style="margin-top:16px;">
-          <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin-bottom:8px;">🗄 Asset Lockers (${myLockers.length})</div>
-          <div style="font-size:12px;color:var(--muted);margin-bottom:10px;line-height:1.5;">Trustees are visible. Locker details are hidden until expanded — this is what an admin or trustee would see during a release.</div>
-          <div style="display:flex;flex-direction:column;gap:8px;">${lockerRows}</div>
-        </div>`;
+        // Build locker rows using string concatenation (avoid nested template literal issues)
+        var lockerRowsHtml = '';
+        myLockers.forEach(function(l, i) {
+          var allTrustees = [];
+          if (l.primaryTrustee) allTrustees.push({ t: _trusteeObj(l.primaryTrustee), label: 'Primary' });
+          (l.otherTrustees||[]).forEach(function(t){ allTrustees.push({ t: _trusteeObj(t), label: 'Other' }); });
+          // Per-trustee send buttons — fall back to the NOK contact if no locker-specific trustees
+          var trusteeRows = '';
+          if (allTrustees.length === 0) {
+            // Use the NOK contact as recipient (they have all access, no need to assign per locker)
+            var nokEmail = n.email||'';
+            trusteeRows = '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;padding:7px 0;">'
+              + '<div style="flex:1;">'
+              + '<div style="display:flex;align-items:center;gap:6px;">'
+              + '<span style="font-size:10px;font-weight:700;text-transform:uppercase;color:var(--muted);background:var(--bg3);padding:1px 5px;border-radius:4px;">Trusted Contact</span>'
+              + '<span style="font-size:13px;font-weight:700;">' + esc(n.fullName) + '</span>'
+              + '</div>'
+              + (nokEmail ? '<div style="font-size:12px;color:var(--muted);margin-top:2px;">' + esc(nokEmail) + '</div>' : '<div style="font-size:12px;color:var(--muted);opacity:.5;">No email on record</div>')
+              + (n.phone ? '<div style="font-size:12px;color:var(--muted);"><a href="tel:' + esc(n.phone) + '" style="color:var(--accent);text-decoration:none;">📞 ' + esc(n.phone) + '</a></div>' : '')
+              + '</div>'
+              + '<button class="btn sm" style="flex-shrink:0;font-size:12px;" '
+              + (nokEmail ? 'onclick="sendLockerInfo(\'' + l.id + '\',\'' + esc(n.fullName) + '\',\'' + esc(nokEmail) + '\')"' : 'disabled title="No email on record" style="opacity:.4;cursor:not-allowed;"')
+              + '>📧 Send Info</button>'
+              + '</div>';
+          } else {
+            allTrustees.forEach(function(item) {
+              var to = item.t;
+              var hasEmail = !!to.email;
+              trusteeRows += '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;padding:7px 0;border-bottom:1px solid var(--border);">'
+                + '<div style="flex:1;min-width:160px;">'
+                + '<div style="display:flex;align-items:center;gap:6px;">'
+                + '<span style="font-size:10px;font-weight:700;text-transform:uppercase;color:var(--muted);background:var(--bg3);padding:1px 5px;border-radius:4px;">' + item.label + '</span>'
+                + '<span style="font-size:13px;font-weight:700;">' + esc(to.name) + '</span>'
+                + '</div>'
+                + (to.email ? '<div style="font-size:12px;color:var(--muted);margin-top:2px;">' + esc(to.email) + '</div>' : '')
+                + (to.phone ? '<div style="font-size:12px;color:var(--muted);">'
+                    + '<a href="tel:' + esc(to.phone) + '" style="color:var(--accent);text-decoration:none;">📞 ' + esc(to.phone) + '</a>'
+                    + '</div>' : '')
+                + '</div>'
+                + '<button class="btn sm" style="flex-shrink:0;font-size:12px;" '
+                + (hasEmail ? 'onclick="sendLockerInfo(\'' + l.id + '\',\'' + esc(to.name) + '\',\'' + esc(to.email) + '\')"' : 'disabled title="No email address" style="opacity:.4;cursor:not-allowed;"')
+                + '>📧 Send Info</button>'
+                + '</div>';
+            });
+          }
+          // "View locker details" collapse
+          lockerRowsHtml += '<div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:12px 14px;">'
+            + '<div style="font-size:13px;font-weight:700;margin-bottom:8px;">'
+            + esc(l.title) + ' <span class="badge badge-gray" style="font-size:10px;">' + esc(l.type||'') + '</span>'
+            + '</div>'
+            + trusteeRows
+            + '<div style="margin-top:8px;text-align:right;">'
+            + '<button class="bs sm" style="font-size:11px;color:var(--muted);" onclick="_toggleLockerPreviewDetail(this,\'lokprev_' + i + '\')">View locker details ▾</button>'
+            + '</div>'
+            + '<div id="lokprev_' + i + '" style="display:none;margin-top:10px;border-top:1px solid var(--border);padding-top:10px;">'
+            + '<div style="display:grid;grid-template-columns:70px 1fr;gap:4px 10px;font-size:12px;">'
+            + (l.location ? '<span style="color:var(--muted);font-weight:600;text-transform:uppercase;font-size:10px;padding-top:1px;">Location</span><span>' + esc(l.location) + '</span>' : '')
+            + (l.access   ? '<span style="color:var(--muted);font-weight:600;text-transform:uppercase;font-size:10px;padding-top:1px;">Access</span><span>'   + esc(l.access)   + '</span>' : '')
+            + (l.assetKey ? '<span style="color:var(--muted);font-weight:600;text-transform:uppercase;font-size:10px;padding-top:1px;">Key</span><span style="font-family:monospace;">' + esc(l.assetKey) + '</span>' : '')
+            + (l.notes    ? '<span style="color:var(--muted);font-weight:600;text-transform:uppercase;font-size:10px;padding-top:1px;">Notes</span><span>'    + esc(l.notes)    + '</span>' : '')
+            + '</div>'
+            + '</div>'
+            + '</div>';
+        });
+        lockerSection = '<div style="margin-top:16px;">'
+          + '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">'
+          + '<div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);">🗄 Asset Lockers (' + myLockers.length + ')</div>'
+          + '</div>'
+          + '<div style="font-size:12px;color:var(--muted);margin-bottom:10px;line-height:1.5;">Click <strong>Send Info</strong> to email a trustee the locker details. Locker contents are hidden unless you expand.</div>'
+          + '<div style="display:flex;flex-direction:column;gap:8px;">' + lockerRowsHtml + '</div>'
+          + '</div>';
       }
 
       document.body.insertAdjacentHTML('beforeend', `<div class="modal-bg" onclick="this.remove()"><div class="modal" style="max-width:480px;max-height:80vh;overflow-y:auto;" onclick="event.stopPropagation()">
@@ -7454,86 +7503,164 @@
       if (!el) return;
       const open = el.style.display !== 'none';
       el.style.display = open ? 'none' : 'block';
-      btn.textContent  = open ? 'View Details ▾' : 'Hide Details ▴';
+      btn.textContent  = open ? 'View locker details ▾' : 'Hide locker details ▴';
+    }
+
+    async function sendLockerInfo(lockerId, trusteeName, trusteeEmail) {
+      if (!trusteeEmail) { toast('No email address for this trustee.'); return; }
+      const l = (db.assetLockers||[]).find(x=>x.id===lockerId);
+      if (!l) { toast('Locker not found.'); return; }
+      if (!confirm('Send locker details for "' + l.title + '" to ' + trusteeName + ' (' + trusteeEmail + ')?')) return;
+      const u   = curUser();
+      const cfg = db.settings||{};
+      try {
+        const resp = await fetch('/api/email', {
+          method:'POST',
+          headers:{ 'Content-Type':'application/json', Authorization:'Bearer '+(localStorage.getItem('mxi_token')||'') },
+          body: JSON.stringify({
+            action:         'send-locker-info',
+            recipientEmail: trusteeEmail,
+            trusteeName,
+            fromName:       cfg.appName || u.name || 'Money IntX',
+            lockerTitle:    l.title,
+            lockerType:     l.type||'',
+            lockerLocation: l.location||'',
+            lockerAccess:   l.access||'',
+            lockerKey:      l.assetKey||'',
+            lockerNotes:    l.notes||'',
+            siteUrl:        cfg.siteUrl || window.location.origin,
+            appName:        cfg.appName || 'Money IntX',
+            tagline:        cfg.tagline || '',
+            logoData:       cfg.logoData || ''
+          })
+        });
+        const r = await resp.json();
+        if (r.ok) toast('📧 Locker info sent to ' + trusteeName);
+        else toast('Could not send: ' + (r.error||'unknown error'), 4000);
+      } catch(e) { toast('Email error: ' + e.message, 4000); }
     }
 
     // ── ASSET LOCKERS ──────────────────────────────────────────────────
     const LOCKER_TYPES = ['physical','personal','digital','financial','legal','other'];
 
+    // Normalise trustee to { name, email, phone } regardless of old plain-string format
+    function _trusteeObj(t) {
+      if (!t) return { name:'', email:'', phone:'' };
+      if (typeof t === 'string') return { name: t, email: '', phone: '' };
+      return { name: t.name||'', email: t.email||'', phone: t.phone||'' };
+    }
+
+    // Build a single trustee row for the locker modal
+    function _alTrusteeRowHtml(idx, t, isList) {
+      const u   = curUser();
+      const contacts = (db.contacts||[]).filter(c=>c.userId===u.id&&!c.archived);
+      const cOpts = contacts.map(c=>'<option value="'+c.id+'"'+(t&&t.contactId===c.id?' selected':'')+'>'+esc(c.name)+'</option>').join('');
+      const prefix = isList ? 'al_ot_' + idx : 'al_pt_';
+      const rowId  = isList ? 'alTrusteeRow_' + idx : 'al_pt_row';
+      return '<div id="'+rowId+'" style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:10px;margin-bottom:8px;">'
+        + (isList ? '<div style="display:flex;justify-content:flex-end;margin-bottom:6px;"><button type="button" class="bs sm" style="font-size:11px;" onclick="this.closest(\'#'+rowId+'\').remove()">✕ Remove</button></div>' : '')
+        + '<div class="fg" style="margin-bottom:8px;">'
+        + '<label style="font-size:11px;">Select from contacts <span style="font-weight:400;color:var(--muted);">(or fill in below)</span></label>'
+        + '<select onchange="_alFillTrusteeFromContact(this,\''+prefix+'\')" style="font-size:13px;">'
+        + '<option value="">— Choose contact or enter manually —</option>'
+        + cOpts
+        + '</select>'
+        + '</div>'
+        + '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;">'
+        + '<input id="'+prefix+'name" class="al_t_name" value="'+(t?esc(t.name):'')+'" placeholder="Full name">'
+        + '<input id="'+prefix+'email" class="al_t_email" type="email" value="'+(t?esc(t.email||''):'')+'" placeholder="Email">'
+        + '<input id="'+prefix+'phone" class="al_t_phone" type="tel" value="'+(t?esc(t.phone||''):'')+'" placeholder="Phone">'
+        + '</div>'
+        + '</div>';
+    }
+
+    function _alFillTrusteeFromContact(sel, prefix) {
+      const cid = sel.value;
+      if (!cid) return;
+      const c = (db.contacts||[]).find(x=>x.id===cid);
+      if (!c) return;
+      const nameEl  = document.getElementById(prefix+'name');
+      const emailEl = document.getElementById(prefix+'email');
+      const phoneEl = document.getElementById(prefix+'phone');
+      if (nameEl)  nameEl.value  = c.name  || '';
+      if (emailEl) emailEl.value = c.email || '';
+      if (phoneEl) phoneEl.value = c.phone || '';
+    }
+
     function openAssetLockerModal(lid) {
       const l = lid ? (db.assetLockers||[]).find(x=>x.id===lid) : null;
-      const typeOpts = LOCKER_TYPES.map(t=>`<option value="${t}" ${(l?.type||'physical')===t?'selected':''}>${t.charAt(0).toUpperCase()+t.slice(1)}</option>`).join('');
-      const existingOthers = (l?.otherTrustees||[]);
-      const otherRows = existingOthers.length
-        ? existingOthers.map((name,i)=>`<div style="display:flex;gap:6px;margin-bottom:6px;" id="alTrusteeRow_${i}"><input class="al_other_trustee" value="${esc(name)}" placeholder="Full name" style="flex:1;"><button type="button" class="bs sm" style="flex-shrink:0;" onclick="this.closest('[id^=alTrusteeRow_]').remove()">✕</button></div>`).join('')
-        : '';
-      document.body.insertAdjacentHTML('beforeend', `<div class="modal-bg" id="alModalBg" onclick="if(event.target===this)this.remove()">
-        <div class="modal" style="max-width:500px;" onclick="event.stopPropagation()">
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
-            <div class="modal-title" style="margin:0;">${l?'Edit':'Add'} Asset Locker</div>
-            <button class="gh sm" onclick="document.getElementById('alModalBg').remove()">✕</button>
-          </div>
-          <div class="grid2">
-            <div class="fg" style="grid-column:1/-1;"><label>Title *</label><input id="al_title" value="${esc(l?.title||'')}" placeholder="e.g. North Storage Room"></div>
-            <div class="fg"><label>Type</label><select id="al_type">${typeOpts}</select></div>
-            <div class="fg"><label>Asset Key <span style="font-weight:400;color:var(--muted);font-size:11px;">(optional)</span>
-              <span title="Asset Key is an optional way to organise and look up lockers by a structured reference. Format: [domain]:[type]:[name]:[id] — e.g. physical:room:north-storage:001 or digital:account:gmail:primary" style="cursor:help;color:var(--accent);font-size:12px;margin-left:3px;">ℹ️</span></label>
-              <input id="al_key" value="${esc(l?.assetKey||'')}" placeholder="physical:room:north-storage:001  (optional)" style="font-family:monospace;font-size:12px;"></div>
-          </div>
-          <div class="fg"><label>Location <span style="font-weight:400;color:var(--muted);">(where to find it)</span></label>
-            <input id="al_location" value="${esc(l?.location||'')}" placeholder="e.g. 145 W 18th St, Floor 2, Room B"></div>
-          <div class="fg"><label>Access <span style="font-weight:400;color:var(--muted);">(how to get in or use it)</span></label>
-            <input id="al_access" value="${esc(l?.access||'')}" placeholder="e.g. side door, badge required"></div>
-          <div class="fg"><label>Notes <span style="font-weight:400;color:var(--muted);">(optional)</span></label>
-            <textarea id="al_notes" rows="2" placeholder="Any extra context">${esc(l?.notes||'')}</textarea></div>
-
-          <hr style="border:none;border-top:1px solid var(--border);margin:14px 0 12px;">
-          <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:10px;">Trustees</div>
-          <div style="font-size:12px;color:var(--muted);margin-bottom:12px;line-height:1.5;">Who should be responsible for or notified about this locker.</div>
-          <div class="fg" style="margin-bottom:10px;">
-            <label>Primary Trustee <span style="font-weight:400;color:var(--muted);">(optional)</span></label>
-            <input id="al_primary_trustee" value="${esc(l?.primaryTrustee||'')}" placeholder="Full name of primary responsible person">
-          </div>
-          <div class="fg" style="margin-bottom:6px;"><label>Other Trustees <span style="font-weight:400;color:var(--muted);">(optional)</span></label></div>
-          <div id="alOtherTrusteesList">${otherRows}</div>
-          <button type="button" class="bs sm" style="margin-bottom:14px;" onclick="_alAddTrusteeRow()">+ Add Trustee</button>
-
-          <div style="background:rgba(232,30,130,0.06);border:1px solid rgba(232,30,130,0.18);border-radius:8px;padding:9px 13px;font-size:12px;color:var(--muted);margin-bottom:14px;line-height:1.6;">
-            🔒 Do not store full passwords or private keys here. Reference a secure vault instead (e.g. "see 1Password entry: X").
-          </div>
-          <div style="display:flex;gap:8px;justify-content:flex-end;">
-            <button class="bs" onclick="document.getElementById('alModalBg').remove()">Cancel</button>
-            <button class="btn" onclick="saveAssetLockerModal('${lid||''}')">Save</button>
-          </div>
-        </div></div>`);
+      const typeOpts = LOCKER_TYPES.map(t=>'<option value="'+t+'" '+((l?.type||'physical')===t?'selected':'')+'>'+t.charAt(0).toUpperCase()+t.slice(1)+'</option>').join('');
+      const pt = _trusteeObj(l?.primaryTrustee);
+      if (l?.primaryTrustee && typeof l.primaryTrustee === 'object') pt.contactId = l.primaryTrustee.contactId;
+      const existingOthers = (l?.otherTrustees||[]).map(_trusteeObj);
+      const otherRows = existingOthers.map((t,i)=>_alTrusteeRowHtml(i, t, true)).join('');
+      const ptRow = _alTrusteeRowHtml(0, pt, false);
+      document.body.insertAdjacentHTML('beforeend',
+        '<div class="modal-bg" id="alModalBg" onclick="if(event.target===this)this.remove()">'
+        + '<div class="modal" style="max-width:540px;max-height:90vh;overflow-y:auto;" onclick="event.stopPropagation()">'
+        + '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">'
+        + '<div class="modal-title" style="margin:0;">'+(l?'Edit':'Add')+' Asset Locker</div>'
+        + '<button class="gh sm" onclick="document.getElementById(\'alModalBg\').remove()">✕</button>'
+        + '</div>'
+        + '<div class="grid2">'
+        + '<div class="fg" style="grid-column:1/-1;"><label>Title *</label><input id="al_title" value="'+esc(l?.title||'')+'" placeholder="e.g. North Storage Room"></div>'
+        + '<div class="fg"><label>Type</label><select id="al_type">'+typeOpts+'</select></div>'
+        + '<div class="fg"><label>Asset Key <span style="font-weight:400;color:var(--muted);font-size:11px;">(optional)</span>'
+        + '<span title="Asset Key is an optional way to organise and look up lockers by a structured reference. Format: [domain]:[type]:[name]:[id] — e.g. physical:room:north-storage:001 or digital:account:gmail:primary" style="cursor:help;color:var(--accent);font-size:12px;margin-left:3px;">ℹ️</span></label>'
+        + '<input id="al_key" value="'+esc(l?.assetKey||'')+'" placeholder="physical:room:north-storage:001  (optional)" style="font-family:monospace;font-size:12px;"></div>'
+        + '</div>'
+        + '<div class="fg"><label>Location <span style="font-weight:400;color:var(--muted);">(where to find it)</span></label><input id="al_location" value="'+esc(l?.location||'')+'" placeholder="e.g. 145 W 18th St, Floor 2, Room B"></div>'
+        + '<div class="fg"><label>Access <span style="font-weight:400;color:var(--muted);">(how to get in or use it)</span></label><input id="al_access" value="'+esc(l?.access||'')+'" placeholder="e.g. side door, badge required"></div>'
+        + '<div class="fg"><label>Notes <span style="font-weight:400;color:var(--muted);">(optional)</span></label><textarea id="al_notes" rows="2" placeholder="Any extra context">'+esc(l?.notes||'')+'</textarea></div>'
+        + '<hr style="border:none;border-top:1px solid var(--border);margin:14px 0 12px;">'
+        + '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:4px;">Trustees</div>'
+        + '<div style="font-size:12px;color:var(--muted);margin-bottom:12px;line-height:1.5;">Select from your contacts or enter details manually. Email and phone are used to reach them.</div>'
+        + '<div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin-bottom:6px;">Primary Trustee</div>'
+        + ptRow
+        + '<div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin-bottom:6px;margin-top:4px;">Other Trustees</div>'
+        + '<div id="alOtherTrusteesList">'+otherRows+'</div>'
+        + '<button type="button" class="bs sm" style="margin-bottom:14px;" onclick="_alAddTrusteeRow()">+ Add Trustee</button>'
+        + '<div style="background:rgba(232,30,130,0.06);border:1px solid rgba(232,30,130,0.18);border-radius:8px;padding:9px 13px;font-size:12px;color:var(--muted);margin-bottom:14px;line-height:1.6;">'
+        + '🔒 Do not store full passwords or private keys here. Reference a secure vault instead (e.g. "see 1Password entry: X").'
+        + '</div>'
+        + '<div style="display:flex;gap:8px;justify-content:flex-end;">'
+        + '<button class="bs" onclick="document.getElementById(\'alModalBg\').remove()">Cancel</button>'
+        + '<button class="btn" onclick="saveAssetLockerModal(\''+(lid||'')+'\')">Save</button>'
+        + '</div>'
+        + '</div></div>'
+      );
     }
 
     function _alAddTrusteeRow() {
       const list = document.getElementById('alOtherTrusteesList');
       if (!list) return;
-      const idx = list.children.length;
-      const div = document.createElement('div');
-      div.style.cssText = 'display:flex;gap:6px;margin-bottom:6px;';
-      div.id = 'alTrusteeRow_' + idx;
-      div.innerHTML = `<input class="al_other_trustee" placeholder="Full name" style="flex:1;"><button type="button" class="bs sm" style="flex-shrink:0;" onclick="this.parentElement.remove()">✕</button>`;
-      list.appendChild(div);
-      div.querySelector('input')?.focus();
+      const idx = list.querySelectorAll('[id^=alTrusteeRow_]').length;
+      list.insertAdjacentHTML('beforeend', _alTrusteeRowHtml(idx, null, true));
+      list.querySelector('#alTrusteeRow_'+idx+' input')?.focus();
     }
 
     function saveAssetLockerModal(lid) {
       const title    = document.getElementById('al_title')?.value.trim();
       const assetKey = document.getElementById('al_key')?.value.trim();
-      if (!title)    { toast('Title is required'); return; }
+      if (!title) { toast('Title is required'); return; }
       if (!db.assetLockers) db.assetLockers = [];
-      const otherTrustees = Array.from(document.querySelectorAll('.al_other_trustee'))
-        .map(i=>i.value.trim()).filter(Boolean);
+      // Collect other trustees from dynamic rows
+      const otherRows  = Array.from(document.getElementById('alOtherTrusteesList')?.querySelectorAll('[id^=alTrusteeRow_]')||[]);
+      const otherTrustees = otherRows.map(row => ({
+        name:  (row.querySelector('.al_t_name')?.value||'').trim(),
+        email: (row.querySelector('.al_t_email')?.value||'').trim(),
+        phone: (row.querySelector('.al_t_phone')?.value||'').trim()
+      })).filter(t => t.name);
+      const ptName  = document.getElementById('al_pt_name')?.value.trim()||'';
+      const ptEmail = document.getElementById('al_pt_email')?.value.trim()||'';
+      const ptPhone = document.getElementById('al_pt_phone')?.value.trim()||'';
       const data = {
         title, assetKey,
-        type:            document.getElementById('al_type')?.value||'physical',
-        location:        document.getElementById('al_location')?.value.trim()||'',
-        access:          document.getElementById('al_access')?.value.trim()||'',
-        notes:           document.getElementById('al_notes')?.value.trim()||'',
-        primaryTrustee:  document.getElementById('al_primary_trustee')?.value.trim()||'',
+        type:           document.getElementById('al_type')?.value||'physical',
+        location:       document.getElementById('al_location')?.value.trim()||'',
+        access:         document.getElementById('al_access')?.value.trim()||'',
+        notes:          document.getElementById('al_notes')?.value.trim()||'',
+        primaryTrustee: ptName ? { name: ptName, email: ptEmail, phone: ptPhone } : null,
         otherTrustees
       };
       if (lid) {

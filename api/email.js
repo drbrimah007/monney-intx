@@ -4,7 +4,7 @@
 // POST { action:'send-invoice',  recipientEmail, fromName, invoiceNumber, amount, viewUrl? }
 
 const { requireAuth }                                        = require('../lib/auth');
-const { sendReminderEmail, sendInvoiceEmail, sendInviteEmail, sendNokVerificationEmail, sendNokActivationEmail, sendLockerOtpEmail } = require('../lib/email');
+const { sendReminderEmail, sendInvoiceEmail, sendInviteEmail, sendNokVerificationEmail, sendNokActivationEmail, sendLockerOtpEmail, sendLockerInfoEmail } = require('../lib/email');
 
 module.exports = async function handler(req, res) {
   if (req.method === 'OPTIONS') return res.status(200).end();
@@ -56,6 +56,13 @@ module.exports = async function handler(req, res) {
     const { recipientEmail, fromName, code, siteUrl, appName, tagline, logoData } = req.body;
     if (!recipientEmail || !code) return res.status(400).json({ ok: false, error: 'recipientEmail and code are required.' });
     const result = await sendLockerOtpEmail({ to: recipientEmail, fromName, code, siteUrl, appName, tagline, logoData });
+    return res.json(result);
+  }
+
+  if (action === 'send-locker-info') {
+    const { recipientEmail, trusteeName, fromName, lockerTitle, lockerType, lockerLocation, lockerAccess, lockerKey, lockerNotes, siteUrl, appName, tagline, logoData } = req.body;
+    if (!recipientEmail || !lockerTitle) return res.status(400).json({ ok: false, error: 'recipientEmail and lockerTitle are required.' });
+    const result = await sendLockerInfoEmail({ to: recipientEmail, trusteeName, fromName, lockerTitle, lockerType, lockerLocation, lockerAccess, lockerKey, lockerNotes, siteUrl, appName, tagline, logoData });
     return res.json(result);
   }
 
