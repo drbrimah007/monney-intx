@@ -8065,6 +8065,7 @@
                 ${curRound ? `<div style="margin-top:8px;font-size:12px;color:var(--muted);">Current round: ${paidCount}/${totalMembers} paid${g.useRotation && curRound.collectorId ? ` — Collector: ${esc((members.find(m=>m.id===curRound.collectorId)||{}).name||'—')}` : ''}</div>` : ''}
                 ${(() => { const _r = _getItemRole(g); const _io = _r === 'owner'; const _ia = _r === 'admin'; const _im = _r === 'member';
                   return (_io || _ia) && members.length === 0 ? `<div style="margin-top:10px;"><button class="btn sm" onclick="addGroupMember('${g.id}')" style="background:var(--accent);">+ Add Members to Get Started</button></div>` : `<div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;">
+                    <button class="btn sm" onclick="openGroupDetail('${g.id}')">Enter</button>
                     ${(_io || _ia) ? `<button class="bs sm" onclick="addGroupMember('${g.id}')">+ Add Member</button>` : ''}
                     ${(_im || _ia || _io) ? `<button class="bs sm" onclick="window._grpTab='board';openGroupDetail('${g.id}')">💬 Notice Board${comments>0?' ('+comments+')':''}</button>` : ''}
                   </div>`;
@@ -8072,7 +8073,6 @@
               </div>
               <div class="action-menu"><button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button><div class="action-dropdown">
                 ${(() => { const _r = _getItemRole(g); const _io = _r === 'owner'; const _ia = _r === 'admin'; const _im = _r === 'member'; return ''
-                  + '<button onclick="openGroupDetail(\'' + g.id + '\')">👁 View</button>'
                   + ((_io || _ia) ? '<button onclick="addGroupMember(\'' + g.id + '\')">👤 Add Member</button>' : '')
                   + ((_io || _ia || _im) ? '<button onclick="emailInviteToItem(\'' + g.id + '\',\'groups\',\'a Group Savings circle\')">✉ Invite by Email</button>' : '')
                   + ((_io || _ia || _im) ? '<button onclick="openInviteLink(\'' + g.id + '\',\'groups\')">🔗 Copy Invite Link</button>' : '')
