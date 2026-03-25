@@ -5589,9 +5589,26 @@
       const _emailTotal = _emailSt.total > 0 ? _emailSt.total : (e.amount || null);
       const _emailPaid  = _emailSt.settled > 0 ? _emailSt.settled : null;
 
+      // Flip txType for sender's own email so the copy reads from THEIR perspective
+      const _FLIP_TX = {
+        'you_owe_them':  'they_owe_you',   // "I owe them" → self gets "They owe you" → actually "You owe them" confirmation
+        'they_owe_you':  'you_owe_them',   // "They owe me" → self gets "You owe" → actually "They owe you" confirmation
+        'you_paid_them': 'they_paid_you',  // "I paid them" → self gets "They paid you" → actually "You paid them" confirmation
+        'they_paid_you': 'you_paid_them',  // "They paid me" → self gets "You paid them" → actually "They paid you" confirmation
+        'invoice':       'invoice',        // invoice stays same (sender = issuer)
+        'bill':          'bill'            // bill stays same
+      };
+
       try {
         let _emailOk = 0, _emailFail = 0;
         for (const addr of toAddresses) {
+          // When sending to self, flip the txType so the email reads from sender's own perspective
+          const _isSelf = addr.toLowerCase() === (myEmail||'').toLowerCase();
+          const _emailTxType = _isSelf ? (_FLIP_TX[e.txType] || e.txType) : (e.txType || null);
+          // For self-emails, use contact name as "fromName" so it reads "ContactName owes you" etc.
+          const _emailFromName = _isSelf
+            ? (contact?.name || 'Your contact')
+            : (u.displayName || u.email || (db.settings?.appName || 'Money IntX'));
           const _resp = await fetch('/api/email', {
             method: 'POST',
             credentials: 'include',
@@ -5599,7 +5616,7 @@
             body: JSON.stringify({
               action: 'send-reminder',
               recipientEmail: addr,
-              fromName: u.displayName || u.email || (db.settings?.appName || 'Money IntX'),
+              fromName: _emailFromName,
               fromEmail: u.email || '',
               message,
               invoiceNumber: e.invoiceNumber || null,
@@ -5607,7 +5624,7 @@
               totalAmt: _emailTotal,
               paidAmt: _emailPaid,
               entryStatus: e.status || null,
-              txType: e.txType || null,
+              txType: _emailTxType,
               currency: e.currency || db.settings.currency || 'USD',
               viewUrl: _viewUrl,
               siteUrl: _siteUrl,
