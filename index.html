@@ -8866,7 +8866,7 @@
         <!-- ═══ MEMBERS ═══ -->
         <div style="padding:0 24px 24px;">
           <div style="font-size:14px;font-weight:800;margin-bottom:12px;">Members</div>
-          <div style="display:flex;flex-wrap:wrap;gap:10px;">
+          <div style="display:flex;flex-wrap:wrap;gap:10px;justify-content:center;">
           ${(() => {
             // Build full list: creator + members
             const creator = db.users.find(u2 => u2.id === g.userId);
@@ -8882,7 +8882,7 @@
                 const lastPaid = paid?.paidAt ? new Date(paid.paidAt).toLocaleDateString() : '—';
                 const roleLbl = mRole.charAt(0).toUpperCase()+mRole.slice(1);
                 const roleColor = mRole === 'owner' ? 'var(--accent)' : mRole === 'admin' ? 'var(--blue)' : mRole === 'invitee' ? 'var(--muted)' : 'var(--text)';
-                return `<div style="background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:12px;width:calc(20% - 8px);min-width:150px;flex:1 1 150px;max-width:calc(20% - 8px);display:flex;flex-direction:column;align-items:center;text-align:center;">
+                return `<div style="background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:12px;width:100px;flex:0 0 100px;display:flex;flex-direction:column;align-items:center;text-align:center;">
                   <div class="avatar" style="width:40px;height:40px;font-size:15px;margin-bottom:6px;">${(m.name||'?')[0].toUpperCase()}</div>
                   <div style="font-weight:700;font-size:13px;margin-bottom:2px;word-break:break-word;">${esc(m.name)}</div>
                   <div style="font-size:10px;font-weight:700;color:${roleColor};text-transform:uppercase;letter-spacing:.04em;margin-bottom:6px;">${roleLbl}</div>
