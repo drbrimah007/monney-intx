@@ -7613,7 +7613,8 @@
       const INV_TYPES = { general: 'General', stocks: 'Stocks', realestate: 'Real Estate', business: 'Business', crypto: 'Crypto', other: 'Other' };
       const INV_STATUS = { active: 'badge-green', matured: 'badge-blue', closed: 'badge-gray', lost: 'badge-red' };
 
-      let html = `<div class="page-header"><h2>Investments</h2><button class="btn sm" onclick="openNewInvestment()">+ New Investment</button></div>`;
+      let html = `<div class="page-header"><h2>Investments</h2><button class="btn sm" onclick="openNewInvestment()">+ New Investment</button></div>
+      <p style="color:var(--muted);font-size:12px;margin-bottom:14px;">Track your investments, returns, and partners. Investment amounts do not affect your contact ledger balances.</p>`;
       html += `<div class="grid3" style="margin-bottom:16px;">
         <div class="stat-card"><div class="stat-lbl">Total Invested</div><div class="stat-val">${fmt(totalInvested)}</div></div>
         <div class="stat-card"><div class="stat-lbl">Total Returns</div><div class="stat-val" style="color:var(--green)">${fmt(totalReturns)}</div></div>
@@ -7659,13 +7660,16 @@
                   ${inv.expectedReturn ? `<div><div style="font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;">Expected Return</div><div style="font-size:18px;font-weight:800;">${inv.expectedReturn}%</div></div>` : ''}
                   <div><div style="font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;">ROI</div><div style="font-size:18px;font-weight:800;color:${parseFloat(roi)>=0?'var(--green)':'var(--red)'};">${roi}%</div></div>
                 </div>
+                ${(inv.members||[]).length > 0 ? `<div style="margin-bottom:8px;"><span style="font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;">Partners:</span> ${(inv.members||[]).map(m => '<span class="badge badge-blue" style="margin:2px;">'+esc(m.name)+'</span>').join('')}</div>` : ''}
                 <div style="display:flex;gap:6px;flex-wrap:wrap;">
                   <button class="bs sm" onclick="addInvestmentTx('${inv.id}')">💰 Transaction</button>
+                  <button class="bs sm" onclick="addInvMember('${inv.id}')">👤 Add Member</button>
                   <button class="bs sm" onclick="window._invTab='board';openInvestmentDetail('${inv.id}')">💬 Notice Board${comments>0?' ('+comments+')':''}</button>
                 </div>
               </div>
               <div class="action-menu"><button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button><div class="action-dropdown">
                 <button onclick="openInvestmentDetail('${inv.id}')">👁 View</button>
+                <button onclick="addInvMember('${inv.id}')">👤 Add Member</button>
                 <button onclick="window._invTab='board';openInvestmentDetail('${inv.id}')">💬 Notice Board</button>
                 <button onclick="editInvestment('${inv.id}')">✏️ Edit</button>
                 <button onclick="addInvestmentTx('${inv.id}')">💰 Transaction</button>
@@ -7677,6 +7681,12 @@
         });
       }
       document.getElementById('content').innerHTML = html;
+    }
+
+    function _invMemberCheckboxes() {
+      const contacts = db.contacts.filter(c => c.userId === curUser().id && !c.archived);
+      if (contacts.length === 0) return '<div style="font-size:12px;color:var(--muted);">No contacts yet — you can add members later.</div>';
+      return contacts.map(c => '<label style="display:flex;align-items:center;gap:5px;background:var(--bg3);padding:6px 10px;border-radius:8px;font-size:13px;cursor:pointer;border:1px solid var(--border);"><input type="checkbox" value="' + c.id + '" class="invmember-cb"> ' + esc(c.name) + '</label>').join('');
     }
 
     function openNewInvestment() {
@@ -7696,6 +7706,11 @@
         <div class="frow">
           <div class="fg" style="flex:1;"><label>Start Date</label><input type="date" id="invdate" value="${new Date().toISOString().split('T')[0]}"></div>
           <div class="fg" style="flex:1;"><label>Expected Return %</label><input type="number" id="invreturn" min="0" step="0.1" placeholder="12"></div>
+        </div>
+        <div class="fg"><label>Members / Partners <span style="font-weight:400;color:var(--muted);">(select contacts involved)</span></label>
+          <div id="invnewmembers" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:4px;">
+            ${_invMemberCheckboxes()}
+          </div>
         </div>
         <div style="display:flex;gap:8px;margin-top:16px;"><button class="btn" onclick="saveNewInvestment()">Create</button><button class="bs" onclick="this.closest('.modal-bg').remove()">Cancel</button></div>
       </div></div>`;
@@ -7718,11 +7733,19 @@
         startDate: document.getElementById('invdate').value,
         expectedReturn: parseFloat(document.getElementById('invreturn').value) || 0,
         status: document.getElementById('invstatus').value,
+        members: [],
         transactions: [],
         noticeBoard: [],
         archived: false,
         createdAt: Date.now()
       };
+      // Add selected members from checkboxes
+      document.querySelectorAll('.invmember-cb:checked').forEach(cb => {
+        const contact = db.contacts.find(c => c.id === cb.value);
+        if (contact) {
+          inv.members.push({ id: 'm_' + Math.random().toString(36).substr(2, 9), contactId: contact.id, name: contact.name, joinedAt: Date.now() });
+        }
+      });
       if (!db.investments) db.investments = [];
       db.investments.push(inv);
       save();
@@ -7786,6 +7809,43 @@
       if (!confirm('Delete this investment? This cannot be undone.')) return;
       db.investments = (db.investments||[]).filter(x => x.id !== iid);
       save(); toast('Investment deleted'); renderInvestments();
+    }
+
+    function addInvMember(iid) {
+      const inv = (db.investments||[]).find(x => x.id === iid);
+      if (!inv) return;
+      if (!inv.members) inv.members = [];
+      const u = curUser();
+      const myContacts = db.contacts.filter(c => c.userId === u.id && !c.archived);
+      const existing = new Set(inv.members.map(m => m.contactId));
+      const available = myContacts.filter(c => !existing.has(c.id));
+      if (available.length === 0) { toast('No more contacts to add'); return; }
+      const opts = available.map(c => '<option value="' + c.id + '">' + esc(c.name) + '</option>').join('');
+      const html = '<div class="modal-bg" onclick="this.remove()"><div class="modal" style="max-width:400px;" onclick="event.stopPropagation()"><div class="modal-title">Add Member / Partner</div><div class="fg"><label>Select Contact</label><select id="invaddmember">' + opts + '</select></div><div style="display:flex;gap:8px;margin-top:12px;"><button class="btn sm" onclick="_doAddInvMember(\'' + iid + '\')">Add</button><button class="bs sm" onclick="this.closest(\'.modal-bg\').remove()">Cancel</button></div></div></div>';
+      document.body.insertAdjacentHTML('beforeend', html);
+    }
+
+    function _doAddInvMember(iid) {
+      const inv = (db.investments||[]).find(x => x.id === iid);
+      if (!inv) return;
+      const cid = document.getElementById('invaddmember').value;
+      const contact = db.contacts.find(c => c.id === cid);
+      if (!contact) return;
+      if (!inv.members) inv.members = [];
+      inv.members.push({ id: 'm_' + Math.random().toString(36).substr(2, 9), contactId: cid, name: contact.name, joinedAt: Date.now() });
+      save();
+      document.querySelector('.modal-bg:last-of-type')?.remove();
+      toast(contact.name + ' added');
+      renderInvestments();
+    }
+
+    function removeInvMember(iid, mid) {
+      const inv = (db.investments||[]).find(x => x.id === iid);
+      if (!inv) return;
+      if (!confirm('Remove this member?')) return;
+      inv.members = (inv.members||[]).filter(m => m.id !== mid);
+      save();
+      openInvestmentDetail(iid);
     }
 
     function addInvestmentTx(iid) {
@@ -7887,6 +7947,21 @@
           });
           tabContent += `</tbody></table></div>`;
         }
+      } else if (activeTab === 'members') {
+        const invMembers = inv.members || [];
+        tabContent = `<div class="section-title">Members / Partners (${invMembers.length})</div>`;
+        if (invMembers.length === 0) {
+          tabContent += `<p style="color:var(--muted);font-size:13px;margin-bottom:12px;">No members yet.</p>`;
+        } else {
+          invMembers.forEach(m => {
+            tabContent += `<div class="trow" style="padding:8px 0;">
+              <div class="avatar">${(m.name||'?')[0].toUpperCase()}</div>
+              <div style="flex:1;"><div style="font-weight:600;">${esc(m.name)}</div><div style="font-size:11px;color:var(--muted);">Joined ${new Date(m.joinedAt).toLocaleDateString()}</div></div>
+              <button class="gh sm" onclick="removeInvMember('${inv.id}','${m.id}')" title="Remove" style="color:var(--red);">✕</button>
+            </div>`;
+          });
+        }
+        tabContent += `<button class="bs sm" style="margin-top:8px;" onclick="document.querySelector('.inv-detail-modal')?.remove();addInvMember('${inv.id}')">+ Add Member</button>`;
       } else if (activeTab === 'board') {
         tabContent = `<div style="margin-bottom:16px;">
           <textarea id="icomment_${inv.id}" rows="2" placeholder="Write a message…" style="margin-bottom:8px;"></textarea>
@@ -7909,6 +7984,7 @@
         <div class="tabs" style="margin-bottom:16px;">
           <button class="tab ${activeTab==='overview'?'on':''}" onclick="window._invTab='overview';openInvestmentDetail('${inv.id}')">Overview</button>
           <button class="tab ${activeTab==='transactions'?'on':''}" onclick="window._invTab='transactions';openInvestmentDetail('${inv.id}')">Transactions${txs.length>0?' ('+txs.length+')':''}</button>
+          <button class="tab ${activeTab==='members'?'on':''}" onclick="window._invTab='members';openInvestmentDetail('${inv.id}')">Members${(inv.members||[]).length>0?' ('+(inv.members||[]).length+')':''}</button>
           <button class="tab ${activeTab==='board'?'on':''}" onclick="window._invTab='board';openInvestmentDetail('${inv.id}')">Notice Board${board.length>0?' ('+board.length+')':''}</button>
         </div>
         ${tabContent}
