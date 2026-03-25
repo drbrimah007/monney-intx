@@ -3832,8 +3832,8 @@
 
       const _sm = window._selectMode || false;
       // Collect IDs of all selectable rows visible on this page (for select-all)
-      // Excludes only pending shared rows (item.token) — isShared db.entries CAN be selected
-      const _selPageIds = p.items.filter(item => !item.token).map(item => item.id);
+      // Includes own entries, isShared entries, AND pending shared rows (using token as ID)
+      const _selPageIds = p.items.map(item => item.token || item.id);
       // Store page IDs in window so the onchange handler can reference without quote conflicts
       window._entryPageIds = _selPageIds;
 
@@ -9329,7 +9329,55 @@
       document.body.insertAdjacentHTML('beforeend', modal);
     }
 
-    // ============ PAGE: INVESTMENTS ============
+    // ============ PAGE: VENTURES / INVESTMENTS ============
+
+    // Transaction type definitions
+    const INV_TX_TYPES = {
+      capital_contribution: { label: 'Capital Contribution', color: 'var(--blue)',   dir: 'in'   },
+      deposit:              { label: 'Deposit',              color: 'var(--blue)',   dir: 'in'   },
+      expense:              { label: 'Expense',              color: 'var(--red)',    dir: 'out'  },
+      asset_purchase:       { label: 'Asset Purchase',       color: 'var(--red)',    dir: 'out'  },
+      revenue:              { label: 'Revenue',              color: 'var(--green)',  dir: 'gain' },
+      dividend:             { label: 'Dividend',             color: 'var(--green)',  dir: 'gain' },
+      return:               { label: 'Return',               color: 'var(--green)',  dir: 'gain' },
+      profit_distribution:  { label: 'Profit Distribution',  color: 'var(--amber)',  dir: 'out'  },
+      withdrawal:           { label: 'Withdrawal',           color: 'var(--red)',    dir: 'out'  },
+      adjustment:           { label: 'Adjustment',           color: 'var(--muted)',  dir: 'adj'  },
+    };
+
+    // True if this venture is personal (no collaborative features)
+    function _isPersonalVenture(inv) {
+      return (inv.venture_type || 'shared') === 'personal';
+    }
+
+    // Financial roll-up for a venture — works with both old and new TX types
+    function _invCalc(inv) {
+      const txs = inv.transactions || [];
+      const _sum = (types) => txs.filter(t => types.includes(t.type)).reduce((s,t) => s+(parseFloat(t.amount)||0), 0);
+      const capitalIn   = (parseFloat(inv.initialAmount)||0) + _sum(['capital_contribution','deposit']);
+      const expenses    = _sum(['expense','asset_purchase']);
+      const revenue     = _sum(['revenue','dividend','return']);
+      const withdrawals = _sum(['withdrawal']);
+      const distributions = _sum(['profit_distribution']);
+      const adjustments = _sum(['adjustment']);
+      const netPL       = revenue - expenses;
+      const currentVal  = capitalIn - expenses - withdrawals - distributions + revenue + adjustments;
+      const totalOut    = expenses + withdrawals + distributions;
+      const roi         = capitalIn > 0 ? ((currentVal - capitalIn) / capitalIn * 100).toFixed(1) : '0.0';
+      return { capitalIn, expenses, revenue, withdrawals, distributions, adjustments, netPL, currentVal, totalOut, roi };
+    }
+
+    // Venture type radio-button toggle (used in create/edit modals)
+    function _onVentureTypeChange() {
+      const isShared = document.querySelector('input[name="invVentureType"]:checked')?.value === 'shared';
+      const sec = document.getElementById('invSharedSection');
+      if (sec) sec.style.display = isShared ? '' : 'none';
+      document.querySelectorAll('input[name="invVentureType"]').forEach(r => {
+        const box = r.closest('label')?.querySelector('.vtype-box');
+        if (box) box.style.borderColor = r.checked ? 'var(--accent)' : 'var(--border)';
+      });
+    }
+
     function renderInvestments() {
       const u = curUser();
       if (!db.investments) db.investments = [];
@@ -9337,106 +9385,122 @@
       const showArchived = window._arch_investments || false;
       const filtered = showArchived ? myInv : myInv.filter(inv => !inv.archived);
 
-      // Summary stats
-      let totalInvested = 0, totalReturns = 0;
+      // Summary stats using new _invCalc
+      let aggCapIn = 0, aggRevenue = 0, aggExpenses = 0, aggCurrentVal = 0;
       filtered.forEach(inv => {
-        const deposits = (inv.transactions||[]).filter(t => t.type === 'deposit').reduce((s, t) => s + (parseFloat(t.amount)||0), 0);
-        const withdrawals = (inv.transactions||[]).filter(t => t.type === 'withdrawal').reduce((s, t) => s + (parseFloat(t.amount)||0), 0);
-        const dividends = (inv.transactions||[]).filter(t => t.type === 'dividend' || t.type === 'return').reduce((s, t) => s + (parseFloat(t.amount)||0), 0);
-        totalInvested += (parseFloat(inv.initialAmount)||0) + deposits;
-        totalReturns += withdrawals + dividends;
+        const c = _invCalc(inv);
+        aggCapIn      += c.capitalIn;
+        aggRevenue    += c.revenue;
+        aggExpenses   += c.expenses;
+        aggCurrentVal += c.currentVal;
       });
-      const netGL = totalReturns - totalInvested;
+      const aggNetPL = aggRevenue - aggExpenses;
 
-      const INV_TYPES = { general: 'General', stocks: 'Stocks', realestate: 'Real Estate', business: 'Business', crypto: 'Crypto', other: 'Other' };
+      const INV_TYPES = { general: 'General', stocks: 'Stocks', realestate: 'Real Estate', business: 'Business', project: 'Project', asset: 'Asset', crypto: 'Crypto', other: 'Other' };
       const INV_STATUS = { active: 'badge-green', matured: 'badge-blue', closed: 'badge-gray', lost: 'badge-red' };
 
       let html = `<div style="max-width:780px;margin:0 auto;">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;flex-wrap:wrap;gap:10px;">
           <div style="display:flex;align-items:center;gap:12px;">
-            <img src="investment-logo.png" alt="Investments" style="width:72px;height:72px;border-radius:50%;object-fit:cover;">
+            <img src="investment-logo.png" alt="Ventures" style="width:72px;height:72px;border-radius:50%;object-fit:cover;">
             <div>
-              <h2 style="margin:0;font-size:22px;">Investments</h2>
-              <p style="font-size:13px;font-weight:600;color:var(--accent);margin:2px 0 0;">Build Wealth Together</p>
-              <p style="color:var(--muted);font-size:12px;margin:2px 0 0;">Investment amounts tracked separately. <span onclick="toast('Investment amounts do not affect your contact ledger balances',4000)" style="cursor:pointer;color:var(--accent);">ℹ️</span></p>
+              <h2 style="margin:0;font-size:22px;">Ventures</h2>
+              <p style="font-size:13px;font-weight:600;color:var(--accent);margin:2px 0 0;">Investments, Businesses &amp; Projects</p>
+              <p style="color:var(--muted);font-size:12px;margin:2px 0 0;">Tracked separately from your contact ledger. <span onclick="toast('Venture amounts do not affect your contact balances',4000)" style="cursor:pointer;color:var(--accent);">ℹ️</span></p>
             </div>
           </div>
           <div style="display:flex;align-items:center;gap:10px;">
             <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;"><input type="checkbox" ${showArchived?'checked':''} onchange="window._arch_investments=this.checked;renderInvestments()"> Archived</label>
-            <button class="btn sm" onclick="openNewInvestment()">+ New Investment</button>
+            <button class="btn sm" onclick="openNewInvestment()">+ New Venture</button>
           </div>
         </div>`;
 
-      // Summary stat cards
-      html += `<div class="grid3" style="margin-bottom:16px;">
-        <div class="stat-card"><div class="stat-lbl">Total Invested</div><div class="stat-val">${fmt(totalInvested)}</div></div>
-        <div class="stat-card"><div class="stat-lbl">Total Returns</div><div class="stat-val" style="color:var(--green)">${fmt(totalReturns)}</div></div>
-        <div class="stat-card"><div class="stat-lbl">Net Gain/Loss</div><div class="stat-val" style="color:${netGL>=0?'var(--green)':'var(--red)'}">${fmt(netGL)}</div></div>
+      // Summary stat cards — expanded financial model
+      html += `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-bottom:16px;">
+        <div class="stat-card"><div class="stat-lbl">Capital In</div><div class="stat-val" style="font-size:17px;">${fmt(aggCapIn)}</div></div>
+        <div class="stat-card"><div class="stat-lbl">Expenses</div><div class="stat-val" style="font-size:17px;color:var(--red);">${fmt(aggExpenses)}</div></div>
+        <div class="stat-card"><div class="stat-lbl">Revenue</div><div class="stat-val" style="font-size:17px;color:var(--green);">${fmt(aggRevenue)}</div></div>
+        <div class="stat-card"><div class="stat-lbl">Net Profit/Loss</div><div class="stat-val" style="font-size:17px;color:${aggNetPL>=0?'var(--green)':'var(--red)'};">${aggNetPL>=0?'+':''}${fmt(aggNetPL)}</div></div>
+        <div class="stat-card"><div class="stat-lbl">Current Value</div><div class="stat-val" style="font-size:17px;">${fmt(aggCurrentVal)}</div></div>
       </div>`;
 
       // Filter controls
       const typeFilter = window._inv_type_filter || 'all';
+      const vtFilter   = window._inv_vt_filter  || 'all';
       html += `<div style="display:flex;gap:8px;align-items:center;margin-bottom:14px;flex-wrap:wrap;">
-        <select style="max-width:180px;" onchange="window._inv_type_filter=this.value;renderInvestments()">
-          <option value="all"${typeFilter==='all'?' selected':''}>All Types</option>
+        <select style="max-width:160px;" onchange="window._inv_type_filter=this.value;renderInvestments()">
+          <option value="all"${typeFilter==='all'?' selected':''}>All Categories</option>
           ${Object.entries(INV_TYPES).map(([k,v])=>`<option value="${k}"${typeFilter===k?' selected':''}>${v}</option>`).join('')}
+        </select>
+        <select style="max-width:160px;" onchange="window._inv_vt_filter=this.value;renderInvestments()">
+          <option value="all"${vtFilter==='all'?' selected':''}>All Ventures</option>
+          <option value="personal"${vtFilter==='personal'?' selected':''}>Personal Only</option>
+          <option value="shared"${vtFilter==='shared'?' selected':''}>Shared Only</option>
         </select>
       </div>`;
 
-      const displayed = typeFilter === 'all' ? filtered : filtered.filter(inv => inv.type === typeFilter);
+      let displayed = typeFilter === 'all' ? filtered : filtered.filter(inv => inv.type === typeFilter);
+      if (vtFilter !== 'all') displayed = displayed.filter(inv => (inv.venture_type||'shared') === vtFilter);
 
       if (displayed.length === 0) {
-        html += `<div class="card"><p style="color:var(--muted);font-size:14px;padding:12px 0;">No investments yet. Track your first one.</p></div>`;
+        html += `<div class="card"><p style="color:var(--muted);font-size:14px;padding:12px 0;">No ventures yet. Create your first one.</p></div>`;
       } else {
         displayed.forEach(inv => {
-          const deposits = (inv.transactions||[]).filter(t => t.type === 'deposit').reduce((s, t) => s + (parseFloat(t.amount)||0), 0);
-          const withdrawals = (inv.transactions||[]).filter(t => t.type === 'withdrawal').reduce((s, t) => s + (parseFloat(t.amount)||0), 0);
-          const dividends = (inv.transactions||[]).filter(t => t.type === 'dividend' || t.type === 'return').reduce((s, t) => s + (parseFloat(t.amount)||0), 0);
-          const invested = (parseFloat(inv.initialAmount)||0) + deposits;
-          const currentVal = invested - withdrawals + dividends;
-          const gl = currentVal - invested;
-          const roi = invested > 0 ? ((currentVal - invested) / invested * 100).toFixed(1) : '0.0';
-          const comments = (inv.noticeBoard||[]).length;
-          const _r = _getItemRole(inv);
+          const c = _invCalc(inv);
+          const isPersonal = _isPersonalVenture(inv);
+          const comments   = (inv.noticeBoard||[]).length;
+          const _r  = _getItemRole(inv);
           const _io = _r === 'owner', _ia = _r === 'admin', _im = _r === 'member';
+          const canManage  = _io || _ia;
+          const canTransact = _io || _ia || (_im && (inv.permissions?.members_can_add_transactions !== false));
+          const canBoard    = _io || _ia || (_im && (inv.permissions?.members_can_post_notice !== false));
+          const boardLabel  = isPersonal ? 'Notes' : 'Notice Board';
+          const vtBadge     = isPersonal
+            ? `<span class="badge badge-gray" style="font-size:10px;">👤 Personal</span>`
+            : `<span class="badge" style="background:rgba(108,99,255,.12);color:var(--accent);font-size:10px;">👥 Shared</span>`;
 
           html += `<div class="card" style="margin-bottom:14px;${inv.archived?'opacity:.6;':''}">
             <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;">
               <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
                 <h3 style="margin:0;font-size:17px;cursor:pointer;color:var(--accent);" onclick="openInvestmentDetail('${inv.id}')">${esc(inv.name)}</h3>
-                <span class="badge badge-gray">${esc(INV_TYPES[inv.type]||inv.type)}</span>
-                <span class="badge ${INV_STATUS[inv.status]||'badge-gray'}">${esc((inv.status||'active').charAt(0).toUpperCase()+(inv.status||'active').slice(1))}</span>
+                ${vtBadge}
+                <span class="badge badge-gray" style="font-size:10px;">${esc(INV_TYPES[inv.type]||inv.type)}</span>
+                <span class="badge ${INV_STATUS[inv.status]||'badge-gray'}" style="font-size:10px;">${esc((inv.status||'active').charAt(0).toUpperCase()+(inv.status||'active').slice(1))}</span>
               </div>
               <div class="action-menu" style="flex-shrink:0;"><button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button><div class="action-dropdown">
-                ${'<button onclick="openInvestmentDetail(\'' + inv.id + '\')">👁 View</button>'}
-                ${((_io || _ia) ? '<button onclick="addInvMember(\'' + inv.id + '\')">👤 Add Member</button>' : '')}
-                ${((_io || _ia || _im) ? '<button onclick="emailInviteToItem(\'' + inv.id + '\',\'investments\',\'an Investment\')">✉ Invite by Email</button>' : '')}
-                ${((_io || _ia || _im) ? '<button onclick="openInviteLink(\'' + inv.id + '\',\'investments\')">🔗 Copy Invite Link</button>' : '')}
-                ${((_io || _ia || _im) ? '<button onclick="window._invTab=\'board\';openInvestmentDetail(\'' + inv.id + '\')">💬 Notice Board</button>' : '')}
-                ${((_io || _ia) ? '<button onclick="editInvestment(\'' + inv.id + '\')">✏️ Edit</button>' : '')}
-                ${((_io || _ia || _im) ? '<button onclick="addInvestmentTx(\'' + inv.id + '\')">💰 Transaction</button>' : '')}
-                ${((_io || _ia) ? '<button onclick="toggleArchiveInv(\'' + inv.id + '\')">' + (inv.archived?'📤 Unarchive':'📥 Archive') + '</button>' : '')}
-                ${(_io ? '<button onclick="delInvestment(\'' + inv.id + '\')" style="color:var(--red);">🗑 Delete</button>' : '')}
-                ${((!_io) ? '<button onclick="exitItem(\'' + inv.id + '\',\'investments\')" style="color:var(--red);">🚪 Leave</button>' : '')}
+                <button onclick="openInvestmentDetail('${inv.id}')">View</button>
+                ${canManage ? `<button onclick="editInvestment('${inv.id}')">Edit</button>` : ''}
+                <hr style="border:none;border-top:1px solid var(--border);margin:4px 0;">
+                ${canTransact ? `<button onclick="addInvestmentTx('${inv.id}')">Add Entry</button>` : ''}
+                ${canBoard ? `<button onclick="window._invTab='board';openInvestmentDetail('${inv.id}')">${boardLabel}</button>` : ''}
+                ${(!isPersonal && canManage) ? `<button onclick="addInvMember('${inv.id}')">Add Person</button>` : ''}
+                ${(!isPersonal && (canManage||_im)) ? `<button onclick="emailInviteToItem('${inv.id}','investments','a Venture')">Invite by Email</button>` : ''}
+                ${(!isPersonal && (inv.access_mode||'members_only')==='members_and_invite' && (canManage||_im)) ? `<button onclick="openInviteLink('${inv.id}','investments')">Copy Invite Link</button>` : ''}
+                <hr style="border:none;border-top:1px solid var(--border);margin:4px 0;">
+                ${canManage ? `<button onclick="toggleArchiveInv('${inv.id}')">${inv.archived?'Unarchive':'Archive'}</button>` : ''}
+                ${_io ? `<button onclick="delInvestment('${inv.id}')" style="color:var(--red);">Delete</button>` : ''}
+                ${!_io ? `<button onclick="exitItem('${inv.id}','investments')" style="color:var(--red);">Leave</button>` : ''}
               </div></div>
             </div>
 
-            <div style="background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:10px 14px;margin:10px 0;font-size:13px;line-height:1.6;">${inv.description ? esc(inv.description) : '<span style="opacity:0.38;font-style:italic;">Track the progress, partners, and returns on this investment over time.</span>'}</div>
+            <div style="background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:10px 14px;margin:10px 0;font-size:13px;line-height:1.6;">${inv.description ? esc(inv.description) : `<span style="opacity:0.38;font-style:italic;">${isPersonal ? 'Personal venture record.' : 'Track the progress, people, and returns on this venture.'}</span>`}</div>
 
-            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(100px,1fr));gap:12px;margin-bottom:10px;">
-              <div><div style="font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;">Invested</div><div style="font-size:17px;font-weight:800;">${fmt(invested, inv.currency)}</div></div>
-              <div><div style="font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;">Current Value</div><div style="font-size:17px;font-weight:800;">${fmt(currentVal, inv.currency)}</div></div>
-              <div><div style="font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;">Gain/Loss</div><div style="font-size:17px;font-weight:800;color:${gl>=0?'var(--green)':'var(--red)'};">${gl>=0?'+':''}${fmt(gl, inv.currency)}</div></div>
-              ${inv.expectedReturn ? `<div><div style="font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;">Expected Return</div><div style="font-size:17px;font-weight:800;">${inv.expectedReturn}%</div></div>` : ''}
-              <div><div style="font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;">ROI</div><div style="font-size:17px;font-weight:800;color:${parseFloat(roi)>=0?'var(--green)':'var(--red)'};">${roi}%</div></div>
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(95px,1fr));gap:10px;margin-bottom:10px;">
+              <div><div style="font-size:10px;color:var(--muted);font-weight:700;text-transform:uppercase;">Capital In</div><div style="font-size:16px;font-weight:800;">${fmt(c.capitalIn, inv.currency)}</div></div>
+              <div><div style="font-size:10px;color:var(--muted);font-weight:700;text-transform:uppercase;">Expenses</div><div style="font-size:16px;font-weight:800;color:var(--red);">${fmt(c.expenses, inv.currency)}</div></div>
+              <div><div style="font-size:10px;color:var(--muted);font-weight:700;text-transform:uppercase;">Revenue</div><div style="font-size:16px;font-weight:800;color:var(--green);">${fmt(c.revenue, inv.currency)}</div></div>
+              <div><div style="font-size:10px;color:var(--muted);font-weight:700;text-transform:uppercase;">Net P&amp;L</div><div style="font-size:16px;font-weight:800;color:${c.netPL>=0?'var(--green)':'var(--red)'};">${c.netPL>=0?'+':''}${fmt(c.netPL, inv.currency)}</div></div>
+              <div><div style="font-size:10px;color:var(--muted);font-weight:700;text-transform:uppercase;">Current Value</div><div style="font-size:16px;font-weight:800;">${fmt(c.currentVal, inv.currency)}</div></div>
             </div>
 
-            ${(inv.members||[]).length > 0 ? `<div style="margin-bottom:8px;"><span style="font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;">Partners:</span> ${(inv.members||[]).map(m => '<span class="badge badge-blue" style="margin:2px;">'+esc(m.name)+'</span>').join('')}</div>` : ''}
+            ${!isPersonal && (inv.members||[]).length > 0 ? `<div style="margin-bottom:8px;"><span style="font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;">People:</span> ${(inv.members||[]).map(m => '<span class="badge badge-blue" style="margin:2px;font-size:10px;">'+esc(m.name)+'</span>').join('')}</div>` : ''}
+            ${isPersonal ? `<div style="margin-bottom:8px;font-size:12px;color:var(--muted);">Owner: <strong>${esc(u.displayName||u.email||'You')}</strong> &nbsp;·&nbsp; Visibility: <strong>Private</strong></div>` : ''}
 
-            <div style="display:flex;gap:6px;flex-wrap:wrap;padding-top:4px;border-top:1px solid var(--border);">
-              ${(_im || _ia || _io) ? `<button class="bs sm" onclick="addInvestmentTx('${inv.id}')">💰 Transaction</button>` : ''}
-              ${(_io || _ia) ? `<button class="bs sm" onclick="addInvMember('${inv.id}')">👤 Add Member</button>` : ''}
-              ${(_im || _ia || _io) ? `<button class="bs sm" onclick="window._invTab='board';openInvestmentDetail('${inv.id}')">💬 Notice Board${comments>0?' ('+comments+')':''}</button>` : ''}
+            <div style="display:flex;gap:6px;flex-wrap:wrap;padding-top:6px;border-top:1px solid var(--border);">
+              ${canTransact ? `<button class="bs sm" onclick="addInvestmentTx('${inv.id}')">+ Add Entry</button>` : ''}
+              ${!isPersonal && canManage ? `<button class="bs sm" onclick="addInvMember('${inv.id}')">+ Add Person</button>` : ''}
+              ${canBoard ? `<button class="bs sm" onclick="window._invTab='board';openInvestmentDetail('${inv.id}')">${boardLabel}${comments>0?' ('+comments+')':''}</button>` : ''}
+              <button class="bs sm" onclick="openInvestmentDetail('${inv.id}')">View Details</button>
             </div>
           </div>`;
         });
@@ -9453,76 +9517,140 @@
 
     function openNewInvestment() {
       const cur = db.settings.currency || 'USD';
-      const html = `<div class="modal-bg" onclick="this.remove()"><div class="modal" onclick="event.stopPropagation()">
-        <div class="modal-title">New Investment</div>
-        <div class="fg"><label>Name *</label><input type="text" id="invname" placeholder="Tesla Stocks"></div>
-        <div class="fg"><label>Description</label><textarea id="invdesc" rows="2" placeholder="Details about this investment"></textarea></div>
+      const html = `<div class="modal-bg" onclick="this.remove()"><div class="modal" style="max-width:520px;" onclick="event.stopPropagation()">
+        <div class="modal-title">New Venture</div>
+
+        <div class="fg"><label>Name *</label><input type="text" id="invname" placeholder="Tesla Stocks, Side Business, Family Project…"></div>
+        <div class="fg"><label>Description <span style="font-weight:400;color:var(--muted);">(optional)</span></label><textarea id="invdesc" rows="2" placeholder="What is this venture?"></textarea></div>
+
         <div class="frow">
-          <div class="fg" style="flex:1;"><label>Type</label><select id="invtype"><option value="general">General</option><option value="stocks">Stocks</option><option value="realestate">Real Estate</option><option value="business">Business</option><option value="crypto">Crypto</option><option value="other">Other</option></select></div>
-          <div class="fg" style="flex:1;"><label>Status</label><select id="invstatus"><option value="active">Active</option><option value="matured">Matured</option><option value="closed">Closed</option><option value="lost">Lost</option></select></div>
+          <div class="fg" style="flex:1;"><label>Category</label>
+            <select id="invtype">
+              <option value="general">General</option><option value="stocks">Stocks</option>
+              <option value="realestate">Real Estate</option><option value="business">Business</option>
+              <option value="project">Project</option><option value="asset">Asset</option>
+              <option value="crypto">Crypto</option><option value="other">Other</option>
+            </select>
+          </div>
+          <div class="fg" style="flex:1;"><label>Status</label>
+            <select id="invstatus">
+              <option value="active">Active</option><option value="matured">Matured</option>
+              <option value="closed">Closed</option><option value="lost">Lost</option>
+            </select>
+          </div>
         </div>
+
         <div class="frow">
-          <div class="fg" style="flex:1;"><label>Initial Amount *</label><input type="number" id="invamt" min="0" step="0.01" placeholder="5000"></div>
+          <div class="fg" style="flex:1;"><label>Starting Amount <span style="font-weight:400;color:var(--muted);">(optional)</span></label><input type="number" id="invamt" min="0" step="0.01" placeholder="0.00"></div>
           <div class="fg" style="flex:1;"><label>Currency</label><select id="invcur">${Object.entries(CURRENCIES).map(([code,ci])=>'<option value="'+code+'"'+(code===cur?' selected':'')+'>'+ci.symbol+' '+code+'</option>').join('')}</select></div>
         </div>
         <div class="frow">
           <div class="fg" style="flex:1;"><label>Start Date</label><input type="date" id="invdate" value="${new Date().toISOString().split('T')[0]}"></div>
-          <div class="fg" style="flex:1;"><label>Expected Return %</label><input type="number" id="invreturn" min="0" step="0.1" placeholder="12"></div>
+          <div class="fg" style="flex:1;"><label>Expected Return %</label><input type="number" id="invreturn" min="0" step="0.1" placeholder="Optional"></div>
         </div>
-        <div class="fg"><label>Members / Partners <span style="font-weight:400;color:var(--muted);">(select contacts involved)</span></label>
-          <div id="invnewmembers" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:4px;">
-            ${_invMemberCheckboxes()}
+
+        <!-- Venture Type -->
+        <div style="margin:16px 0 12px;">
+          <div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.07em;margin-bottom:10px;">Venture Type</div>
+          <div style="display:flex;gap:10px;">
+            <label style="flex:1;cursor:pointer;display:block;">
+              <input type="radio" name="invVentureType" id="vtype_personal" value="personal" checked onchange="_onVentureTypeChange()" style="position:absolute;opacity:0;">
+              <div class="vtype-box" style="padding:12px;border:2px solid var(--accent);border-radius:10px;text-align:center;transition:border-color .15s;">
+                <div style="font-size:22px;margin-bottom:4px;">👤</div>
+                <div style="font-weight:700;font-size:13px;">Personal</div>
+                <div style="font-size:11px;color:var(--muted);margin-top:3px;">Solo record, private by default</div>
+              </div>
+            </label>
+            <label style="flex:1;cursor:pointer;display:block;">
+              <input type="radio" name="invVentureType" id="vtype_shared" value="shared" onchange="_onVentureTypeChange()" style="position:absolute;opacity:0;">
+              <div class="vtype-box" style="padding:12px;border:2px solid var(--border);border-radius:10px;text-align:center;transition:border-color .15s;">
+                <div style="font-size:22px;margin-bottom:4px;">👥</div>
+                <div style="font-weight:700;font-size:13px;">Shared</div>
+                <div style="font-size:11px;color:var(--muted);margin-top:3px;">Multiple people, managed access</div>
+              </div>
+            </label>
           </div>
         </div>
-        <div style="display:flex;gap:8px;margin-top:16px;"><button class="btn" onclick="saveNewInvestment()">Create</button><button class="bs" onclick="this.closest('.modal-bg').remove()">Cancel</button></div>
+
+        <!-- Shared-only section (hidden by default) -->
+        <div id="invSharedSection" style="display:none;border-top:1px solid var(--border);padding-top:14px;margin-bottom:4px;">
+          <div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.07em;margin-bottom:8px;">Who can access this venture?</div>
+          <select id="invAccessMode" style="margin-bottom:12px;">
+            <option value="members_only">Only added members</option>
+            <option value="members_and_invite">Members + invite link viewers (view only)</option>
+            <option value="private">Owner only (restricted)</option>
+          </select>
+
+          <div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.07em;margin-bottom:8px;">Member Permissions</div>
+          <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:14px;">
+            <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;"><input type="checkbox" id="invPerm_tx" checked> Members can add transactions</label>
+            <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;"><input type="checkbox" id="invPerm_docs"> Members can upload documents</label>
+            <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;"><input type="checkbox" id="invPerm_notice" checked> Members can post to notice board</label>
+          </div>
+
+          <div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.07em;margin-bottom:8px;">Add People <span style="font-weight:400;text-transform:none;">(optional — you can add later)</span></div>
+          <div id="invnewmembers" style="display:flex;flex-wrap:wrap;gap:6px;">${_invMemberCheckboxes()}</div>
+        </div>
+
+        <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:18px;">
+          <button class="bs" onclick="this.closest('.modal-bg').remove()">Cancel</button>
+          <button class="btn" onclick="saveNewInvestment()">Create Venture</button>
+        </div>
       </div></div>`;
       document.body.insertAdjacentHTML('beforeend', html);
     }
 
     async function saveNewInvestment() {
       const name = document.getElementById('invname').value.trim();
-      const amt = parseFloat(document.getElementById('invamt').value) || 0;
       if (!name) { toast('Name is required'); return; }
-      if (amt <= 0) { toast('Initial amount must be greater than 0'); return; }
+      const venture_type  = document.querySelector('input[name="invVentureType"]:checked')?.value || 'personal';
+      const isShared      = venture_type === 'shared';
+      const access_mode   = isShared ? (document.getElementById('invAccessMode')?.value || 'members_only') : 'private';
       const inv = {
         id: 'inv_' + Math.random().toString(36).substr(2, 9),
         userId: curUser().id,
+        venture_type,
+        access_mode,
+        invite_link_enabled: isShared && access_mode === 'members_and_invite',
+        permissions: isShared ? {
+          members_can_add_transactions: document.getElementById('invPerm_tx')?.checked !== false,
+          members_can_upload_docs:      document.getElementById('invPerm_docs')?.checked === true,
+          members_can_post_notice:      document.getElementById('invPerm_notice')?.checked !== false,
+        } : { members_can_add_transactions: false, members_can_upload_docs: false, members_can_post_notice: false },
         name,
-        description: document.getElementById('invdesc').value.trim(),
-        type: document.getElementById('invtype').value,
-        initialAmount: amt,
-        currency: document.getElementById('invcur').value,
-        startDate: document.getElementById('invdate').value,
+        description:    document.getElementById('invdesc').value.trim(),
+        type:           document.getElementById('invtype').value,
+        initialAmount:  parseFloat(document.getElementById('invamt').value) || 0,
+        currency:       document.getElementById('invcur').value,
+        startDate:      document.getElementById('invdate').value,
         expectedReturn: parseFloat(document.getElementById('invreturn').value) || 0,
-        status: document.getElementById('invstatus').value,
-        members: [],
-        transactions: [],
-        noticeBoard: [],
-        pendingInvites: [],
-        archived: false,
-        createdAt: Date.now()
+        status:         document.getElementById('invstatus').value,
+        members: [], transactions: [], noticeBoard: [], pendingInvites: [],
+        archived: false, createdAt: Date.now()
       };
       const _invitedContacts2 = [];
-      document.querySelectorAll('.invmember-cb:checked').forEach(cb => {
-        const contact = db.contacts.find(c => c.id === cb.value);
-        if (contact) {
-          inv.members.push({ id: 'm_' + Math.random().toString(36).substr(2, 9), contactId: contact.id, name: contact.name, role: 'member', joinedAt: Date.now() });
-          _invitedContacts2.push(contact);
-        }
-      });
+      if (isShared) {
+        document.querySelectorAll('.invmember-cb:checked').forEach(cb => {
+          const contact = db.contacts.find(c => c.id === cb.value);
+          if (contact) {
+            inv.members.push({ id: 'm_' + Math.random().toString(36).substr(2, 9), contactId: contact.id, name: contact.name, role: 'member', joinedAt: Date.now() });
+            _invitedContacts2.push(contact);
+          }
+        });
+      }
       if (!db.investments) db.investments = [];
       db.investments.push(inv);
       await saveNow();
-      // Owner notification — investment created
       db.notifs.push({
         id: uuid(), userId: curUser().id, cId: null, eid: null,
-        type: 'investment_created', msg: `Investment "${inv.name}" created with ${_invitedContacts2.length} member(s)`,
+        type: 'investment_created',
+        msg: `Venture "${inv.name}" created (${venture_type}${_invitedContacts2.length > 0 ? ', '+_invitedContacts2.length+' people added' : ''})`,
         channel: 'in-app', sent: false, who: 'you', sentTo: [], read: false, createdAt: Date.now()
       });
       save();
-      _invitedContacts2.forEach(c => _sendMemberInvite(c, inv.name, 'an Investment'));
+      _invitedContacts2.forEach(c => _sendMemberInvite(c, inv.name, 'a Venture'));
       document.querySelector('.modal-bg:last-of-type')?.remove();
-      toast('Investment created & synced');
+      toast('Venture created & synced');
       renderInvestments();
     }
 
@@ -9530,25 +9658,71 @@
       const inv = (db.investments||[]).find(x => x.id === iid);
       if (!inv) return;
       const cur = inv.currency || db.settings.currency || 'USD';
-      const html = `<div class="modal-bg" onclick="this.remove()"><div class="modal" onclick="event.stopPropagation()">
-        <div class="modal-title">Edit Investment</div>
+      const vt  = inv.venture_type || 'shared';
+      const am  = inv.access_mode  || 'members_only';
+      const p   = inv.permissions  || {};
+      const html = `<div class="modal-bg" onclick="this.remove()"><div class="modal" style="max-width:520px;" onclick="event.stopPropagation()">
+        <div class="modal-title">Edit Venture</div>
         <div class="fg"><label>Name *</label><input type="text" id="einvnm" value="${esc(inv.name)}"></div>
         <div class="fg"><label>Description</label><textarea id="einvdesc" rows="2">${esc(inv.description||'')}</textarea></div>
         <div class="frow">
-          <div class="fg" style="flex:1;"><label>Type</label><select id="einvtype">${['general','stocks','realestate','business','crypto','other'].map(t=>'<option value="'+t+'"'+(inv.type===t?' selected':'')+'>'+t.charAt(0).toUpperCase()+t.slice(1)+'</option>').join('')}</select></div>
+          <div class="fg" style="flex:1;"><label>Category</label><select id="einvtype">${['general','stocks','realestate','business','project','asset','crypto','other'].map(t=>'<option value="'+t+'"'+(inv.type===t?' selected':'')+'>'+{general:'General',stocks:'Stocks',realestate:'Real Estate',business:'Business',project:'Project',asset:'Asset',crypto:'Crypto',other:'Other'}[t]+'</option>').join('')}</select></div>
           <div class="fg" style="flex:1;"><label>Status</label><select id="einvst">${['active','matured','closed','lost'].map(s=>'<option value="'+s+'"'+(inv.status===s?' selected':'')+'>'+s.charAt(0).toUpperCase()+s.slice(1)+'</option>').join('')}</select></div>
         </div>
         <div class="frow">
-          <div class="fg" style="flex:1;"><label>Initial Amount</label><input type="number" id="einvamt" value="${inv.initialAmount}" min="0" step="0.01"></div>
+          <div class="fg" style="flex:1;"><label>Starting Amount</label><input type="number" id="einvamt" value="${inv.initialAmount||''}" min="0" step="0.01"></div>
           <div class="fg" style="flex:1;"><label>Currency</label><select id="einvcur">${Object.entries(CURRENCIES).map(([code,ci])=>'<option value="'+code+'"'+(code===cur?' selected':'')+'>'+ci.symbol+' '+code+'</option>').join('')}</select></div>
         </div>
         <div class="frow">
           <div class="fg" style="flex:1;"><label>Start Date</label><input type="date" id="einvdt" value="${inv.startDate||''}"></div>
           <div class="fg" style="flex:1;"><label>Expected Return %</label><input type="number" id="einvret" value="${inv.expectedReturn||''}" min="0" step="0.1"></div>
         </div>
-        <div style="display:flex;gap:8px;margin-top:16px;"><button class="btn" onclick="saveEditInvestment('${inv.id}')">Save</button><button class="bs" onclick="this.closest('.modal-bg').remove()">Cancel</button></div>
+        <div style="border-top:1px solid var(--border);margin:14px 0 10px;padding-top:14px;">
+          <div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.07em;margin-bottom:10px;">Venture Type</div>
+          <div style="display:flex;gap:10px;margin-bottom:14px;">
+            <label style="flex:1;cursor:pointer;display:block;"><input type="radio" name="einvVentureType" id="evtype_personal" value="personal" ${vt==='personal'?'checked':''} onchange="_onVentureTypeChange2()" style="position:absolute;opacity:0;">
+              <div class="vtype-box2" style="padding:10px;border:2px solid ${vt==='personal'?'var(--accent)':'var(--border)'};border-radius:10px;text-align:center;">
+                <div style="font-size:18px;">👤</div><div style="font-weight:700;font-size:12px;margin-top:2px;">Personal</div>
+              </div>
+            </label>
+            <label style="flex:1;cursor:pointer;display:block;"><input type="radio" name="einvVentureType" id="evtype_shared" value="shared" ${vt==='shared'?'checked':''} onchange="_onVentureTypeChange2()" style="position:absolute;opacity:0;">
+              <div class="vtype-box2" style="padding:10px;border:2px solid ${vt==='shared'?'var(--accent)':'var(--border)'};border-radius:10px;text-align:center;">
+                <div style="font-size:18px;">👥</div><div style="font-weight:700;font-size:12px;margin-top:2px;">Shared</div>
+              </div>
+            </label>
+          </div>
+          <div id="einvSharedSection" style="display:${vt==='shared'?'':'none'};">
+            <div class="fg" style="margin-bottom:10px;"><label>Access</label>
+              <select id="einvAccessMode">
+                <option value="members_only"${am==='members_only'?' selected':''}>Only added members</option>
+                <option value="members_and_invite"${am==='members_and_invite'?' selected':''}>Members + invite link viewers</option>
+                <option value="private"${am==='private'?' selected':''}>Owner only (restricted)</option>
+              </select>
+            </div>
+            <div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.07em;margin-bottom:8px;">Member Permissions</div>
+            <div style="display:flex;flex-direction:column;gap:6px;">
+              <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;"><input type="checkbox" id="einvPerm_tx" ${p.members_can_add_transactions!==false?'checked':''}> Members can add transactions</label>
+              <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;"><input type="checkbox" id="einvPerm_docs" ${p.members_can_upload_docs?'checked':''}> Members can upload documents</label>
+              <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;"><input type="checkbox" id="einvPerm_notice" ${p.members_can_post_notice!==false?'checked':''}> Members can post to notice board</label>
+            </div>
+          </div>
+        </div>
+        <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px;">
+          <button class="bs" onclick="this.closest('.modal-bg').remove()">Cancel</button>
+          <button class="btn" onclick="saveEditInvestment('${inv.id}')">Save</button>
+        </div>
       </div></div>`;
       document.body.insertAdjacentHTML('beforeend', html);
+    }
+
+    function _onVentureTypeChange2() {
+      const isShared = document.querySelector('input[name="einvVentureType"]:checked')?.value === 'shared';
+      const sec = document.getElementById('einvSharedSection');
+      if (sec) sec.style.display = isShared ? '' : 'none';
+      document.querySelectorAll('input[name="einvVentureType"]').forEach(r => {
+        const box = r.closest('label')?.querySelector('.vtype-box2');
+        if (box) box.style.borderColor = r.checked ? 'var(--accent)' : 'var(--border)';
+      });
     }
 
     function saveEditInvestment(iid) {
@@ -9556,17 +9730,27 @@
       if (!inv) return;
       const name = document.getElementById('einvnm').value.trim();
       if (!name) { toast('Name required'); return; }
-      inv.name = name;
-      inv.description = document.getElementById('einvdesc').value.trim();
-      inv.type = document.getElementById('einvtype').value;
-      inv.status = document.getElementById('einvst').value;
-      inv.initialAmount = parseFloat(document.getElementById('einvamt').value) || inv.initialAmount;
-      inv.currency = document.getElementById('einvcur').value;
-      inv.startDate = document.getElementById('einvdt').value;
+      const venture_type = document.querySelector('input[name="einvVentureType"]:checked')?.value || inv.venture_type || 'shared';
+      const isShared     = venture_type === 'shared';
+      inv.name           = name;
+      inv.description    = document.getElementById('einvdesc').value.trim();
+      inv.type           = document.getElementById('einvtype').value;
+      inv.status         = document.getElementById('einvst').value;
+      inv.initialAmount  = parseFloat(document.getElementById('einvamt').value) || inv.initialAmount || 0;
+      inv.currency       = document.getElementById('einvcur').value;
+      inv.startDate      = document.getElementById('einvdt').value;
       inv.expectedReturn = parseFloat(document.getElementById('einvret').value) || 0;
+      inv.venture_type   = venture_type;
+      inv.access_mode    = isShared ? (document.getElementById('einvAccessMode')?.value || 'members_only') : 'private';
+      inv.invite_link_enabled = isShared && inv.access_mode === 'members_and_invite';
+      inv.permissions    = isShared ? {
+        members_can_add_transactions: document.getElementById('einvPerm_tx')?.checked !== false,
+        members_can_upload_docs:      document.getElementById('einvPerm_docs')?.checked === true,
+        members_can_post_notice:      document.getElementById('einvPerm_notice')?.checked !== false,
+      } : { members_can_add_transactions: false, members_can_upload_docs: false, members_can_post_notice: false };
       saveNow();
       document.querySelector('.modal-bg:last-of-type')?.remove();
-      toast('Investment updated');
+      toast('Venture updated');
       renderInvestments();
     }
 
@@ -9626,11 +9810,16 @@
     function addInvestmentTx(iid) {
       const inv = (db.investments||[]).find(x => x.id === iid);
       if (!inv) return;
+      const isPersonal = _isPersonalVenture(inv);
+      const typeOptions = Object.entries(INV_TX_TYPES).map(([val, cfg]) =>
+        `<option value="${val}">${cfg.label}</option>`
+      ).join('');
+      const byField = isPersonal ? '' : `<div class="fg"><label>By (who made this transaction)</label><select id="itxby"><option value="">— Self / General —</option>${(inv.members||[]).map(m => '<option value="'+m.id+'">'+esc(m.name)+'</option>').join('')}</select></div>`;
       const html = `<div class="modal-bg" onclick="this.remove()"><div class="modal" style="max-width:420px;" onclick="event.stopPropagation()">
-        <div class="modal-title">Add Transaction</div>
+        <div class="modal-title">Add Entry</div>
         <div style="font-size:13px;color:var(--muted);margin-bottom:12px;">${esc(inv.name)}</div>
-        <div class="fg"><label>By (who made this transaction)</label><select id="itxby"><option value="">— Self / General —</option>${(inv.members||[]).map(m => '<option value="'+m.id+'">'+esc(m.name)+'</option>').join('')}</select></div>
-        <div class="fg"><label>Type</label><select id="itxtype"><option value="deposit">Deposit</option><option value="withdrawal">Withdrawal</option><option value="dividend">Dividend</option><option value="return">Return</option></select></div>
+        ${byField}
+        <div class="fg"><label>Type</label><select id="itxtype">${typeOptions}</select></div>
         <div class="fg"><label>Amount *</label><input type="number" id="itxamt" min="0" step="0.01" placeholder="500"></div>
         <div class="fg"><label>Date</label><input type="date" id="itxdate" value="${new Date().toISOString().split('T')[0]}"></div>
         <div class="fg"><label>Note</label><input type="text" id="itxnote" placeholder="Optional note"></div>
@@ -9646,7 +9835,8 @@
       const amt = parseFloat(document.getElementById('itxamt').value) || 0;
       if (amt <= 0) { toast('Amount required'); return; }
       if (!inv.transactions) inv.transactions = [];
-      const byMemberId = document.getElementById('itxby').value || null;
+      const byEl = document.getElementById('itxby');
+      const byMemberId = byEl ? (byEl.value || null) : null;
       const byMember = byMemberId ? (inv.members||[]).find(m => m.id === byMemberId) : null;
       const tx = {
         id: 'itx_' + Math.random().toString(36).substr(2, 9),
@@ -9670,7 +9860,7 @@
           inv.transactions.push(tx);
           save();
           document.querySelector('.modal-bg:last-of-type')?.remove();
-          toast('Transaction recorded with receipt');
+          toast('Entry recorded with receipt');
           renderInvestments();
         };
         reader.readAsDataURL(file);
@@ -9678,7 +9868,7 @@
         inv.transactions.push(tx);
         save();
         document.querySelector('.modal-bg:last-of-type')?.remove();
-        toast('Transaction recorded');
+        toast('Entry recorded');
         renderInvestments();
       }
     }
@@ -9706,46 +9896,48 @@
       const _invOwner = _invRole === 'owner';
       const _invCanManage = _invOwner || _invRole === 'admin';
       const _invPending = inv.pendingInvites || [];
+      const isPersonal = _isPersonalVenture(inv);
+      const notesLabel = isPersonal ? 'Notes' : 'Notice Board';
 
-      const deposits = (inv.transactions||[]).filter(t => t.type === 'deposit').reduce((s, t) => s + (parseFloat(t.amount)||0), 0);
-      const withdrawals = (inv.transactions||[]).filter(t => t.type === 'withdrawal').reduce((s, t) => s + (parseFloat(t.amount)||0), 0);
-      const dividends = (inv.transactions||[]).filter(t => t.type === 'dividend' || t.type === 'return').reduce((s, t) => s + (parseFloat(t.amount)||0), 0);
-      const totalIn = (parseFloat(inv.initialAmount)||0) + deposits;
-      const totalOut = withdrawals + dividends;
-      const currentVal = totalIn - withdrawals + dividends;
-      const roi = totalIn > 0 ? ((currentVal - totalIn) / totalIn * 100).toFixed(1) : '0.0';
+      // Use unified calc helper
+      const calc = _invCalc(inv);
+      const { capitalIn, expenses, revenue, netPL, currentVal, roi } = calc;
 
       const INV_TYPES = { general: 'General', stocks: 'Stocks', realestate: 'Real Estate', business: 'Business', crypto: 'Crypto', other: 'Other' };
-      const TX_LABELS = { deposit: 'Deposit', withdrawal: 'Withdrawal', dividend: 'Dividend', return: 'Return' };
-      const TX_COLORS = { deposit: 'var(--blue)', withdrawal: 'var(--red)', dividend: 'var(--green)', return: 'var(--green)' };
 
       let tabContent = '';
       if (activeTab === 'overview') {
         tabContent = `
-          <div style="background:linear-gradient(135deg,rgba(255,255,255,0.04),rgba(232,30,130,0.06));border:1px solid rgba(255,255,255,0.09);border-radius:12px;padding:11px 15px;margin:0 0 14px;font-size:13px;line-height:1.65;box-shadow:inset 0 1px 0 rgba(255,255,255,0.06);">${inv.description ? '<span style="color:var(--text);">'+esc(inv.description)+'</span>' : '<span style="opacity:0.38;font-style:italic;">Track the progress, partners, and returns on this investment over time.</span>'}</div>
-          <div class="grid2" style="margin-bottom:16px;">
-            <div class="stat-card"><div class="stat-lbl">Total In</div><div class="stat-val" style="font-size:18px;">${fmt(totalIn, inv.currency)}</div></div>
-            <div class="stat-card"><div class="stat-lbl">Total Out</div><div class="stat-val" style="font-size:18px;">${fmt(totalOut, inv.currency)}</div></div>
-            <div class="stat-card"><div class="stat-lbl">Current Value</div><div class="stat-val" style="font-size:18px;">${fmt(currentVal, inv.currency)}</div></div>
-            <div class="stat-card"><div class="stat-lbl">ROI</div><div class="stat-val" style="font-size:18px;color:${parseFloat(roi)>=0?'var(--green)':'var(--red)'};">${roi}%</div></div>
+          <div style="background:linear-gradient(135deg,rgba(255,255,255,0.04),rgba(232,30,130,0.06));border:1px solid rgba(255,255,255,0.09);border-radius:12px;padding:11px 15px;margin:0 0 14px;font-size:13px;line-height:1.65;box-shadow:inset 0 1px 0 rgba(255,255,255,0.06);">${inv.description ? '<span style="color:var(--text);">'+esc(inv.description)+'</span>' : '<span style="opacity:0.38;font-style:italic;">Track the progress and returns on this venture over time.</span>'}</div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-bottom:16px;">
+            <div class="stat-card"><div class="stat-lbl">Capital In</div><div class="stat-val" style="font-size:17px;">${fmt(capitalIn, inv.currency)}</div></div>
+            <div class="stat-card"><div class="stat-lbl">Expenses</div><div class="stat-val" style="font-size:17px;color:var(--red);">${fmt(expenses, inv.currency)}</div></div>
+            <div class="stat-card"><div class="stat-lbl">Revenue</div><div class="stat-val" style="font-size:17px;color:var(--green);">${fmt(revenue, inv.currency)}</div></div>
+            <div class="stat-card"><div class="stat-lbl">Net P&amp;L</div><div class="stat-val" style="font-size:17px;color:${netPL>=0?'var(--green)':'var(--red)'};">${fmt(netPL, inv.currency)}</div></div>
+            <div class="stat-card"><div class="stat-lbl">Current Value</div><div class="stat-val" style="font-size:17px;">${fmt(currentVal, inv.currency)}</div></div>
           </div>
-          <div style="font-size:13px;color:var(--muted);">
-            <div>Type: <strong>${esc(INV_TYPES[inv.type]||inv.type)}</strong></div>
+          <div style="font-size:13px;color:var(--muted);display:flex;flex-wrap:wrap;gap:10px 20px;">
+            <div>Type: <strong>${esc(INV_TYPES[inv.type]||inv.type||'—')}</strong></div>
+            <div>Venture: <strong>${isPersonal ? 'Personal' : 'Shared'}</strong></div>
             <div>Started: <strong>${inv.startDate ? new Date(inv.startDate).toLocaleDateString() : '—'}</strong></div>
             ${inv.expectedReturn ? `<div>Expected Return: <strong>${inv.expectedReturn}%</strong></div>` : ''}
+            <div>ROI: <strong style="color:${parseFloat(roi)>=0?'var(--green)':'var(--red)'};">${roi}%</strong></div>
             <div>Status: <strong>${esc((inv.status||'active').charAt(0).toUpperCase()+(inv.status||'active').slice(1))}</strong></div>
           </div>`;
       } else if (activeTab === 'transactions') {
-        tabContent = `<button class="btn sm" onclick="document.querySelector('.inv-detail-modal')?.remove();addInvestmentTx('${inv.id}')" style="margin-bottom:16px;">+ Add Transaction</button>`;
+        tabContent = `<button class="btn sm" onclick="document.querySelector('.inv-detail-modal')?.remove();addInvestmentTx('${inv.id}')" style="margin-bottom:16px;">+ Add Entry</button>`;
         if (txs.length === 0) {
-          tabContent += `<p style="color:var(--muted);font-size:13px;">No transactions yet.</p>`;
+          tabContent += `<p style="color:var(--muted);font-size:13px;">No entries yet.</p>`;
         } else {
-          tabContent += `<div class="tbl-wrap"><table><thead><tr><th>By</th><th>Type</th><th>Amount</th><th>Date</th><th class="hide-mobile">Note</th></tr></thead><tbody>`;
+          tabContent += `<div class="tbl-wrap"><table><thead><tr>${!isPersonal?'<th>By</th>':''}<th>Type</th><th>Amount</th><th>Date</th><th class="hide-mobile">Note</th></tr></thead><tbody>`;
           txs.forEach(t => {
             if (t.receipt) window._docCache['rcpt_'+t.id] = t.receipt;
+            const txCfg = INV_TX_TYPES[t.type] || {};
+            const txColor = txCfg.color || 'var(--muted)';
+            const txLabel = txCfg.label || t.type;
             tabContent += `<tr>
-              <td style="font-weight:600;font-size:13px;">${esc(t.byName || 'Self')}</td>
-              <td><span style="font-weight:700;color:${TX_COLORS[t.type]||'var(--muted)'};">${esc(TX_LABELS[t.type]||t.type)}</span>${t.receipt ? ` <span style="cursor:pointer;" onclick="_viewDoc(window._docCache['rcpt_${t.id}'])" title="View receipt">🧾</span>` : ''}</td>
+              ${!isPersonal ? `<td style="font-weight:600;font-size:13px;">${esc(t.byName || 'Self')}</td>` : ''}
+              <td><span style="font-weight:700;color:${txColor};">${esc(txLabel)}</span>${t.receipt ? ` <span style="cursor:pointer;" onclick="_viewDoc(window._docCache['rcpt_${t.id}'])" title="View receipt">🧾</span>` : ''}</td>
               <td>${fmt(t.amount, inv.currency)}</td>
               <td>${t.date ? new Date(t.date).toLocaleDateString() : '—'}</td>
               <td class="hide-mobile" style="font-size:12px;color:var(--muted);">${esc(t.note||'—')}</td>
@@ -9753,20 +9945,19 @@
           });
           tabContent += `</tbody></table></div>`;
         }
-      } else if (activeTab === 'members') {
+      } else if (activeTab === 'people') {
         const invMembers = inv.members || [];
-        // Pending invites (owner only)
         if (_invOwner && _invPending.length > 0) {
           tabContent += `<div class="section-title" style="color:var(--yellow);">Pending Invites (${_invPending.length})</div>`;
           _invPending.forEach(p => {
             tabContent += `<div class="trow" style="padding:8px 0;">
               <div style="flex:1;"><div style="font-weight:600;">${esc(p.name)}</div><div style="font-size:11px;color:var(--muted);">${esc(p.email)} — by ${esc(p.requestedBy)}</div></div>
-              <button class="btn sm" style="font-size:11px;padding:4px 8px;" onclick="approvePendingInvite('${inv.id}','investments','${p.id}','an Investment')">✓</button>
+              <button class="btn sm" style="font-size:11px;padding:4px 8px;" onclick="approvePendingInvite('${inv.id}','investments','${p.id}','a Venture')">✓</button>
               <button class="gh sm" onclick="rejectPendingInvite('${inv.id}','investments','${p.id}')" style="color:var(--red);">✕</button>
             </div>`;
           });
         }
-        tabContent += `<div class="section-title">Members / Partners (${invMembers.length})</div>`;
+        tabContent += `<div class="section-title">People (${invMembers.length})</div>`;
         tabContent += `<div style="font-size:12px;color:var(--muted);margin-bottom:8px;">Your role: <strong style="color:var(--accent);">${_invRole.charAt(0).toUpperCase()+_invRole.slice(1)}</strong></div>`;
         if (invMembers.length === 0) {
           tabContent += `<p style="color:var(--muted);font-size:13px;margin-bottom:12px;">No members yet.</p>`;
@@ -9774,19 +9965,19 @@
           invMembers.forEach(m => {
             const mRole = m.role || 'member';
             const roleBadge = mRole === 'admin' ? '<span class="badge badge-blue" style="font-size:10px;margin-left:4px;">Admin</span>' : '';
-            const mDeposits = (inv.transactions||[]).filter(t => t.byMemberId === m.id && t.type === 'deposit').reduce((s,t)=>s+(parseFloat(t.amount)||0),0);
-            const mWithdrawals = (inv.transactions||[]).filter(t => t.byMemberId === m.id && t.type === 'withdrawal').reduce((s,t)=>s+(parseFloat(t.amount)||0),0);
-            const mDividends = (inv.transactions||[]).filter(t => t.byMemberId === m.id && (t.type === 'dividend' || t.type === 'return')).reduce((s,t)=>s+(parseFloat(t.amount)||0),0);
-            const mNet = mDeposits - mWithdrawals + mDividends;
+            const mCapIn = (inv.transactions||[]).filter(t => t.byMemberId === m.id && ['capital_contribution','deposit'].includes(t.type)).reduce((s,t)=>s+(parseFloat(t.amount)||0),0);
+            const mExp = (inv.transactions||[]).filter(t => t.byMemberId === m.id && ['expense','asset_purchase'].includes(t.type)).reduce((s,t)=>s+(parseFloat(t.amount)||0),0);
+            const mRev = (inv.transactions||[]).filter(t => t.byMemberId === m.id && ['revenue','dividend','return'].includes(t.type)).reduce((s,t)=>s+(parseFloat(t.amount)||0),0);
+            const mNet = mCapIn - mExp + mRev;
             tabContent += `<div class="trow" style="padding:8px 0;">
               <div class="avatar">${(m.name||'?')[0].toUpperCase()}</div>
               <div style="flex:1;">
                 <div style="font-weight:600;">${esc(m.name)}${roleBadge}</div>
                 <div style="font-size:11px;color:var(--muted);">Joined ${new Date(m.joinedAt).toLocaleDateString()}</div>
                 <div style="font-size:12px;margin-top:4px;display:flex;gap:10px;flex-wrap:wrap;">
-                  <span>In: <strong style="color:var(--blue);">${fmt(mDeposits, inv.currency)}</strong></span>
-                  <span>Out: <strong style="color:var(--red);">${fmt(mWithdrawals, inv.currency)}</strong></span>
-                  ${mDividends > 0 ? '<span>Returns: <strong style="color:var(--green);">'+fmt(mDividends, inv.currency)+'</strong></span>' : ''}
+                  <span>In: <strong style="color:var(--blue);">${fmt(mCapIn, inv.currency)}</strong></span>
+                  <span>Exp: <strong style="color:var(--red);">${fmt(mExp, inv.currency)}</strong></span>
+                  ${mRev > 0 ? '<span>Rev: <strong style="color:var(--green);">'+fmt(mRev, inv.currency)+'</strong></span>' : ''}
                   <span>Net: <strong style="color:${mNet>=0?'var(--green)':'var(--red)'};">${fmt(mNet, inv.currency)}</strong></span>
                 </div>
               </div>
@@ -9801,7 +9992,7 @@
         }
         tabContent += `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;">
           ${_invCanManage ? `<button class="bs sm" onclick="document.querySelector('.inv-detail-modal')?.remove();addInvMember('${inv.id}')">+ Add from Contacts</button>` : ''}
-          <button class="bs sm" onclick="document.querySelector('.inv-detail-modal')?.remove();emailInviteToItem('${inv.id}','investments','an Investment')">✉ Invite by Email</button>
+          <button class="bs sm" onclick="document.querySelector('.inv-detail-modal')?.remove();emailInviteToItem('${inv.id}','investments','a Venture')">✉ Invite by Email</button>
           ${!_invOwner ? `<button class="bs sm" style="color:var(--red);border-color:var(--red);" onclick="document.querySelector('.inv-detail-modal')?.remove();exitItem('${inv.id}','investments')">🚪 Leave</button>` : ''}
         </div>`;
       } else if (activeTab === 'docs') {
@@ -9813,11 +10004,11 @@
         tabContent += _renderDocList(inv.docs, '_delInvDoc', inv.id);
       } else if (activeTab === 'board') {
         tabContent = `<div style="margin-bottom:16px;">
-          <textarea id="icomment_${inv.id}" rows="2" placeholder="Write a message…" style="margin-bottom:8px;"></textarea>
+          <textarea id="icomment_${inv.id}" rows="2" placeholder="Write a note…" style="margin-bottom:8px;"></textarea>
           <button class="btn sm" onclick="addInvestmentComment('${inv.id}')">Post</button>
         </div>`;
         if (board.length === 0) {
-          tabContent += `<p style="color:var(--muted);font-size:13px;">No messages yet.</p>`;
+          tabContent += `<p style="color:var(--muted);font-size:13px;">No notes yet.</p>`;
         } else {
           board.forEach(n => {
             tabContent += `<div style="padding:10px 0;border-bottom:1px solid var(--border);">
@@ -9828,14 +10019,17 @@
         }
       }
 
-      const modal = `<div class="modal-bg inv-detail-modal" onclick="this.remove()"><div class="modal" style="max-width:580px;" onclick="event.stopPropagation()">
+      // Build tabs — People tab only for shared ventures
+      const peopleTab = !isPersonal ? `<button class="tab ${activeTab==='people'?'on':''}" onclick="window._invTab='people';openInvestmentDetail('${inv.id}')">People${(inv.members||[]).length>0?' ('+(inv.members||[]).length+')':''}</button>` : '';
+
+      const modal = `<div class="modal-bg inv-detail-modal" onclick="this.remove()"><div class="modal" style="max-width:600px;" onclick="event.stopPropagation()">
         <div class="modal-title">${esc(inv.name)}</div>
         <div class="tabs" style="margin-bottom:16px;">
           <button class="tab ${activeTab==='overview'?'on':''}" onclick="window._invTab='overview';openInvestmentDetail('${inv.id}')">Overview</button>
-          <button class="tab ${activeTab==='transactions'?'on':''}" onclick="window._invTab='transactions';openInvestmentDetail('${inv.id}')">Transactions${txs.length>0?' ('+txs.length+')':''}</button>
-          <button class="tab ${activeTab==='members'?'on':''}" onclick="window._invTab='members';openInvestmentDetail('${inv.id}')">Members${(inv.members||[]).length>0?' ('+(inv.members||[]).length+')':''}</button>
+          <button class="tab ${activeTab==='transactions'?'on':''}" onclick="window._invTab='transactions';openInvestmentDetail('${inv.id}')">Entries${txs.length>0?' ('+txs.length+')':''}</button>
+          ${peopleTab}
           <button class="tab ${activeTab==='docs'?'on':''}" onclick="window._invTab='docs';openInvestmentDetail('${inv.id}')">Docs${(inv.docs||[]).length>0?' ('+(inv.docs||[]).length+')':''}</button>
-          <button class="tab ${activeTab==='board'?'on':''}" onclick="window._invTab='board';openInvestmentDetail('${inv.id}')">Notice Board${board.length>0?' ('+board.length+')':''}</button>
+          <button class="tab ${activeTab==='board'?'on':''}" onclick="window._invTab='board';openInvestmentDetail('${inv.id}')">${notesLabel}${board.length>0?' ('+board.length+')':''}</button>
         </div>
         ${tabContent}
       </div></div>`;
