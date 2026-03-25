@@ -3129,8 +3129,7 @@
         </div>`;
       }
 
-      doc += `<div style="margin-top:${_invSig?'12px':'28px'};padding-top:14px;border-top:1px solid #e8e8e8;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
-        <div style="font-size:10px;color:#bbb;line-height:1.7;">This document is a record only. It does not transfer funds or constitute a legal instrument.</div>
+      doc += `<div style="margin-top:${_invSig?'12px':'28px'};padding-top:14px;border-top:1px solid #e8e8e8;display:flex;align-items:center;justify-content:flex-end;flex-wrap:wrap;gap:8px;">
         ${platformLogoSrc
           ? `<div style="display:flex;align-items:center;">${platformLogoHtml}</div>`
           : `<div style="font-size:10px;color:#aaa;">${esc(appName)}</div>`}
@@ -3282,9 +3281,7 @@
         </div>`;
       }
 
-      doc += `<div style="margin-top:${_txSig?'12px':'28px'};padding-top:14px;border-top:1px solid #e8e8e8;font-size:10px;color:#bbb;text-align:center;line-height:1.7;">
-        This document is a record only. It does not transfer funds or constitute a legal instrument.
-      </div>`;
+      doc += `<div style="margin-top:${_txSig?'12px':'28px'};padding-top:14px;border-top:1px solid #e8e8e8;"></div>`;
 
       const canSettle = (_txSt.remaining > 0 && e.status !== 'voided' &&
                          (e.txType==='they_owe_you' || e.txType==='you_owe_them'));
