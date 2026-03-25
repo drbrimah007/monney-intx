@@ -6504,7 +6504,7 @@
         <span style="font-size:18px;color:var(--accent);">→</span>
       </div>
       <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap;">
-        <input type="search" placeholder="Search templates…" value="${esc(window._search_templates||'')}" oninput="window._search_templates=this.value;PG.templates=1;renderTemplates()" style="flex:1;min-width:100px;">
+        <input type="search" id="templates_search_input" placeholder="Search templates…" value="${esc(window._search_templates||'')}" style="flex:1;min-width:100px;">
         <button class="bs sm${sortDesc?' on':''}" onclick="window._sort_templates=!${sortDesc};renderTemplates()" style="flex-shrink:0;white-space:nowrap;">${sortDesc?'↓ Latest':'↑ Oldest'}</button>
         <label style="display:inline-flex;align-items:center;gap:5px;font-size:13px;cursor:pointer;flex-shrink:0;white-space:nowrap;padding:6px 10px;background:var(--bg3);border-radius:8px;border:1px solid var(--border);">
           <input type="checkbox" ${showArchived?'checked':''} onchange="window._tmplShowArch=this.checked;PG.templates=1;renderTemplates()" style="width:15px;height:15px;cursor:pointer;accent-color:var(--accent);"> Show Archived
@@ -6548,6 +6548,15 @@
         if (p.pages > 1) html += `<div style="display:flex;gap:4px;justify-content:center;padding:16px 0">${Array.from({length:p.pages},(_,i)=>`<button class="bs sm${i+1===p.page?' on':''}" onclick="PG.templates=${i+1};renderTemplates()">${i+1}</button>`).join('')}</div>`;
       }
       document.getElementById('content').innerHTML = html;
+      const _tplSearch = document.getElementById('templates_search_input');
+      if (_tplSearch) {
+        _tplSearch.addEventListener('input', debounceSearch('_search_templates', () => {
+          PG.templates = 1;
+          renderTemplates();
+          const inp = document.getElementById('templates_search_input');
+          if (inp) { inp.focus(); try { const l = inp.value.length; inp.setSelectionRange(l, l); } catch(_) {} }
+        }));
+      }
     }
 
     // ── TEMPLATE BUILDER ───────────────────────────────────────────────
@@ -6587,7 +6596,7 @@
       </div>
       <p style="color:var(--muted);font-size:13px;margin-bottom:16px;">Browse templates shared by users. Load any template to create your own editable copy — the original is never modified.</p>
       <div style="margin-bottom:16px;">
-        <input type="search" placeholder="Search by name, description, or creator…" value="${esc(window._search_tdb||'')}" oninput="window._search_tdb=this.value;renderTemplateDB()" style="max-width:420px;width:100%;">
+        <input type="search" id="tdb_search_input" placeholder="Search by name, description, or creator…" value="${esc(window._search_tdb||'')}" style="max-width:420px;width:100%;">
       </div>`;
 
       if (listed.length === 0) {
@@ -6625,6 +6634,14 @@
         html += `</div>`;
       }
       content.innerHTML = html;
+      const _tdbSearch = document.getElementById('tdb_search_input');
+      if (_tdbSearch) {
+        _tdbSearch.addEventListener('input', debounceSearch('_search_tdb', () => {
+          renderTemplateDB();
+          const inp = document.getElementById('tdb_search_input');
+          if (inp) { inp.focus(); try { const l = inp.value.length; inp.setSelectionRange(l, l); } catch(_) {} }
+        }));
+      }
     }
 
     async function loadPublicTemplate(tid, tname) {
