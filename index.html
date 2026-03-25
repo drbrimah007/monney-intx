@@ -1580,6 +1580,15 @@
           </div>
         </div>`;
 
+        // Balance Reconciliation card
+        html += `<div class="card" style="margin-bottom:16px;" id="reconcileCard">
+          <div class="section-title" style="display:flex;align-items:center;justify-content:space-between;">
+            <span>Balance Reconciliation</span>
+            <button class="bs sm" onclick="_runReconciliation()" id="reconcileBtn">Run Reconciliation</button>
+          </div>
+          <div id="reconcileResults" style="font-size:13px;color:var(--muted);padding:8px 0;">Click "Run Reconciliation" to check balances between linked users.</div>
+        </div>`;
+
         // Recent entries
         const recentEntries = [...allEntries].sort((a,b)=>(b.createdAt||new Date(b.date||0).getTime()||0)-(a.createdAt||new Date(a.date||0).getTime()||0)).slice(0,10);
         html += `<div class="card">
@@ -3140,6 +3149,74 @@
       }
     }
 
+    // ── Balance Reconciliation Check (called after settlement actions) ───────
+    async function _checkReconciliation(entryId) {
+      if (!_IS_SERVER) return;
+      try {
+        const tok = localStorage.getItem('mxi_token');
+        const headers = { 'Content-Type': 'application/json' };
+        if (tok) headers['Authorization'] = 'Bearer ' + tok;
+        const res = await fetch('/api/reconcile', {
+          method: 'POST', credentials: 'include', headers,
+          body: JSON.stringify({ action: 'check-entry', entryId })
+        });
+        const data = await res.json();
+        if (data.ok && !data.balanced) {
+          console.warn('[reconcile] Balance mismatch of $' + data.difference + ' — admin notified');
+        }
+      } catch (_) {}
+    }
+
+    // ── Admin: Run full reconciliation report ─────────────────────────────────
+    async function _runReconciliation() {
+      const btn = document.getElementById('reconcileBtn');
+      const el  = document.getElementById('reconcileResults');
+      if (!btn || !el) return;
+      btn.disabled = true;
+      btn.textContent = 'Checking...';
+      el.innerHTML = '<p style="color:var(--muted);font-size:13px;">Running reconciliation...</p>';
+      try {
+        const res = await fetch('/api/reconcile', { credentials: 'include' });
+        const data = await res.json();
+        if (!data.ok) {
+          el.innerHTML = `<p style="color:var(--red);font-size:13px;">${esc(data.error || 'Reconciliation failed.')}</p>`;
+          btn.disabled = false; btn.textContent = 'Run Reconciliation';
+          return;
+        }
+        if (data.total === 0) {
+          el.innerHTML = '<p style="color:var(--muted);font-size:13px;">No linked user pairs found. Share records between users to enable reconciliation.</p>';
+          btn.disabled = false; btn.textContent = 'Run Reconciliation';
+          return;
+        }
+        let html = '';
+        if (data.mismatches === 0) {
+          html += '<div style="padding:8px 12px;background:rgba(22,163,74,.08);border-radius:8px;color:#16a34a;font-weight:600;margin-bottom:12px;">All balanced — no mismatches found across ' + data.total + ' linked pair' + (data.total !== 1 ? 's' : '') + '.</div>';
+        } else {
+          html += '<div style="padding:8px 12px;background:rgba(239,68,68,.08);border-radius:8px;color:#dc2626;font-weight:600;margin-bottom:12px;">' + data.mismatches + ' mismatch' + (data.mismatches !== 1 ? 'es' : '') + ' found across ' + data.total + ' linked pair' + (data.total !== 1 ? 's' : '') + '.</div>';
+        }
+        html += '<div class="tbl-wrap"><table><thead><tr><th>User A</th><th>User B</th><th>A: TOY</th><th>A: YOT</th><th>B: TOY</th><th>B: YOT</th><th>Diff</th><th>Status</th></tr></thead><tbody>';
+        data.pairs.forEach(function(p) {
+          const rowStyle = p.mismatch ? 'background:rgba(239,68,68,.05);' : '';
+          html += '<tr style="' + rowStyle + '">';
+          html += '<td style="font-size:12px;">' + esc(p.userA.name) + '<br><span style="color:var(--muted);font-size:11px;">' + esc(p.userA.email) + '</span></td>';
+          html += '<td style="font-size:12px;">' + esc(p.userB.name) + '<br><span style="color:var(--muted);font-size:11px;">' + esc(p.userB.email) + '</span></td>';
+          html += '<td style="color:var(--green);font-weight:600;">' + fmt(p.balanceA.toy) + '</td>';
+          html += '<td style="color:var(--red);font-weight:600;">' + fmt(p.balanceA.yot) + '</td>';
+          html += '<td style="color:var(--green);font-weight:600;">' + fmt(p.balanceB.toy) + '</td>';
+          html += '<td style="color:var(--red);font-weight:600;">' + fmt(p.balanceB.yot) + '</td>';
+          html += '<td style="font-weight:700;color:' + (p.mismatch ? 'var(--red)' : 'var(--green)') + ';">' + fmt(p.difference) + '</td>';
+          html += '<td>' + (p.mismatch ? '<span class="badge" style="background:rgba(239,68,68,.12);color:#dc2626;font-size:11px;">Mismatch</span>' : '<span class="badge" style="background:rgba(22,163,74,.12);color:#16a34a;font-size:11px;">Balanced</span>') + '</td>';
+          html += '</tr>';
+        });
+        html += '</tbody></table></div>';
+        el.innerHTML = html;
+      } catch (e) {
+        el.innerHTML = '<p style="color:var(--red);font-size:13px;">Network error — could not run reconciliation.</p>';
+      }
+      btn.disabled = false;
+      btn.textContent = 'Run Reconciliation';
+    }
+
     async function _submitSettlement(eid, remainingAmt) {
       const e = db.entries.find(x => x.id === eid); if (!e) return;
       const rawVal   = (document.getElementById('settleAmt')?.value || '').trim();
@@ -3200,6 +3277,7 @@
         toast(`Settlement of ${fmt(applyAmt)} recorded`);
       }
       refreshCurPage();
+      _checkReconciliation(eid);
     }
 
     function renderEntries() {
@@ -6403,6 +6481,7 @@
         if (t === 'settlement_confirmed') return `<span class="badge" style="background:rgba(22,163,74,.12);color:#16a34a;font-size:11px;">✅ Payment Confirmed</span>`;
         if (t === 'settlement_rejected')  return `<span class="badge" style="background:rgba(239,68,68,.12);color:#dc2626;font-size:11px;">❌ Payment Rejected</span>`;
         if (t === 'notification')  return `<span class="badge badge-blue" style="font-size:11px;">📬 Notification</span>`;
+        if (t === 'reconciliation_mismatch') return `<span class="badge" style="background:rgba(239,68,68,.12);color:#dc2626;font-size:11px;">⚠ Balance Mismatch</span>`;
         return `<span class="badge badge-blue" style="font-size:11px;">📤 Sent</span>`;
       };
 
@@ -8467,6 +8546,9 @@
           _loadSharedWithMe();
           if (_curPage === 'entries') renderEntries();
           if (_curPage === 'dash') renderDash();
+          // Reconciliation check — find entry_id from cached shared records
+          const _shRec = (_cachedSharedRecords || []).find(x => x.token === token);
+          if (_shRec && _shRec.entry && _shRec.entry.id) _checkReconciliation(_shRec.entry.id);
         } else {
           toast(data.error || 'Failed to record settlement');
           if (btn) { btn.disabled = false; btn.textContent = '✅ Confirm Payment'; }
@@ -8590,6 +8672,8 @@
           await _syncSentShareStatuses(); // re-reads share tokens
           _loadSharedWithMe();
           initApp();
+          // Reconciliation check on confirm
+          if (action === 'confirm' && data.entryId) _checkReconciliation(data.entryId);
         } else {
           if (errEl) { errEl.textContent = data.error || 'Action failed.'; errEl.style.display = 'block'; }
           if (confirmBtn) { confirmBtn.disabled = false; confirmBtn.textContent = 'Confirm Settlement'; }

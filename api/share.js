@@ -1058,7 +1058,7 @@ module.exports = async function handler(req, res) {
           }
         }
 
-        return res.json({ ok: true, confirmed: true });
+        return res.json({ ok: true, confirmed: true, entryId });
       } catch (e) {
         console.error('[share/confirm-settlement]', e.message);
         return res.status(500).json({ ok: false, error: 'Failed to confirm settlement.' });
