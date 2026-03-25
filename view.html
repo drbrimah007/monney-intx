@@ -655,8 +655,8 @@
   // Recipient-facing direction labels
   const TX_LABELS = {
     they_owe_you:  'You Owe',
-    invoice:       'You Owe',
-    bill:          'You Owe',
+    invoice:       'Invoice Due',
+    bill:          'Bill Due',
     you_owe_them:  'You Are Owed',
     they_paid_you: 'You Have Settled',
     you_paid_them: 'You Have Been Settled'
@@ -688,10 +688,15 @@
     // they_owe_you / invoice / bill → recipient OWES → "Due" (it's due from them)
     // you_owe_them → recipient is OWED → "Owed"
     const recipientOwes = (txType === 'they_owe_you' || txType === 'invoice' || txType === 'bill');
-    const postedLabel   = recipientOwes ? 'Due' : 'Owed';
+    const isInv = (txType === 'invoice' || txType === 'bill');
+    // Invoice entries: posted → "Offered", sent → "Sent", viewed → "Viewed", accepted → "Due"
+    // Personal entries where recipient owes: posted/sent/viewed → "Due"
+    const postedLabel = isInv ? 'Offered' : (recipientOwes ? 'Due' : 'Owed');
+    const sentLabel   = isInv ? 'Sent' : (recipientOwes ? 'Due' : 'Owed');
+    const viewedLabel = isInv ? 'Viewed' : (recipientOwes ? 'Due' : 'Owed');
     const map = {
-      posted: postedLabel, sent: postedLabel, viewed: postedLabel,
-      accepted: recipientOwes ? 'Accepted (Due)' : 'Accepted',
+      posted: postedLabel, sent: sentLabel, viewed: viewedLabel,
+      accepted: recipientOwes ? 'Due' : 'Accepted',
       paid:'Settled', settled:'Settled',
       fulfilled: 'Fulfilled',
       cancelled: 'Cancelled',
@@ -703,7 +708,9 @@
 
   // Perspective: the RECIPIENT viewing the page (the contact who received the share link)
   function amountDirection(txType) {
-    if (txType === 'they_owe_you' || txType === 'invoice' || txType === 'bill') return 'Amount You Owe';
+    if (txType === 'invoice') return 'Invoice Amount Due';
+    if (txType === 'bill') return 'Bill Amount Due';
+    if (txType === 'they_owe_you') return 'Amount You Owe';
     if (txType === 'you_owe_them') return 'Amount You Are Owed';
     if (txType === 'they_paid_you') return 'Amount Settled';
     if (txType === 'you_paid_them') return 'Amount Settled to You';

@@ -433,8 +433,8 @@
       they_paid_you: 'You Have Settled',
       you_owe_them:  'You Are Owed',
       you_paid_them: 'You Have Been Settled',
-      invoice:       'You Owe',
-      bill:          'You Owe'
+      invoice:       'Invoice Due',
+      bill:          'Bill Due'
     };
     // Ledger direction for each tx type
     // invoice & bill both behave like they_owe_you (you are owed money)
@@ -555,8 +555,14 @@
       return 'var(--muted)';
     }
     // ── Status badge HTML (coloured by meaning) ───────────────────────────
-    function statusBadge(s) {
-      const label = ENTRY_STATUS[safeStatus(s)] || (s ? s.charAt(0).toUpperCase() + s.slice(1) : 'Posted');
+    function statusBadge(s, entry) {
+      const isInv = entry && isInvoiceMode(entry);
+      let label;
+      if (isInv && s === 'posted')   label = 'Offered';
+      else if (isInv && s === 'sent')     label = 'Sent';
+      else if (isInv && s === 'viewed')   label = 'Viewed';
+      else if (isInv && s === 'accepted') label = 'Due';
+      else label = ENTRY_STATUS[safeStatus(s)] || (s ? s.charAt(0).toUpperCase() + s.slice(1) : 'Posted');
       const cls =
         (s==='settled' || s==='paid') ? 'badge-green'  :
         (s==='payment')            ? 'badge-green'  :
@@ -1557,7 +1563,7 @@
         } else {
           html += `<div class="tbl-wrap"><table><thead><tr><th>Amount</th><th>Type</th><th>Date</th><th>Status</th></tr></thead><tbody>`;
           sharedEntries.slice(0, 10).forEach(e => {
-            html += `<tr><td><strong>${fmt(e.amount)}</strong></td><td>${`<span style="font-weight:700;color:${txTypeColor(e.txType)}">${esc(TXL[e.txType]||e.txType)}</span>`}</td><td>${new Date(e.date).toLocaleDateString()}</td><td>${statusBadge(e.status)}</td></tr>`;
+            html += `<tr><td><strong>${fmt(e.amount)}</strong></td><td>${`<span style="font-weight:700;color:${txTypeColor(e.txType)}">${esc(TXL[e.txType]||e.txType)}</span>`}</td><td>${new Date(e.date).toLocaleDateString()}</td><td>${statusBadge(e.status, e)}</td></tr>`;
           });
           html += `</tbody></table></div>`;
         }
@@ -1660,7 +1666,7 @@
           ${recentEntries.map(e => {
             const c = db.contacts.find(x => x.id === e.cId);
             const _pTok = window._pendingSettlements?.[e.id];
-            return `<tr><td>${cLink(e.cId, c?.name||'—')}</td><td>${_fmtAmtCell(e.id,`<div class="mobile-label" style="font-size:11px;font-weight:700;color:${txTypeColor(e.txType)};margin-top:2px;">${esc(TXL[e.txType]||e.txType)}</div>`)}</td><td class="hide-mobile"><span style="font-weight:700;color:${txTypeColor(e.txType)}">${esc(TXL[e.txType]||e.txType)}</span></td><td>${new Date(e.date).toLocaleDateString()}</td><td>${statusBadge(e.status)}${_reminderBadge(e.reminderCount, e.id)}${_pTok ? `<span class="badge" style="background:rgba(245,158,11,.12);color:#d97706;font-size:10px;margin-left:4px;cursor:pointer;" onclick="_reviewSettlement('${_pTok}')">⏳ Review</span>` : ''}</td><td><div class="action-menu"><button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button><div class="action-dropdown"><button onclick="openEntryInvoice('${e.id}')">📄 View</button><button onclick="editEntry('${e.id}')">✏️ Edit</button>${_pTok ? `<button onclick="_reviewSettlement('${_pTok}')" style="color:#d97706;font-weight:700;">⏳ Review Payment</button>` : ''}${(isInvoiceMode(e) || e.txType === 'they_owe_you' || e.txType === 'you_owe_them') && e.status !== 'settled' && e.status !== 'voided' && e.status !== 'fulfilled' && e.status !== 'cancelled' ? `<button onclick="recordSettlement('${e.id}')">💰 Settle</button>` : ''}${isInvoiceMode(e) && e.status !== 'fulfilled' && e.status !== 'voided' && e.status !== 'cancelled' ? `<button onclick="markFulfilled('${e.id}')" style="color:#16a34a;font-weight:700;">✅ Mark Fulfilled</button>` : ''}<button onclick="openNotifyModal('${e.id}')">🔔 Send Reminder</button><button onclick="openShareModal('${e.id}')">🔗 Share</button><button onclick="duplicateEntry('${e.id}')">📋 Duplicate</button><button onclick="toggleArchiveEntry('${e.id}')">${e.archived?'📤 Unarchive':'📥 Archive'}</button>${e.status !== 'voided' && e.status !== 'fulfilled' ? `<button onclick="voidEntry('${e.id}')" style="color:var(--amber);">🚫 Void</button>` : ''}<button onclick="delEntry('${e.id}')" style="color:var(--red);">🗑 Delete</button></div></div></td></tr>`;
+            return `<tr><td>${cLink(e.cId, c?.name||'—')}</td><td>${_fmtAmtCell(e.id,`<div class="mobile-label" style="font-size:11px;font-weight:700;color:${txTypeColor(e.txType)};margin-top:2px;">${esc(TXL[e.txType]||e.txType)}</div>`)}</td><td class="hide-mobile"><span style="font-weight:700;color:${txTypeColor(e.txType)}">${esc(TXL[e.txType]||e.txType)}</span></td><td>${new Date(e.date).toLocaleDateString()}</td><td>${statusBadge(e.status, e)}${_reminderBadge(e.reminderCount, e.id)}${_pTok ? `<span class="badge" style="background:rgba(245,158,11,.12);color:#d97706;font-size:10px;margin-left:4px;cursor:pointer;" onclick="_reviewSettlement('${_pTok}')">⏳ Review</span>` : ''}</td><td><div class="action-menu"><button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button><div class="action-dropdown"><button onclick="openEntryInvoice('${e.id}')">📄 View</button><button onclick="editEntry('${e.id}')">✏️ Edit</button>${_pTok ? `<button onclick="_reviewSettlement('${_pTok}')" style="color:#d97706;font-weight:700;">⏳ Review Payment</button>` : ''}${(isInvoiceMode(e) || e.txType === 'they_owe_you' || e.txType === 'you_owe_them') && e.status !== 'settled' && e.status !== 'voided' && e.status !== 'fulfilled' && e.status !== 'cancelled' ? `<button onclick="recordSettlement('${e.id}')">💰 Settle</button>` : ''}${isInvoiceMode(e) && e.status !== 'fulfilled' && e.status !== 'voided' && e.status !== 'cancelled' ? `<button onclick="markFulfilled('${e.id}')" style="color:#16a34a;font-weight:700;">✅ Mark Fulfilled</button>` : ''}<button onclick="openNotifyModal('${e.id}')">🔔 Send Reminder</button><button onclick="openShareModal('${e.id}')">🔗 Share</button><button onclick="duplicateEntry('${e.id}')">📋 Duplicate</button><button onclick="toggleArchiveEntry('${e.id}')">${e.archived?'📤 Unarchive':'📥 Archive'}</button>${e.status !== 'voided' && e.status !== 'fulfilled' ? `<button onclick="voidEntry('${e.id}')" style="color:var(--amber);">🚫 Void</button>` : ''}<button onclick="delEntry('${e.id}')" style="color:var(--red);">🗑 Delete</button></div></div></td></tr>`;
           }).join('')}
           </tbody></table></div>`}
         </div>`;
@@ -1736,7 +1742,7 @@
                 <td><strong>${fmt(rawAmt)}</strong><div class="mobile-label" style="font-size:11px;font-weight:700;color:${dashTypeColor};margin-top:2px;">${esc(dashTypeLabel)}</div>${_dpSettleHtml}</td>
                 <td class="hide-mobile"><span style="font-weight:700;color:${dashTypeColor};">${esc(dashTypeLabel)}</span></td>
                 <td>${e?.date ? new Date(e.date).toLocaleDateString() : '—'}</td>
-                <td>${statusBadge(e?.status||'posted')}</td>
+                <td>${statusBadge(e?.status||'posted', e)}</td>
                 <td><div class="action-menu"><button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button><div class="action-dropdown">
                   <a href="${esc(siteUrl)}/view?t=${esc(r.token)}" target="_blank" style="display:block;padding:8px 14px;font-size:13px;color:var(--accent);text-decoration:none;font-weight:600;">👁 View</a>
                   ${!_isSettlementEntry(e) ? `<button onclick="doConfirmShared('${esc(r.token)}')">✅ Confirm &amp; Track</button>` : ''}
@@ -1770,7 +1776,7 @@
                 <td><strong>${fmt(rawAmt2)}</strong><div class="mobile-label" style="font-size:11px;font-weight:700;color:${dirColor2};margin-top:2px;">${esc(dirLabel2)}</div>${_dcSettleHtml}</td>
                 <td class="hide-mobile"><span style="font-weight:700;color:${dirColor2};">${esc(dirLabel2)}</span></td>
                 <td>${e.date ? new Date(e.date).toLocaleDateString() : '—'}</td>
-                <td>${statusBadge(e.status||'posted')}</td>
+                <td>${statusBadge(e.status||'posted', e)}</td>
                 <td><div class="action-menu"><button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button><div class="action-dropdown">
                   <a href="${viewUrl2}" target="_blank" style="display:block;padding:8px 14px;font-size:13px;color:var(--accent);text-decoration:none;font-weight:600;">👁 View</a>
                   ${!isSettled2 ? `<button onclick="_sharedMarkPaid('${esc(e.shareToken)}')" style="color:var(--green);font-weight:700;">💰 Record Payment</button>` : ''}
@@ -1782,7 +1788,7 @@
             }
             const c = db.contacts.find(x => x.id === e.cId);
             const _pTok = window._pendingSettlements?.[e.id];
-            return `<tr><td>${cLink(e.cId, c?.name||'—')}</td><td>${_fmtAmtCell(e.id,`<div class="mobile-label" style="font-size:11px;font-weight:700;color:${txTypeColor(e.txType)};margin-top:2px;">${esc(TXL[e.txType]||e.txType)}</div>`)}</td><td class="hide-mobile"><span style="font-weight:700;color:${txTypeColor(e.txType)}">${esc(TXL[e.txType]||e.txType)}</span></td><td>${new Date(e.date).toLocaleDateString()}</td><td>${statusBadge(e.status)}${_reminderBadge(e.reminderCount, e.id)}${_pTok ? `<span class="badge" style="background:rgba(245,158,11,.12);color:#d97706;font-size:10px;margin-left:4px;cursor:pointer;" onclick="_reviewSettlement('${_pTok}')">⏳ Review</span>` : ''}</td><td><div class="action-menu"><button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button><div class="action-dropdown"><button onclick="openEntryInvoice('${e.id}')">📄 View</button><button onclick="editEntry('${e.id}')">✏️ Edit</button>${_pTok ? `<button onclick="_reviewSettlement('${_pTok}')" style="color:#d97706;font-weight:700;">⏳ Review Payment</button>` : ''}${(isInvoiceMode(e) || e.txType === 'they_owe_you' || e.txType === 'you_owe_them') && e.status !== 'settled' && e.status !== 'voided' && e.status !== 'fulfilled' && e.status !== 'cancelled' ? `<button onclick="recordSettlement('${e.id}')">💰 Settle</button>` : ''}${isInvoiceMode(e) && e.status !== 'fulfilled' && e.status !== 'voided' && e.status !== 'cancelled' ? `<button onclick="markFulfilled('${e.id}')" style="color:#16a34a;font-weight:700;">✅ Mark Fulfilled</button>` : ''}<button onclick="openNotifyModal('${e.id}')">🔔 Send Reminder</button><button onclick="openShareModal('${e.id}')">🔗 Share</button><button onclick="duplicateEntry('${e.id}')">📋 Duplicate</button><button onclick="toggleArchiveEntry('${e.id}')">${e.archived?'📤 Unarchive':'📥 Archive'}</button>${e.status !== 'voided' && e.status !== 'fulfilled' ? `<button onclick="voidEntry('${e.id}')" style="color:var(--amber);">🚫 Void</button>` : ''}<button onclick="delEntry('${e.id}')" style="color:var(--red);">🗑 Delete</button></div></div></td></tr>`;
+            return `<tr><td>${cLink(e.cId, c?.name||'—')}</td><td>${_fmtAmtCell(e.id,`<div class="mobile-label" style="font-size:11px;font-weight:700;color:${txTypeColor(e.txType)};margin-top:2px;">${esc(TXL[e.txType]||e.txType)}</div>`)}</td><td class="hide-mobile"><span style="font-weight:700;color:${txTypeColor(e.txType)}">${esc(TXL[e.txType]||e.txType)}</span></td><td>${new Date(e.date).toLocaleDateString()}</td><td>${statusBadge(e.status, e)}${_reminderBadge(e.reminderCount, e.id)}${_pTok ? `<span class="badge" style="background:rgba(245,158,11,.12);color:#d97706;font-size:10px;margin-left:4px;cursor:pointer;" onclick="_reviewSettlement('${_pTok}')">⏳ Review</span>` : ''}</td><td><div class="action-menu"><button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button><div class="action-dropdown"><button onclick="openEntryInvoice('${e.id}')">📄 View</button><button onclick="editEntry('${e.id}')">✏️ Edit</button>${_pTok ? `<button onclick="_reviewSettlement('${_pTok}')" style="color:#d97706;font-weight:700;">⏳ Review Payment</button>` : ''}${(isInvoiceMode(e) || e.txType === 'they_owe_you' || e.txType === 'you_owe_them') && e.status !== 'settled' && e.status !== 'voided' && e.status !== 'fulfilled' && e.status !== 'cancelled' ? `<button onclick="recordSettlement('${e.id}')">💰 Settle</button>` : ''}${isInvoiceMode(e) && e.status !== 'fulfilled' && e.status !== 'voided' && e.status !== 'cancelled' ? `<button onclick="markFulfilled('${e.id}')" style="color:#16a34a;font-weight:700;">✅ Mark Fulfilled</button>` : ''}<button onclick="openNotifyModal('${e.id}')">🔔 Send Reminder</button><button onclick="openShareModal('${e.id}')">🔗 Share</button><button onclick="duplicateEntry('${e.id}')">📋 Duplicate</button><button onclick="toggleArchiveEntry('${e.id}')">${e.archived?'📤 Unarchive':'📥 Archive'}</button>${e.status !== 'voided' && e.status !== 'fulfilled' ? `<button onclick="voidEntry('${e.id}')" style="color:var(--amber);">🚫 Void</button>` : ''}<button onclick="delEntry('${e.id}')" style="color:var(--red);">🗑 Delete</button></div></div></td></tr>`;
           }).join('')}
           </tbody></table></div>`}
         </div>`;
@@ -2496,7 +2502,7 @@
                 : '<strong>' + fmt(rawAmt) + '</strong>';
               html += '<td>' + _cpAmtHtml + '</td>';
               html += '<td>' + (e && e.date ? new Date(e.date).toLocaleDateString() : '—') + '</td>';
-              html += '<td>' + statusBadge((e && e.status) || 'posted') + '</td>';
+              html += '<td>' + statusBadge((e && e.status) || 'posted', e) + '</td>';
               html += '<td><div class="action-menu"><button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button><div class="action-dropdown">';
               html += '<a href="' + esc(siteUrl) + '/view?t=' + esc(r.token) + '" target="_blank" style="display:block;padding:8px 14px;font-size:13px;color:var(--accent);text-decoration:none;font-weight:600;">👁 View</a>';
               if (isPendingCP && !_isSettlementEntry(e)) {
@@ -2525,7 +2531,7 @@
                 html += '<td><span style="font-weight:700;color:' + shColor + '">' + esc(shLabel) + '</span>' + shPill + '</td>';
                 html += '<td>' + _fmtAmtCell(e2.id) + '</td>';
                 html += '<td>' + new Date(e2.date).toLocaleDateString() + '</td>';
-                html += '<td>' + statusBadge(e2.status || 'posted') + '</td>';
+                html += '<td>' + statusBadge(e2.status || 'posted', e2) + '</td>';
                 html += '<td><div class="action-menu"><button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button><div class="action-dropdown">';
                 html += '<a href="' + shViewUrl + '" target="_blank" style="display:block;padding:8px 14px;font-size:13px;color:var(--accent);text-decoration:none;font-weight:600;">👁 View</a>';
                 if (!shSettled) html += '<button onclick="_sharedMarkPaid(\'' + esc(e2.shareToken) + '\')" style="color:var(--green);font-weight:700;">💰 Record Payment</button>';
@@ -2544,7 +2550,7 @@
                 // Amount + type as second line (mobile only)
                 html += '<td>' + _fmtAmtCell(e2.id) + '</td>'; // Type always in col 1, no mobile-label needed
                 html += '<td>' + new Date(e2.date).toLocaleDateString() + '</td>';
-                html += '<td>' + statusBadge(e2.status) + _reminderBadge(e2.reminderCount, e2.id) + '</td>';
+                html += '<td>' + statusBadge(e2.status, e2) + _reminderBadge(e2.reminderCount, e2.id) + '</td>';
                 html += '<td><div class="action-menu"><button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button><div class="action-dropdown">';
                 html += '<button onclick="openEntryInvoice(\'' + e2.id + '\')">📄 View</button>';
                 html += '<button onclick="closeCPModal();editEntry(\'' + e2.id + '\')">✏️ Edit</button>';
@@ -2620,8 +2626,14 @@
     }
 
     /* ── Status chip for white docs (inline, no dark CSS vars) ─────── */
-    function _docStatusChip(s) {
-      const label = ENTRY_STATUS[safeStatus(s)] || s;
+    function _docStatusChip(s, entry) {
+      const isInv = entry && isInvoiceMode(entry);
+      let label;
+      if (isInv && s === 'posted')   label = 'Offered';
+      else if (isInv && s === 'sent')     label = 'Sent';
+      else if (isInv && s === 'viewed')   label = 'Viewed';
+      else if (isInv && s === 'accepted') label = 'Due';
+      else label = ENTRY_STATUS[safeStatus(s)] || s;
       const bg = (s==='settled'||s==='payment') ? '#d1fae5' : (s==='overdue'||s==='disputed') ? '#fee2e2' :
                  (s==='partially_settled') ? '#fef3c7' : (s==='voided'||s==='draft') ? '#f3f4f6' : '#dbeafe';
       const col = (s==='settled'||s==='payment') ? '#065f46' : (s==='overdue'||s==='disputed') ? '#991b1b' :
@@ -2721,7 +2733,7 @@
               <div style="font-size:11px;color:#888;text-transform:uppercase;letter-spacing:.06em;">Date</div>
               <div style="font-weight:700;font-size:13px;">${dateStr}</div>
             </div>
-            <div style="margin-top:8px;">${_docStatusChip(invSt.status)}</div>
+            <div style="margin-top:8px;">${_docStatusChip(invSt.status, e)}</div>
           </div>
         </div>
 
@@ -2908,7 +2920,7 @@
               <div style="font-size:11px;color:#aaa;text-transform:uppercase;letter-spacing:.06em;">Date</div>
               <div style="font-weight:700;font-size:13px;">${dateStr}</div>
             </div>
-            <div style="margin-top:8px;">${_docStatusChip(e.status)}</div>
+            <div style="margin-top:8px;">${_docStatusChip(e.status, e)}</div>
           </div>
         </div>
 
@@ -3107,7 +3119,8 @@
                         (e.txType==='you_owe_them'||e.txType==='bill') ? '#dc2626' :
                         (e.txType==='they_paid_you'||e.txType==='you_paid_them') ? '#0d9488' : '#6c63ff';
         const dt = e.date ? new Date(e.date).toLocaleDateString() : '—';
-        const stLbl = ENTRY_STATUS[e.status] || e.status || 'Posted';
+        const _isInvSt = isInvoiceMode(e);
+        const stLbl = (_isInvSt && e.status === 'posted') ? 'Offered' : (_isInvSt && e.status === 'accepted') ? 'Due' : (ENTRY_STATUS[e.status] || e.status || 'Posted');
         const stCol = _stColor(e.status);
 
         // Settlement info
@@ -3531,7 +3544,7 @@
             <td>${_sAmtHtml}</td>
             <td class="hide-mobile"><span style="font-weight:700;color:${dirColor}">${esc(dirLabel)}</span></td>
             <td>${dt}</td>
-            <td>${statusBadge(e?.status||'posted')}</td>
+            <td>${statusBadge(e?.status||'posted', e)}</td>
             <td><div class="action-menu"><button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button><div class="action-dropdown">
               <a href="${esc(siteUrl)}/view?t=${esc(r.token)}" target="_blank" style="display:block;padding:8px 14px;font-size:13px;color:var(--accent);text-decoration:none;font-weight:600;">👁 View</a>
               ${isPending && !_isSettlementEntry(r.entry) ? `<button onclick="doConfirmShared('${esc(r.token)}')" style="color:#16a34a;font-weight:700;">✅ Confirm &amp; Track</button><button onclick="doDismissShared('${esc(r.token)}')" style="color:var(--red);">✕ Dismiss</button>` : ''}
@@ -3588,7 +3601,7 @@
             <td>${_seAmtHtml}</td>
             <td class="hide-mobile"><span style="font-weight:700;color:${dirColor}">${esc(dirLabel)}</span></td>
             <td>${dt}</td>
-            <td>${statusBadge(e.status || 'posted')}</td>
+            <td>${statusBadge(e.status || 'posted', e)}</td>
             <td><div class="action-menu"><button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button><div class="action-dropdown">
               <a href="${viewUrl}" target="_blank" style="display:block;padding:8px 14px;font-size:13px;color:var(--accent);text-decoration:none;font-weight:600;">👁 View</a>
               ${!isTerminalSE ? `<button onclick="_sharedMarkPaid('${esc(e.shareToken)}')" style="color:var(--green);font-weight:700;">💰 Record Payment</button>` : ''}
@@ -3615,7 +3628,7 @@
             <td>${_fmtAmtCell(e.id,`<div class="mobile-label" style="font-size:11px;font-weight:700;color:${txTypeColor(e.txType)};margin-top:2px;">${esc(TXL[e.txType]||e.txType)}</div>`)}</td>
             <td class="hide-mobile"><button class="gh sm" style="font-size:13px;padding:2px 6px;font-weight:700;color:${txTypeColor(e.txType)};" onclick="openEntryInvoice('${e.id}')" title="View record">${esc(TXL[e.txType]||e.txType)}</button></td>
             <td>${new Date(e.date).toLocaleDateString()}</td>
-            <td>${statusBadge(e.status)}${_isRcpt ? '' : _reminderBadge(e.reminderCount, e.id)}${!_isRcpt && window._pendingSettlements?.[e.id] ? `<span class="badge" style="background:rgba(245,158,11,.12);color:#d97706;font-size:10px;margin-left:4px;cursor:pointer;" onclick="_reviewSettlement('${window._pendingSettlements[e.id]}')">⏳ Review Payment</span>` : ''}</td>
+            <td>${statusBadge(e.status, e)}${_isRcpt ? '' : _reminderBadge(e.reminderCount, e.id)}${!_isRcpt && window._pendingSettlements?.[e.id] ? `<span class="badge" style="background:rgba(245,158,11,.12);color:#d97706;font-size:10px;margin-left:4px;cursor:pointer;" onclick="_reviewSettlement('${window._pendingSettlements[e.id]}')">⏳ Review Payment</span>` : ''}</td>
             <td>${_isRcpt ? `<div class="action-menu"><button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button><div class="action-dropdown"><button onclick="openEntryInvoice('${e.id}')">📄 View</button><button onclick="delEntry('${e.id}')" style="color:var(--red);">🗑 Delete</button></div></div>` : `<div class="action-menu"><button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button><div class="action-dropdown">
               <button onclick="openEntryInvoice('${e.id}')">📄 View</button>
               <button onclick="editEntry('${e.id}')">✏️ Edit</button>
@@ -6906,7 +6919,7 @@
         <div class="tbl-wrap" style="margin-bottom:20px;"><table><thead><tr><th>Contact</th><th>Type</th><th>Amount</th><th>Date</th><th>Status</th></tr></thead><tbody>`;
       entries.slice(0, 20).forEach(e => {
         const c = db.contacts.find(x => x.id === e.cId);
-        html += `<tr><td>${esc(c?.name || '—')}</td><td>${esc(TXL[e.txType] || e.txType)}</td><td>${_fmtAmtCell(e.id)}</td><td>${new Date(e.date).toLocaleDateString()}</td><td>${statusBadge(e.status)}</td></tr>`;
+        html += `<tr><td>${esc(c?.name || '—')}</td><td>${esc(TXL[e.txType] || e.txType)}</td><td>${_fmtAmtCell(e.id)}</td><td>${new Date(e.date).toLocaleDateString()}</td><td>${statusBadge(e.status, e)}</td></tr>`;
       });
       if (entries.length > 20) html += `<tr><td colspan="5" style="color:var(--muted);text-align:center;font-size:12px;">…and ${entries.length - 20} more</td></tr>`;
       html += `</tbody></table></div>`;
@@ -7175,7 +7188,7 @@
             <div class="fg"><label>Phone</label><input type="tel" id="pphone" value="${esc(u.phone||'')}"></div>
           </div>
           <div class="fg"><label>Address</label><textarea id="paddr" rows="2">${esc(u.address||'')}</textarea></div>
-          <button class="btn sm" onclick="saveProfile(this)">Save Profile</button>
+          <button class="btn sm" onclick="saveProfile()">Save Profile</button>
         </div>
 
         <!-- ── Invoice Logo ── -->
@@ -7239,7 +7252,7 @@
               <label class="toggle"><input type="checkbox" id="pdiscoverable" ${u.discoverable?'checked':''}><span class="slider"></span></label>
             </div>
           </div>
-          <button class="btn sm" style="margin-top:14px;" onclick="saveProfile(this)">Save Preferences</button>
+          <button class="btn sm" style="margin-top:14px;" onclick="saveProfile()">Save Preferences</button>
         </div>`;
 
         // ── Sent Invites section ──────────────────────────────────────────
@@ -7383,62 +7396,49 @@
       if (!silent) { save(); logAudit('update_notif_defaults', {}); toast('Notification defaults saved'); }
     }
 
-    async function saveProfile(btn) {
-      // Disable whichever button triggered the save to prevent double-clicks
-      const _btn = btn || event?.target;
-      const _origLabel = _btn?.textContent;
-      if (_btn) { _btn.disabled = true; _btn.textContent = 'Saving…'; }
-
-      try {
-        const u = curUser();
-        if (!u) throw new Error('No active user found.');
-
-        // Read fields with full null-safety so a missing element never crashes silently
-        const displayName = (document.getElementById('pdisplayname')?.value || '').trim() || u.displayName;
-        const newUsername = (document.getElementById('pusername')?.value  || '').trim().replace(/\s+/g,'_');
-        const newEmail    = (document.getElementById('pemail')?.value     || '').trim();
-
-        if (!displayName) { alert('Display name is required.'); return; }
-        if (!newEmail || !newEmail.includes('@')) { alert('A valid email is required.'); return; }
-
-        // Update in-memory user object
-        u.displayName  = displayName;
-        if (newUsername) u.username = newUsername;
-        u.email        = newEmail;
-        u.phone        = document.getElementById('pphone')?.value    || u.phone    || '';
-        u.address      = document.getElementById('paddr')?.value     || u.address  || '';
-        u.notifPrefs   = {
-          inapp: document.getElementById('pnotif_inapp')?.checked  ?? (u.notifPrefs?.inapp !== false),
-          email: document.getElementById('pnotif_email')?.checked  ?? (u.notifPrefs?.email !== false),
-          sms:   document.getElementById('pnotif_sms')?.checked    ?? (u.notifPrefs?.sms   || false)
-        };
-        u.discoverable = document.getElementById('pdiscoverable')?.checked ?? (u.discoverable || false);
-
-        updateUserInfo();
-        logAudit('update_profile', { uid: u.id });
-
-        if (_IS_SERVER) {
-          // Push full blob immediately so changes survive a reload
+    async function saveProfile() {
+      const u = curUser();
+      const displayName = document.getElementById('pdisplayname').value.trim() || u.displayName;
+      const newUsername = (document.getElementById('pusername')?.value||'').trim().replace(/\s+/g,'_');
+      const newEmail = (document.getElementById('pemail')?.value||'').trim();
+      if (!displayName) { alert('Display name is required.'); return; }
+      if (!newEmail || !newEmail.includes('@')) { alert('A valid email is required.'); return; }
+      // Update local state
+      u.displayName = displayName;
+      if (newUsername) u.username = newUsername;
+      u.email = newEmail;
+      u.phone = document.getElementById('pphone').value;
+      u.address = document.getElementById('paddr').value;
+      u.notifPrefs = {
+        inapp: document.getElementById('pnotif_inapp')?.checked ?? (u.notifPrefs?.inapp !== false),
+        email: document.getElementById('pnotif_email')?.checked ?? (u.notifPrefs?.email !== false),
+        sms:   document.getElementById('pnotif_sms')?.checked   ?? (u.notifPrefs?.sms   || false)
+      };
+      u.discoverable = document.getElementById('pdiscoverable').checked;
+      updateUserInfo();
+      logAudit('update_profile', { uid: u.id });
+      // Also update the server users table so changes persist across reloads
+      if (_IS_SERVER) {
+        try {
+          // saveNow: push the full blob immediately so phone/address/notifPrefs
+          // don't get lost if the user reloads before the debounce fires.
           await saveNow();
-          // Also update the users table so displayName/email are authoritative
           const _tok = localStorage.getItem('mxi_token');
-          const _hdrs = { 'Content-Type': 'application/json' };
-          if (_tok) _hdrs['Authorization'] = 'Bearer ' + _tok;
-          const res  = await fetch('/api/auth/profile', {
-            method: 'POST', credentials: 'include', headers: _hdrs,
+          const _headers = { 'Content-Type': 'application/json' };
+          if (_tok) _headers['Authorization'] = 'Bearer ' + _tok;
+          const res = await fetch('/api/auth/profile', {
+            method: 'POST', credentials: 'include', headers: _headers,
             body: JSON.stringify({ displayName, username: newUsername || u.username, email: newEmail })
           });
           const data = await res.json();
           if (!data.ok) { toast('⚠️ ' + (data.error || 'Profile sync failed'), 4000); return; }
-        } else {
-          save();
+          toast('Profile saved');
+        } catch (e) {
+          toast('⚠️ Saved locally but server sync failed', 4000);
         }
-        toast('✅ Saved');
-      } catch (e) {
-        console.error('[saveProfile]', e);
-        toast('⚠️ Save failed: ' + e.message, 5000);
-      } finally {
-        if (_btn) { _btn.disabled = false; _btn.textContent = _origLabel; }
+      } else {
+        save();
+        toast('Profile saved');
       }
     }
 
@@ -8851,7 +8851,7 @@
       _pendingShareEntry = e; // store for auto-contact creation on accept
       // Direction from RECIPIENT's perspective (opposite of sender's txType)
       const recipDir = {
-        they_owe_you:'You Owe',  invoice:'You Owe',  bill:'You Owe',
+        they_owe_you:'You Owe',  invoice:'Invoice Due',  bill:'Bill Due',
         you_owe_them:'You Are Owed',
         lend:'You Borrowed',     borrow:'You Are Owed',
         they_paid_you:'You Have Settled', you_paid_them:'You Have Been Settled',
