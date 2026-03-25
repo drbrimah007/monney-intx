@@ -7098,6 +7098,7 @@
       // ── ASSET LOCKERS SECTION ──────────────────────────────────────
       if (!db.assetLockers) db.assetLockers = [];
       const myLockers = db.assetLockers.filter(l => l.userId === u.id);
+      const lockersUnlocked = _lockerIsUnlocked();
 
       html += `<div style="margin-top:32px;">
         <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:10px;">
@@ -7105,14 +7106,24 @@
             <div style="font-size:17px;font-weight:800;letter-spacing:-.01em;">🗄 Asset Lockers</div>
             <div style="font-size:12px;color:var(--muted);margin-top:2px;">Record what you own, where it is, and how to access it — for those who may need to know.</div>
           </div>
-          <button class="btn sm" onclick="openAssetLockerModal()">+ Add Locker</button>
+          <div style="display:flex;gap:8px;align-items:center;">
+            ${lockersUnlocked ? `<button class="bs sm" style="font-size:11px;color:var(--muted);" onclick="_lockLockers()">🔒 Lock</button><button class="btn sm" onclick="openAssetLockerModal()">+ Add Locker</button>` : `<button class="btn sm" onclick="requestLockerOtp()">${myLockers.length>0?'🔐 Unlock to View':'+ Add Locker'}</button>`}
+          </div>
         </div>
 
         <div style="background:rgba(232,30,130,0.06);border:1px solid rgba(232,30,130,0.18);border-radius:10px;padding:10px 14px;font-size:12px;color:var(--muted);line-height:1.65;margin-bottom:14px;">
           🔒 <strong>Security note:</strong> Only store what a trusted person needs to locate and access an asset — not full passwords or private keys. For sensitive credentials, reference a secure vault (e.g. "credentials in 1Password, entry: Main Server") rather than pasting them here.
         </div>
 
-        ${myLockers.length === 0 ? `<div style="text-align:center;padding:28px 16px;background:var(--bg2);border:1px dashed var(--border);border-radius:12px;color:var(--muted);">
+        ${!lockersUnlocked ? `
+          <div style="text-align:center;padding:32px 20px;background:var(--bg2);border:1px solid var(--border);border-radius:14px;">
+            <div style="font-size:40px;margin-bottom:12px;">🔐</div>
+            <div style="font-size:15px;font-weight:700;margin-bottom:6px;">Asset Lockers are Protected</div>
+            <div style="font-size:13px;color:var(--muted);margin-bottom:6px;">${myLockers.length > 0 ? `You have <strong>${myLockers.length}</strong> locker${myLockers.length>1?'s':''} stored.` : 'No lockers yet.'}</div>
+            <div style="font-size:12px;color:var(--muted);margin-bottom:20px;max-width:340px;margin-left:auto;margin-right:auto;">To view or manage your lockers, you'll need to verify your identity with a one-time code sent to your email.</div>
+            <button class="btn" onclick="requestLockerOtp()" style="min-width:160px;">📧 Send Access Code</button>
+          </div>
+        ` : myLockers.length === 0 ? `<div style="text-align:center;padding:28px 16px;background:var(--bg2);border:1px dashed var(--border);border-radius:12px;color:var(--muted);">
           <div style="font-size:28px;margin-bottom:8px;">🗄</div>
           <div style="font-size:14px;font-weight:600;margin-bottom:6px;">No asset lockers yet</div>
           <div style="font-size:12px;margin-bottom:16px;">Add physical rooms, devices, accounts, or anything a trusted contact may need to find or access.</div>
@@ -7122,7 +7133,7 @@
             <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;flex-wrap:wrap;">
               <div style="flex:1;min-width:180px;">
                 <div style="font-size:15px;font-weight:700;margin-bottom:2px;">${esc(l.title)}</div>
-                <div style="font-size:11px;color:var(--muted);font-family:monospace;margin-bottom:8px;opacity:.7;">${esc(l.assetKey||'')}</div>
+                ${l.assetKey?`<div style="font-size:11px;color:var(--muted);font-family:monospace;margin-bottom:8px;opacity:.7;">${esc(l.assetKey)}</div>`:''}
                 <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;">
                   ${l.type?`<span class="badge badge-gray" style="font-size:11px;">${esc(l.type)}</span>`:''}
                 </div>
@@ -7392,9 +7403,9 @@
           <div class="grid2">
             <div class="fg" style="grid-column:1/-1;"><label>Title *</label><input id="al_title" value="${esc(l?.title||'')}" placeholder="e.g. North Storage Room"></div>
             <div class="fg"><label>Type</label><select id="al_type">${typeOpts}</select></div>
-            <div class="fg"><label>Asset Key *
-              <span style="font-weight:400;font-size:10px;color:var(--muted);">[domain]:[type]:[name]:[id]</span></label>
-              <input id="al_key" value="${esc(l?.assetKey||'')}" placeholder="physical:room:north-storage:001" style="font-family:monospace;font-size:12px;"></div>
+            <div class="fg"><label>Asset Key <span style="font-weight:400;color:var(--muted);font-size:11px;">(optional)</span>
+              <span title="Asset Key is an optional way to organise and look up lockers by a structured reference. Format: [domain]:[type]:[name]:[id] — e.g. physical:room:north-storage:001 or digital:account:gmail:primary" style="cursor:help;color:var(--accent);font-size:12px;margin-left:3px;">ℹ️</span></label>
+              <input id="al_key" value="${esc(l?.assetKey||'')}" placeholder="physical:room:north-storage:001  (optional)" style="font-family:monospace;font-size:12px;"></div>
           </div>
           <div class="fg"><label>Location <span style="font-weight:400;color:var(--muted);">(where to find it)</span></label>
             <input id="al_location" value="${esc(l?.location||'')}" placeholder="e.g. 145 W 18th St, Floor 2, Room B"></div>
@@ -7416,7 +7427,6 @@
       const title    = document.getElementById('al_title')?.value.trim();
       const assetKey = document.getElementById('al_key')?.value.trim();
       if (!title)    { toast('Title is required'); return; }
-      if (!assetKey) { toast('Asset key is required'); return; }
       if (!db.assetLockers) db.assetLockers = [];
       const data = {
         title, assetKey,
@@ -7442,6 +7452,107 @@
       if (!confirm('Remove this asset locker?')) return;
       db.assetLockers = (db.assetLockers||[]).filter(x=>x.id!==lid);
       save(); toast('Asset locker removed'); renderNok();
+    }
+
+    // ── ASSET LOCKER OTP GATE ─────────────────────────────────────────
+    // OTP is session-only (window vars) — never persisted to storage
+    window._lockerOtp       = null;   // 6-digit string
+    window._lockerOtpExpiry = 0;      // ms timestamp
+    window._lockerUnlocked  = false;  // session unlock flag
+
+    function _lockerIsUnlocked() {
+      if (!window._lockerUnlocked) return false;
+      if (Date.now() > window._lockerOtpExpiry) {
+        window._lockerUnlocked = false;
+        return false;
+      }
+      return true;
+    }
+
+    function _lockLockers() {
+      window._lockerUnlocked  = false;
+      window._lockerOtp       = null;
+      window._lockerOtpExpiry = 0;
+      renderNok();
+    }
+
+    async function requestLockerOtp() {
+      const u     = curUser();
+      const email = u.email || db.settings?.email;
+      if (!email) { toast('No email address found for your account. Please add one in Settings.', 4000); return; }
+
+      // Generate 6-digit OTP
+      const code = String(Math.floor(100000 + Math.random() * 900000));
+      window._lockerOtp       = code;
+      window._lockerOtpExpiry = Date.now() + 30 * 60 * 1000; // 30 min
+
+      // Send via API
+      try {
+        const cfg  = db.settings || {};
+        const resp = await fetch('/api/email', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + (localStorage.getItem('mxi_token')||'') },
+          body: JSON.stringify({
+            action:         'send-locker-otp',
+            recipientEmail: email,
+            fromName:       cfg.appName || 'Money IntX',
+            code,
+            siteUrl:        cfg.siteUrl || window.location.origin,
+            appName:        cfg.appName || 'Money IntX',
+            tagline:        cfg.tagline || '',
+            logoData:       cfg.logoData || ''
+          })
+        });
+        const r = await resp.json();
+        if (!r.ok) { toast('Could not send code: ' + (r.error||'unknown error'), 4000); return; }
+      } catch(e) {
+        toast('Email error: ' + e.message, 4000); return;
+      }
+
+      // Show entry modal
+      document.body.insertAdjacentHTML('beforeend', `<div class="modal-bg" id="lockerOtpBg" onclick="if(event.target===this)this.remove()">
+        <div class="modal" style="max-width:380px;text-align:center;" onclick="event.stopPropagation()">
+          <div style="font-size:36px;margin-bottom:12px;">📧</div>
+          <div style="font-size:17px;font-weight:800;margin-bottom:6px;">Check Your Email</div>
+          <div style="font-size:13px;color:var(--muted);margin-bottom:20px;line-height:1.6;">
+            A 6-digit access code has been sent to <strong>${email}</strong>.<br>Enter it below to unlock your Asset Lockers.
+          </div>
+          <input id="lockerOtpInput" type="text" inputmode="numeric" maxlength="6"
+            placeholder="000000"
+            style="text-align:center;font-size:26px;letter-spacing:6px;font-family:monospace;padding:12px 10px;width:180px;margin-bottom:16px;"
+            onkeydown="if(event.key==='Enter')verifyLockerOtp()">
+          <div style="display:flex;flex-direction:column;gap:8px;align-items:center;">
+            <button class="btn" onclick="verifyLockerOtp()" style="min-width:160px;">Unlock</button>
+            <button class="bs sm" onclick="document.getElementById('lockerOtpBg').remove()">Cancel</button>
+          </div>
+          <div style="font-size:11px;color:var(--muted);margin-top:14px;">Code expires in 30 minutes.</div>
+        </div>
+      </div>\`);
+      setTimeout(()=>document.getElementById('lockerOtpInput')?.focus(), 100);
+      toast('Access code sent to ' + email);
+    }
+
+    function verifyLockerOtp() {
+      const entered = (document.getElementById('lockerOtpInput')?.value || '').trim();
+      if (!window._lockerOtp) { toast('No code pending — please request a new one.'); return; }
+      if (Date.now() > window._lockerOtpExpiry) {
+        window._lockerOtp = null;
+        toast('Your code has expired. Please request a new one.', 4000);
+        document.getElementById('lockerOtpBg')?.remove();
+        return;
+      }
+      if (entered !== window._lockerOtp) {
+        toast('Incorrect code. Please try again.', 3000);
+        const inp = document.getElementById('lockerOtpInput');
+        if (inp) { inp.style.borderColor = 'var(--red)'; inp.value = ''; setTimeout(()=>{ inp.style.borderColor=''; inp.focus(); }, 600); }
+        return;
+      }
+      // Correct!
+      window._lockerUnlocked = true;
+      window._lockerOtp      = null; // consume code immediately
+      document.getElementById('lockerOtpBg')?.remove();
+      toast('🔓 Asset Lockers unlocked for this session.');
+      renderNok();
     }
 
     // ============ PAGE: USER MANAGEMENT ============
