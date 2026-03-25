@@ -292,6 +292,53 @@
     .auth-modal { max-width:420px; }
     .auth-divider { display:flex; align-items:center; gap:12px; margin:18px 0; color:var(--muted); font-size:12px; }
     .auth-divider::before,.auth-divider::after { content:''; flex:1; height:1px; background:var(--border); }
+    /* ── MOBILE WRAP & RESPONSIVE FIXES ─────────────────────────── */
+    /* Text wrapping — prevent overflow on long names, emails, notes */
+    td, .trow { word-break: break-word; overflow-wrap: break-word; }
+    /* Tables: card-style stacking on narrow phones */
+    @media(max-width:480px) {
+      /* Reduce action column widths */
+      th[style*="width:80px"], th[style*="width:60px"], th[style*="width:70px"] { width: 48px !important; }
+      /* Tighter table cell padding */
+      th, td { padding: 8px 6px; font-size: 13px; }
+      /* Action dropdown: full-width bottom sheet style on narrow screens */
+      .action-dropdown { min-width: 180px; max-width: calc(100vw - 24px); }
+      /* Search inputs: remove min-width so they can shrink */
+      input[type="search"] { min-width: 0 !important; max-width: 100% !important; }
+      /* Stat cards: smaller text */
+      .stat-val { font-size: 20px; }
+      .stat-card { padding: 12px; }
+      /* Page headers wrap properly */
+      .page-header { gap: 6px; }
+      .page-header h2 { font-size: 17px; }
+      /* Modal max-width: never exceed viewport on any modal */
+      .modal { max-width: calc(100vw - 16px) !important; }
+      .modal-bg .modal, .modal-bg > div { max-width: calc(100vw - 16px) !important; }
+      /* Toast: don't overflow on narrow screens */
+      .toast { right: 12px; left: 12px; max-width: none; }
+      /* Landing page: tighter padding */
+      .lp-hero { padding: 48px 16px 40px; }
+      .lp-section { padding: 40px 16px; }
+      .lp-topnav { padding: 0 16px; }
+      .lp-btn-primary, .lp-btn-secondary { padding: 12px 20px; font-size: 14px; }
+      .lp-footer { padding: 20px 16px; }
+      .lp-ad-wide { padding: 0 16px 28px; }
+      .lp-feature-card { padding: 18px; }
+      /* Tabs: tighter sizing */
+      .tab { padding: 8px 12px; font-size: 13px; }
+      .entry-type-tabs { gap: 4px; }
+      .entry-type-tab { padding: 7px 6px; font-size: 12px; }
+    }
+    /* Pre-line text: ensure it also wraps */
+    [style*="pre-line"] { word-break: break-word; overflow-wrap: break-word; }
+    /* Impersonate banner wrap */
+    .impersonate-banner { flex-wrap: wrap; }
+    /* Tiny screens (≤380px): extra compression */
+    @media(max-width:380px) {
+      .notify-toggle-row { padding: 10px 12px; gap: 8px; }
+      .notify-toggle-row .ntl-left { font-size: 13px; }
+      .btn.sm, .bs.sm { padding: 5px 8px; font-size: 12px; }
+    }
     /* ---- PRINT: isolate the invoice document ---- */
     @media print {
       body > *:not(#invoicePrintWrap) { display: none !important; }

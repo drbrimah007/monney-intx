@@ -498,6 +498,29 @@
     .footer a { color: var(--accent); text-decoration: none; }
     .footer a:hover { text-decoration: underline; }
     .footer-links { display: flex; justify-content: center; gap: 16px; margin-top: 6px; flex-wrap: wrap; }
+
+    /* ── MOBILE WRAP FIXES ────────────────────────────────────────── */
+    html, body { overflow-x: hidden; max-width: 100vw; }
+    @media(max-width:480px) {
+      .state-screen { padding: 28px 16px; }
+      .card-body { padding: 16px; }
+      .amount-value { font-size: 36px; }
+      .parties-box { padding: 12px; }
+      .party-value { word-break: break-word; overflow-wrap: break-word; }
+      .detail-row { flex-wrap: wrap; gap: 4px; }
+      .detail-val { text-align: left; word-break: break-word; }
+      .confirm-banner { padding: 14px; }
+      .confirm-banner-actions { flex-direction: column; }
+      .btn-confirm, .btn-dismiss-banner { min-width: 0; width: 100%; }
+      .status-row { flex-wrap: wrap; gap: 6px; }
+      .topbar { padding: 0 12px; }
+      .topbar-brand span { font-size: 15px; }
+    }
+    @media(max-width:380px) {
+      .card-title { font-size: 19px; }
+      .amount-value { font-size: 30px; }
+      .main { padding: 12px 8px 24px; }
+    }
   </style>
 </head>
 <body>
@@ -669,10 +692,32 @@
     you_paid_them: 'You Have Been Settled'
   };
 
-  function fmt(n) {
+  const CURRENCIES = {
+    USD: { symbol: '$', locale: 'en-US' }, EUR: { symbol: '€', locale: 'de-DE' },
+    GBP: { symbol: '£', locale: 'en-GB' }, NGN: { symbol: '₦', locale: 'en-NG' },
+    CAD: { symbol: 'CA$', locale: 'en-CA' }, AUD: { symbol: 'A$', locale: 'en-AU' },
+    JPY: { symbol: '¥', locale: 'ja-JP' }, CNY: { symbol: '¥', locale: 'zh-CN' },
+    INR: { symbol: '₹', locale: 'hi-IN' }, ZAR: { symbol: 'R', locale: 'en-ZA' },
+    GHS: { symbol: 'GH₵', locale: 'en-GH' }, KES: { symbol: 'KSh', locale: 'en-KE' },
+    AED: { symbol: 'د.إ', locale: 'ar-AE' }, SAR: { symbol: '﷼', locale: 'ar-SA' },
+    BRL: { symbol: 'R$', locale: 'pt-BR' }, MXN: { symbol: 'MX$', locale: 'es-MX' },
+    CHF: { symbol: 'CHF', locale: 'de-CH' }, SEK: { symbol: 'kr', locale: 'sv-SE' },
+    SGD: { symbol: 'S$', locale: 'en-SG' }, HKD: { symbol: 'HK$', locale: 'en-HK' }
+  };
+  function fmt(n, currencyCode) {
     const v = parseFloat(n);
     if (isNaN(v)) return '—';
-    return '$' + v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const code = currencyCode || window._shareCurrency || 'USD';
+    const noDecimals = ['JPY', 'KRW', 'VND'].includes(code);
+    try {
+      return new Intl.NumberFormat(CURRENCIES[code]?.locale || 'en-US', {
+        style: 'currency', currency: code,
+        minimumFractionDigits: noDecimals ? 0 : 2,
+        maximumFractionDigits: noDecimals ? 0 : 2
+      }).format(v);
+    } catch (_) {
+      return (CURRENCIES[code]?.symbol || '$') + v.toFixed(noDecimals ? 0 : 2);
+    }
   }
 
   function statusPillClass(status, txType) {
@@ -733,6 +778,7 @@
       const data = await res.json();
       if (!res.ok || !data.ok) { showError(); return; }
       _entry = data.entry;
+      window._shareCurrency = data.entry?.currency || 'USD';
       _acknowledged = data.acknowledged;
       _recipientClosed = data.recipientClosed || false;
       _settlementPending   = data.settlementPending   || false;
