@@ -7317,6 +7317,8 @@
               <div class="action-menu"><button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button><div class="action-dropdown">
                 <button onclick="openGroupDetail('${g.id}')">👁 View</button>
                 <button onclick="addGroupMember('${g.id}')">👤 Add Member</button>
+                <button onclick="emailInviteToItem('${g.id}','groups','a Group Savings circle')">✉ Invite by Email</button>
+                <button onclick="openInviteLink('${g.id}','groups')">🔗 Copy Invite Link</button>
                 <button onclick="window._grpTab='board';openGroupDetail('${g.id}')">💬 Notice Board</button>
                 <button onclick="editGroup('${g.id}')">✏️ Edit</button>
                 <button onclick="addGroupRound('${g.id}')">➕ New Round</button>
@@ -7341,7 +7343,7 @@
           <div class="fg" style="flex:1;"><label>Currency</label><select id="gcurrency">${Object.entries(CURRENCIES).map(([code,ci])=>'<option value="'+code+'"'+(code===cur?' selected':'')+'>'+ci.symbol+' '+code+'</option>').join('')}</select></div>
         </div>
         <div class="fg"><label>Frequency</label><select id="gfreq"><option value="weekly">Weekly</option><option value="biweekly">Bi-weekly</option><option value="monthly" selected>Monthly</option><option value="custom">Custom</option></select></div>
-        <div class="fg"><label style="display:flex;align-items:center;gap:8px;cursor:pointer;"><input type="checkbox" id="grotation"> Enable rotation (track who collects each round)</label></div>
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-bottom:14px;"><input type="checkbox" id="grotation" style="width:auto;"> Enable rotation (track who collects each round)</label>
         <div class="fg"><label>Members <span style="font-weight:400;color:var(--muted);">(select contacts to add)</span></label>
           <div id="gnewmembers" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:4px;">
             ${(db.contacts.filter(c => c.userId === curUser().id && !c.archived)).map(c =>
@@ -7357,7 +7359,7 @@
       document.body.insertAdjacentHTML('beforeend', html);
     }
 
-    function saveNewGroup() {
+    async function saveNewGroup() {
       const name = document.getElementById('gname').value.trim();
       const amount = parseFloat(document.getElementById('gamount').value) || 0;
       if (!name) { toast('Group name is required'); return; }
@@ -7375,27 +7377,26 @@
         useRotation: document.getElementById('grotation').checked,
         rotationOrder: [],
         noticeBoard: [],
+        pendingInvites: [],
         archived: false,
         createdAt: Date.now()
       };
-      // Add selected members from checkboxes
       const _invitedContacts = [];
       document.querySelectorAll('.gmember-cb:checked').forEach(cb => {
         const contact = db.contacts.find(c => c.id === cb.value);
         if (contact) {
           const mid = 'm_' + Math.random().toString(36).substr(2, 9);
-          g.members.push({ id: mid, contactId: contact.id, name: contact.name, joinedAt: Date.now() });
+          g.members.push({ id: mid, contactId: contact.id, name: contact.name, role: 'member', joinedAt: Date.now() });
           if (g.useRotation) g.rotationOrder.push(mid);
           _invitedContacts.push(contact);
         }
       });
       if (!db.groups) db.groups = [];
       db.groups.push(g);
-      save();
-      // Send invites to all added members
+      await saveNow();
       _invitedContacts.forEach(c => _sendMemberInvite(c, g.name, 'a Group Savings circle'));
       document.querySelector('.modal-bg:last-of-type')?.remove();
-      toast('Group created' + (g.members.length > 0 ? ' with ' + g.members.length + ' member' + (g.members.length !== 1 ? 's' : '') : ''));
+      toast('Group created & synced');
       renderGroups();
     }
 
@@ -7412,7 +7413,7 @@
           <div class="fg" style="flex:1;"><label>Currency</label><select id="egcur">${Object.entries(CURRENCIES).map(([code,ci])=>'<option value="'+code+'"'+(code===cur?' selected':'')+'>'+ci.symbol+' '+code+'</option>').join('')}</select></div>
         </div>
         <div class="fg"><label>Frequency</label><select id="egfreq"><option value="weekly"${g.frequency==='weekly'?' selected':''}>Weekly</option><option value="biweekly"${g.frequency==='biweekly'?' selected':''}>Bi-weekly</option><option value="monthly"${g.frequency==='monthly'?' selected':''}>Monthly</option><option value="custom"${g.frequency==='custom'?' selected':''}>Custom</option></select></div>
-        <div class="fg"><label style="display:flex;align-items:center;gap:8px;cursor:pointer;"><input type="checkbox" id="egrot" ${g.useRotation?'checked':''}> Enable rotation</label></div>
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-bottom:14px;"><input type="checkbox" id="egrot" ${g.useRotation?'checked':''} style="width:auto;"> Enable rotation</label>
         <div style="display:flex;gap:8px;margin-top:16px;"><button class="btn" onclick="saveEditGroup('${g.id}')">Save</button><button class="bs" onclick="this.closest('.modal-bg').remove()">Cancel</button></div>
       </div></div>`;
       document.body.insertAdjacentHTML('beforeend', html);
@@ -7429,7 +7430,7 @@
       g.currency = document.getElementById('egcur').value;
       g.frequency = document.getElementById('egfreq').value;
       g.useRotation = document.getElementById('egrot').checked;
-      save();
+      saveNow();
       document.querySelector('.modal-bg:last-of-type')?.remove();
       toast('Group updated');
       renderGroups();
@@ -7639,6 +7640,84 @@
       saveNow(); toast('You left');
       if (collection === 'groups') renderGroups();
       else renderInvestments();
+    }
+
+    // Generate and show shareable invite link + compose invite message
+    function openInviteLink(itemId, collection) {
+      const item = (db[collection]||[]).find(x => x.id === itemId);
+      if (!item) return;
+      const u = curUser();
+      const _siteUrl = db.settings?.siteUrl || window.location.origin;
+      // Generate a simple invite token based on item id + user id
+      const inviteCode = btoa(collection + ':' + itemId + ':' + u.id).replace(/=/g, '');
+      const inviteUrl = _siteUrl + '?joingroup=' + encodeURIComponent(inviteCode);
+      const itemLabel = collection === 'groups' ? 'Group Savings circle' : 'Investment';
+      const message = `${u.displayName || u.email} invites you to join ${itemLabel}: "${item.name}"\n\nJoin here: ${inviteUrl}`;
+
+      const html = `<div class="modal-bg" onclick="this.remove()"><div class="modal" style="max-width:480px;" onclick="event.stopPropagation()">
+        <div class="modal-title">Invite Members</div>
+        <div class="fg"><label>Share this invite link or message</label>
+          <textarea id="_inviteMsg" rows="4" style="font-size:13px;" readonly>${esc(message)}</textarea>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="btn sm" onclick="navigator.clipboard.writeText(document.getElementById('_inviteMsg').value);toast('Copied!')">📋 Copy Message</button>
+          <button class="bs sm" onclick="navigator.clipboard.writeText('${esc(inviteUrl)}');toast('Link copied!')">🔗 Copy Link Only</button>
+          ${navigator.share ? `<button class="bs sm" onclick="navigator.share({title:'Join ${esc(item.name)}',text:document.getElementById('_inviteMsg').value}).catch(()=>{})">📤 Share</button>` : ''}
+          <button class="bs sm" onclick="this.closest('.modal-bg').remove()">Close</button>
+        </div>
+        <div style="font-size:11px;color:var(--muted);margin-top:12px;">Anyone with this link can request to join. You (owner) must approve them.</div>
+      </div></div>`;
+      document.body.insertAdjacentHTML('beforeend', html);
+    }
+
+    // Handle joingroup link — user clicked an invite link
+    function _handleJoinGroupLink() {
+      const params = new URLSearchParams(window.location.search);
+      const code = params.get('joingroup');
+      if (!code) return;
+      // Clean URL
+      window.history.replaceState({}, '', window.location.pathname + (window.location.hash || ''));
+      try {
+        const decoded = atob(code);
+        const [collection, itemId, inviterId] = decoded.split(':');
+        if (!collection || !itemId) return;
+        // Store pending join request — will be processed after login
+        sessionStorage.setItem('_pendingJoinGroup', JSON.stringify({ collection, itemId, inviterId }));
+        toast('Log in or sign up to join this ' + (collection === 'groups' ? 'group' : 'investment'), 5000);
+      } catch (e) { console.error('[joingroup] invalid code'); }
+    }
+
+    // Process pending join request after login
+    function _processPendingJoinGroup() {
+      const raw = sessionStorage.getItem('_pendingJoinGroup');
+      if (!raw) return;
+      sessionStorage.removeItem('_pendingJoinGroup');
+      try {
+        const { collection, itemId, inviterId } = JSON.parse(raw);
+        const u = curUser();
+        // Push a join request to the inviter's blob via server
+        const _tok = localStorage.getItem('mxi_token');
+        const _headers = { 'Content-Type': 'application/json' };
+        if (_tok) _headers['Authorization'] = 'Bearer ' + _tok;
+
+        // Find inviter's email to push notification
+        // We don't know their email directly, so push via the API using the item info
+        fetch('/api/shared-groups', {
+          method: 'POST', credentials: 'include', headers: _headers,
+          body: JSON.stringify({
+            targetEmail: '_byUserId:' + inviterId, // special flag
+            notification: {
+              id: uuid(), cId: null, eid: null,
+              type: 'join_request',
+              msg: `${u.displayName || u.email} wants to join your ${collection === 'groups' ? 'group' : 'investment'} (via invite link)`,
+              channel: 'in-app', sent: true, who: u.displayName || u.email,
+              sentTo: '', read: false, createdAt: Date.now(),
+              _joinRequest: { collection, itemId, userEmail: u.email, userName: u.displayName || u.email }
+            }
+          })
+        }).then(() => toast('Join request sent! The owner will review it.', 5000))
+          .catch(() => toast('Could not send join request.'));
+      } catch (e) { console.error('[joingroup] process failed'); }
     }
 
     // Send invite notification + email when adding member to group/investment
@@ -8061,6 +8140,8 @@
               <div class="action-menu"><button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button><div class="action-dropdown">
                 <button onclick="openInvestmentDetail('${inv.id}')">👁 View</button>
                 <button onclick="addInvMember('${inv.id}')">👤 Add Member</button>
+                <button onclick="emailInviteToItem('${inv.id}','investments','an Investment')">✉ Invite by Email</button>
+                <button onclick="openInviteLink('${inv.id}','investments')">🔗 Copy Invite Link</button>
                 <button onclick="window._invTab='board';openInvestmentDetail('${inv.id}')">💬 Notice Board</button>
                 <button onclick="editInvestment('${inv.id}')">✏️ Edit</button>
                 <button onclick="addInvestmentTx('${inv.id}')">💰 Transaction</button>
@@ -8108,7 +8189,7 @@
       document.body.insertAdjacentHTML('beforeend', html);
     }
 
-    function saveNewInvestment() {
+    async function saveNewInvestment() {
       const name = document.getElementById('invname').value.trim();
       const amt = parseFloat(document.getElementById('invamt').value) || 0;
       if (!name) { toast('Name is required'); return; }
@@ -8127,10 +8208,10 @@
         members: [],
         transactions: [],
         noticeBoard: [],
+        pendingInvites: [],
         archived: false,
         createdAt: Date.now()
       };
-      // Add selected members from checkboxes
       const _invitedContacts2 = [];
       document.querySelectorAll('.invmember-cb:checked').forEach(cb => {
         const contact = db.contacts.find(c => c.id === cb.value);
@@ -8141,11 +8222,10 @@
       });
       if (!db.investments) db.investments = [];
       db.investments.push(inv);
-      save();
-      // Send invites to all added members
+      await saveNow();
       _invitedContacts2.forEach(c => _sendMemberInvite(c, inv.name, 'an Investment'));
       document.querySelector('.modal-bg:last-of-type')?.remove();
-      toast('Investment created');
+      toast('Investment created & synced');
       renderInvestments();
     }
 
@@ -8187,7 +8267,7 @@
       inv.currency = document.getElementById('einvcur').value;
       inv.startDate = document.getElementById('einvdt').value;
       inv.expectedReturn = parseFloat(document.getElementById('einvret').value) || 0;
-      save();
+      saveNow();
       document.querySelector('.modal-bg:last-of-type')?.remove();
       toast('Investment updated');
       renderInvestments();
@@ -10751,11 +10831,14 @@
         const session = await API.getSession();
         if (session.ok) {
           await load();
-          await _linkPendingShare(); // process any pending share token even if already logged in
+          await _linkPendingShare();
+          _handleJoinGroupLink();
           initApp();
+          _processPendingJoinGroup();
           return;
         }
         // No valid server session — show landing, then open modal if requested
+        _handleJoinGroupLink(); // store pending join before showing login
         await load();
         renderLandingPage();
         // Check for invite token in URL — takes priority over auto-modal
