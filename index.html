@@ -7334,7 +7334,7 @@
       let html = `<div class="page-header" style="align-items:center;">
         <div style="display:flex;align-items:center;gap:12px;">
           <img src="group-logo.png" alt="Groups" style="width:110px;height:110px;border-radius:50%;object-fit:cover;">
-          <div><h2 style="margin:0;">Group Savings</h2><p style="font-size:14px;font-weight:600;color:var(--accent);margin:2px 0 0;">Contribution Circle</p><p style="color:var(--muted);font-size:12px;margin:2px 0 0;">Contributions tracked separately. <span onclick="toast('Group contributions do not affect your contact ledger balances',4000)" style="cursor:pointer;color:var(--accent);">ℹ️</span></p></div>
+          <div><h2 style="margin:0;">Group Savings</h2><p style="font-size:14px;font-weight:600;color:var(--accent);margin:2px 0 0;">Contribution Circle</p></div>
         </div>
         <div style="display:flex;align-items:center;gap:10px;">
           <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;"><input type="checkbox" ${showArchived?'checked':''} onchange="window._arch_groups=this.checked;renderGroups()"> Archived</label>
@@ -7358,7 +7358,7 @@
             <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px;">
               <div>
                 <h3 style="margin:0 0 4px;">${esc(g.name)}</h3>
-                <div style="font-size:13px;color:var(--muted);">${esc(g.description||'')}</div>
+                <div style="background:linear-gradient(135deg,rgba(255,255,255,0.04),rgba(108,99,255,0.07));border:1px solid rgba(255,255,255,0.09);border-radius:12px;padding:11px 15px;margin:8px 0 10px;font-size:13px;line-height:1.65;box-shadow:inset 0 1px 0 rgba(255,255,255,0.06);">${g.description ? '<span style="color:var(--text);">'+esc(g.description)+'</span>' : '<span style="opacity:0.38;font-style:italic;">A collective savings circle — members pool contributions each round, rotating who collects the pot.</span>'}</div>
                 <div style="display:flex;gap:12px;margin-top:8px;flex-wrap:wrap;">
                   <span class="badge badge-blue">${members.length} member${members.length!==1?'s':''}</span>
                   <span class="badge badge-green">${fmt(g.amount, g.currency)} / ${esc(g.frequency||'month')}</span>
@@ -7657,7 +7657,7 @@
     }
 
     // Owner approves/rejects pending invite
-    function approvePendingInvite(itemId, collection, pendingId, itemType) {
+    async function approvePendingInvite(itemId, collection, pendingId, itemType) {
       const item = (db[collection]||[]).find(x => x.id === itemId);
       if (!item || !_isItemOwner(item)) return;
       const pi = (item.pendingInvites||[]).find(p => p.id === pendingId);
@@ -7672,7 +7672,7 @@
       if (!item.members) item.members = [];
       item.members.push({ id: 'm_' + Math.random().toString(36).substr(2, 9), contactId: contact.id, name: contact.name, role: 'member', joinedAt: Date.now() });
       item.pendingInvites = (item.pendingInvites||[]).filter(p => p.id !== pendingId);
-      saveNow();
+      await saveNow();
       _sendMemberInvite(contact, item.name, itemType);
       toast(pi.name + ' approved & invited');
       if (collection === 'groups') openGroupDetail(itemId);
@@ -8058,7 +8058,7 @@
       if (activeTab === 'overview') {
         tabContent = `<div style="margin-bottom:16px;">
           <div style="font-size:13px;color:var(--muted);margin-bottom:4px;">Contribution: <strong>${fmt(g.amount, g.currency)}</strong> / ${esc(g.frequency||'month')}</div>
-          ${g.description ? `<div style="font-size:13px;color:var(--muted);margin-bottom:8px;">${esc(g.description)}</div>` : ''}
+          <div style="background:linear-gradient(135deg,rgba(255,255,255,0.04),rgba(108,99,255,0.07));border:1px solid rgba(255,255,255,0.09);border-radius:12px;padding:11px 15px;margin:0 0 12px;font-size:13px;line-height:1.65;box-shadow:inset 0 1px 0 rgba(255,255,255,0.06);">${g.description ? '<span style="color:var(--text);">'+esc(g.description)+'</span>' : '<span style="opacity:0.38;font-style:italic;">A collective savings circle — members pool contributions each round, rotating who collects the pot.</span>'}</div>
           ${g.useRotation ? `<div style="font-size:12px;color:var(--accent);margin-bottom:8px;">Rotation enabled</div>` : ''}
           <div style="font-size:12px;color:var(--muted);">Your role: <strong style="color:var(--accent);">${_myRole.charAt(0).toUpperCase()+_myRole.slice(1)}</strong></div>
         </div>
@@ -8202,8 +8202,8 @@
 
       let html = `<div class="page-header" style="align-items:center;">
         <div style="display:flex;align-items:center;gap:12px;">
-          <img src="investment-logo.png" alt="Investments" style="width:220px;height:220px;border-radius:50%;object-fit:cover;">
-          <div><h2 style="margin:0;">Investments</h2><p style="font-size:14px;font-weight:600;color:var(--accent);margin:2px 0 0;">Build Wealth Together</p><p style="color:var(--muted);font-size:12px;margin:2px 0 0;">Track returns and partners. <span onclick="toast('Investment amounts do not affect your contact ledger balances',4000)" style="cursor:pointer;color:var(--accent);">ℹ️</span></p></div>
+          <img src="investment-logo.png" alt="Investments" style="width:110px;height:110px;border-radius:50%;object-fit:cover;">
+          <div><h2 style="margin:0;">Investments</h2><p style="font-size:14px;font-weight:600;color:var(--accent);margin:2px 0 0;">Build Wealth Together</p></div>
         </div>
         <div style="display:flex;align-items:center;gap:10px;">
           <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;"><input type="checkbox" ${showArchived?'checked':''} onchange="window._arch_investments=this.checked;renderInvestments()"> Archived</label>
@@ -8246,7 +8246,7 @@
                   <span class="badge badge-gray">${esc(INV_TYPES[inv.type]||inv.type)}</span>
                   <span class="badge ${INV_STATUS[inv.status]||'badge-gray'}">${esc((inv.status||'active').charAt(0).toUpperCase()+(inv.status||'active').slice(1))}</span>
                 </div>
-                ${inv.description ? `<div style="font-size:13px;color:var(--muted);margin-bottom:8px;">${esc(inv.description)}</div>` : ''}
+                <div style="background:linear-gradient(135deg,rgba(255,255,255,0.04),rgba(232,30,130,0.06));border:1px solid rgba(255,255,255,0.09);border-radius:12px;padding:11px 15px;margin:0 0 10px;font-size:13px;line-height:1.65;box-shadow:inset 0 1px 0 rgba(255,255,255,0.06);">${inv.description ? '<span style="color:var(--text);">'+esc(inv.description)+'</span>' : '<span style="opacity:0.38;font-style:italic;">Track the progress, partners, and returns on this investment over time.</span>'}</div>
                 <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:8px;">
                   <div><div style="font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;">Invested</div><div style="font-size:18px;font-weight:800;">${fmt(invested, inv.currency)}</div></div>
                   <div><div style="font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;">Current Value</div><div style="font-size:18px;font-weight:800;">${fmt(currentVal, inv.currency)}</div></div>
@@ -8554,7 +8554,7 @@
       let tabContent = '';
       if (activeTab === 'overview') {
         tabContent = `
-          ${inv.description ? `<div style="font-size:13px;color:var(--muted);margin-bottom:16px;">${esc(inv.description)}</div>` : ''}
+          <div style="background:linear-gradient(135deg,rgba(255,255,255,0.04),rgba(232,30,130,0.06));border:1px solid rgba(255,255,255,0.09);border-radius:12px;padding:11px 15px;margin:0 0 14px;font-size:13px;line-height:1.65;box-shadow:inset 0 1px 0 rgba(255,255,255,0.06);">${inv.description ? '<span style="color:var(--text);">'+esc(inv.description)+'</span>' : '<span style="opacity:0.38;font-style:italic;">Track the progress, partners, and returns on this investment over time.</span>'}</div>
           <div class="grid2" style="margin-bottom:16px;">
             <div class="stat-card"><div class="stat-lbl">Total In</div><div class="stat-val" style="font-size:18px;">${fmt(totalIn, inv.currency)}</div></div>
             <div class="stat-card"><div class="stat-lbl">Total Out</div><div class="stat-val" style="font-size:18px;">${fmt(totalOut, inv.currency)}</div></div>
