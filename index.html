@@ -4244,8 +4244,11 @@
             </div>
           </div>
           <div style="display:flex;align-items:center;justify-content:flex-end;gap:10px;">
-            <button type="button" id="ne_notify_btn" class="bs sm" style="font-size:12px;" onclick="toggleFormNotify('ne')">🔔 Notify on Save</button>
-            <span id="ne_notify_sw" style="font-size:11px;color:var(--muted);">Off</span>
+            <div style="display:flex;align-items:center;gap:6px;">
+              <button type="button" id="ne_notify_btn" class="bs sm" style="font-size:12px;" onclick="toggleFormNotify('ne')">🔔 Notify on Save</button>
+              <span id="ne_notify_sw" style="font-size:11px;color:var(--muted);">Off</span>
+            </div>
+            <div style="width:1px;height:22px;background:var(--border);margin:0 8px;flex-shrink:0;"></div>
             <button class="bs" onclick="closeEntryModal()">Cancel</button>
             <button class="btn" onclick="saveNewEntry()">Save Entry</button>
           </div>
