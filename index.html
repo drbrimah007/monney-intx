@@ -3121,6 +3121,17 @@
         </div>`;
       }
 
+      // Fulfillment details (if fulfilled)
+      if (e.status === 'fulfilled' && (e.fulfillTracking || e.fulfillBol || e.fulfillNotes)) {
+        doc += `<div style="margin-top:20px;padding:14px 16px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;">
+          <div style="font-size:12px;font-weight:700;color:#16a34a;margin-bottom:6px;">✅ Fulfillment Details</div>
+          ${e.fulfillTracking ? `<div style="font-size:12px;color:#333;margin-bottom:3px;"><strong>Tracking:</strong> ${esc(e.fulfillTracking)}</div>` : ''}
+          ${e.fulfillBol ? `<div style="font-size:12px;color:#333;margin-bottom:3px;"><strong>BOL / Ref:</strong> ${esc(e.fulfillBol)}</div>` : ''}
+          ${e.fulfillNotes ? `<div style="font-size:12px;color:#333;white-space:pre-line;"><strong>Notes:</strong> ${esc(e.fulfillNotes)}</div>` : ''}
+          ${e.fulfilledAt ? `<div style="font-size:10px;color:#888;margin-top:4px;">Fulfilled: ${new Date(e.fulfilledAt).toLocaleString()}</div>` : ''}
+        </div>`;
+      }
+
       // Invoice signature (only if toggle is on and text exists)
       const _invSig = (curUser().invoiceShow?.signature !== false) ? curUser().invoiceSignature : null;
       if (_invSig) {
@@ -3919,7 +3930,8 @@
               <button onclick="editEntry('${e.id}')">✏️ Edit</button>
               ${window._pendingSettlements?.[e.id] ? `<button onclick="_reviewSettlement('${window._pendingSettlements[e.id]}')" style="color:#d97706;font-weight:700;">⏳ Review Payment</button>` : (window._settlementProofs?.[e.id] ? `<button onclick="_reviewSettlement('${window._settlementProofs[e.id]}')">📎 View Proof</button>` : '')}
               ${(isInvoiceMode(e) || e.txType === 'they_owe_you' || e.txType === 'you_owe_them') && e.status !== 'settled' && e.status !== 'voided' && e.status !== 'fulfilled' && e.status !== 'cancelled' ? `<button onclick="recordSettlement('${e.id}')">💰 Settle</button>` : ''}
-              ${isInvoiceMode(e) && e.status !== 'fulfilled' && e.status !== 'voided' && e.status !== 'cancelled' ? `<button onclick="markFulfilled('${e.id}')" style="color:#16a34a;font-weight:700;">✅ Mark Fulfilled</button>` : ''}
+              ${isInvoiceMode(e) && e.status !== 'fulfilled' && e.status !== 'voided' && e.status !== 'cancelled' ? `<button onclick="markFulfilled('${e.id}')" style="color:#16a34a;font-weight:700;">✅ Fulfill</button>` : ''}
+              ${isInvoiceMode(e) && e.status === 'fulfilled' ? `<button onclick="editFulfillDetails('${e.id}')">📦 Edit Fulfillment Details</button>` : ''}
               <button onclick="openNotifyModal('${e.id}')">🔔 Send Reminder</button>
               <button onclick="openShareModal('${e.id}')">🔗 Share</button>
               <button onclick="duplicateEntry('${e.id}')">📋 Duplicate</button>
@@ -11373,8 +11385,9 @@
     // Mark an invoice as fulfilled (sender action — invoice mode only)
     async function markFulfilled(eid) {
       const e = db.entries.find(x => x.id === eid); if (!e) return;
-      if (!isInvoiceMode(e)) return toast('Mark Fulfilled is only available for invoices.');
-      if (!confirm('Mark this invoice as Fulfilled? This records that the goods/services have been fully delivered. This cannot be undone.')) return;
+      if (!isInvoiceMode(e)) return toast('Fulfill is only available for invoices.');
+
+      // Instant status change — no confirm dialog, no friction
       try {
         const res = await fetch('/api/share', {
           method: 'POST', credentials: 'include',
@@ -11387,14 +11400,55 @@
           e.fulfilledAt = Date.now();
           try { await saveNow(); } catch(_) { save(); }
           logAudit('mark_fulfilled', { eid });
-          toast('✅ Invoice marked as Fulfilled');
+          toast('✅ Fulfilled');
           refreshCurPage();
+          // Show optional details panel
+          setTimeout(() => _showFulfillDetails(eid), 200);
         } else {
-          toast('Failed to mark as fulfilled: ' + (data.error || 'Unknown error'));
+          toast('Failed: ' + (data.error || 'Unknown error'));
         }
       } catch (_) {
         toast('Network error — please try again.');
       }
+    }
+
+    function _showFulfillDetails(eid) {
+      const e = db.entries.find(x => x.id === eid); if (!e) return;
+      // Remove any existing panel
+      document.getElementById('_fulfillPanel')?.remove();
+      const html = `<div id="_fulfillPanel" class="modal-bg" onclick="this.remove()"><div class="modal" style="max-width:440px;" onclick="event.stopPropagation()">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+          <div>
+            <div style="font-size:16px;font-weight:800;">✅ Fulfilled</div>
+            <div style="font-size:12px;color:var(--muted);">Add details (optional)</div>
+          </div>
+          <button class="gh sm" onclick="this.closest('.modal-bg').remove()" style="font-size:18px;">✕</button>
+        </div>
+        <div class="fg"><label>Tracking Number(s)</label><input type="text" id="_ff_tracking" value="${esc(e.fulfillTracking||'')}" placeholder="e.g. 1Z999AA10123456784"></div>
+        <div class="fg"><label>BOL / Reference</label><input type="text" id="_ff_bol" value="${esc(e.fulfillBol||'')}" placeholder="e.g. BOL-2026-0042"></div>
+        <div class="fg"><label>Notes</label><textarea id="_ff_notes" rows="2" placeholder="Any additional details...">${esc(e.fulfillNotes||'')}</textarea></div>
+        <div style="display:flex;gap:8px;margin-top:14px;">
+          <button class="btn sm" onclick="_saveFulfillDetails('${eid}')">Save Details</button>
+          <button class="bs sm" onclick="this.closest('.modal-bg').remove()">Skip</button>
+        </div>
+      </div></div>`;
+      document.body.insertAdjacentHTML('beforeend', html);
+    }
+
+    function _saveFulfillDetails(eid) {
+      const e = db.entries.find(x => x.id === eid); if (!e) return;
+      e.fulfillTracking = document.getElementById('_ff_tracking').value.trim();
+      e.fulfillBol      = document.getElementById('_ff_bol').value.trim();
+      e.fulfillNotes    = document.getElementById('_ff_notes').value.trim();
+      save();
+      document.getElementById('_fulfillPanel')?.remove();
+      toast('Details saved');
+      refreshCurPage();
+    }
+
+    // Edit fulfillment details anytime (from action menu)
+    function editFulfillDetails(eid) {
+      _showFulfillDetails(eid);
     }
 
     function _sharedDepreciateModal(token, fromName, currentAmt) {
