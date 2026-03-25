@@ -42,9 +42,15 @@ module.exports = async function handler(req, res) {
       const data = await maybeDecompress(row.data || {});
       const contacts = data.contacts || [];
 
-      // Find if any contact in this blob points to me
+      // Find if any contact in this blob points to me (by linkedUserId, email, or boolean true + email match)
       const myContactIds = contacts
-        .filter(c => c.linkedUserId === me.id || (me.email && (c.email || '').toLowerCase() === me.email.toLowerCase()))
+        .filter(c => {
+          // Direct ID match
+          if (c.linkedUserId && c.linkedUserId !== true && c.linkedUserId === me.id) return true;
+          // Email match (handles linkedUserId=true bug and unlinked contacts)
+          if (me.email && c.email && c.email.toLowerCase() === me.email.toLowerCase()) return true;
+          return false;
+        })
         .map(c => c.id);
 
       if (myContactIds.length === 0) continue;
@@ -76,9 +82,50 @@ module.exports = async function handler(req, res) {
       }
     }
 
-    return res.json({ ok: true, groups: sharedGroups, investments: sharedInvestments });
+      return res.json({ ok: true, groups: sharedGroups, investments: sharedInvestments });
   } catch (e) {
     console.error('[shared-groups]', e.message);
     return res.status(500).json({ ok: false, error: 'Failed to load shared groups.' });
   }
+
+  } else if (req.method === 'POST') {
+    // POST: Push a notification to another user's blob
+    const payload = requireAuth(req, res);
+    if (!payload) return;
+
+    const { targetEmail, notification } = req.body || {};
+    if (!targetEmail || !notification) {
+      return res.status(400).json({ ok: false, error: 'targetEmail and notification required.' });
+    }
+
+    try {
+      // Find target user by email
+      const [targetUser] = await sql`SELECT id FROM users WHERE LOWER(email) = ${targetEmail.toLowerCase()} LIMIT 1`;
+      if (!targetUser) return res.json({ ok: true, delivered: false, reason: 'User not found.' });
+
+      // Load their blob and push notification
+      const [row] = await sql`SELECT data FROM user_data WHERE user_id = ${targetUser.id} LIMIT 1`;
+      if (!row) return res.json({ ok: true, delivered: false, reason: 'No user data.' });
+
+      const data = await maybeDecompress(row.data || {});
+      if (!data.notifs) data.notifs = [];
+      notification.userId = targetUser.id; // Ensure correct userId
+      data.notifs.push(notification);
+
+      // Compress and save
+      const zlib = require('zlib');
+      const gzip = require('util').promisify(zlib.gzip);
+      const json = JSON.stringify(data);
+      const buf = await gzip(Buffer.from(json, 'utf8'));
+      const compressed = { _c: 1, v: buf.toString('base64') };
+      await sql`UPDATE user_data SET data = ${compressed}, updated_at = now() WHERE user_id = ${targetUser.id}`;
+
+      return res.json({ ok: true, delivered: true });
+    } catch (e) {
+      console.error('[shared-groups/POST]', e.message);
+      return res.status(500).json({ ok: false, error: 'Failed to deliver notification.' });
+    }
+  }
+
+  return res.status(405).json({ ok: false, error: 'Method not allowed.' });
 };

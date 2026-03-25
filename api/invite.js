@@ -174,7 +174,7 @@ module.exports = async function handler(req, res) {
             }
           }
         }
-        return res.json({ ok: true, alreadyRegistered: true, linkedName: existingUser.display_name });
+        return res.json({ ok: true, alreadyRegistered: true, linkedUserId: existingUser.id, linkedName: existingUser.display_name });
       }
 
       // Check for duplicate pending invite to same email from same user

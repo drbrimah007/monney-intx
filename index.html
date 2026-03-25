@@ -7503,21 +7503,45 @@
       const u = curUser();
       const inviterName = u.displayName || u.email || 'Someone';
       const msg = `${inviterName} invited you to ${itemType}: "${itemName}"`;
-      // In-app notification
+      const _notifId = uuid();
+      const _now = Date.now();
+      const _tok = localStorage.getItem('mxi_token');
+      const _headers = { 'Content-Type': 'application/json' };
+      if (_tok) _headers['Authorization'] = 'Bearer ' + _tok;
+
+      // Push notification to INVITED user's server blob (not our local db)
+      if (contact.email && _IS_SERVER) {
+        try {
+          await fetch('/api/shared-groups', {
+            method: 'POST', credentials: 'include', headers: _headers,
+            body: JSON.stringify({
+              targetEmail: contact.email,
+              notification: {
+                id: _notifId, cId: null, eid: null,
+                type: 'invite', msg, channel: 'in-app',
+                sent: true, who: inviterName, sentTo: '',
+                read: false, createdAt: _now
+              }
+            })
+          });
+        } catch (e) { console.error('[invite notif push]', e.message); }
+      }
+
+      // Also save locally for audit trail
       db.notifs.push({
-        id: uuid(), userId: u.id, cId: contact.id, eid: null,
-        type: 'invite', msg, channel: 'in-app',
-        sent: true, who: 'them', sentTo: [contact.email||''],
-        read: false, createdAt: Date.now()
+        id: 'sent_' + _notifId, userId: u.id, cId: contact.id, eid: null,
+        type: 'invite_sent', msg: `Invited ${contact.name} to ${itemType}: "${itemName}"`,
+        channel: 'in-app', sent: true, who: 'you', sentTo: [contact.email||''],
+        read: true, createdAt: _now
       });
       save();
-      // Email if contact has email
+
+      // Send email
       if (contact.email) {
         try {
           const _siteUrl = db.settings?.siteUrl || window.location.origin;
           await fetch('/api/email', {
-            method: 'POST', credentials: 'include',
-            headers: { 'Content-Type': 'application/json' },
+            method: 'POST', credentials: 'include', headers: _headers,
             body: JSON.stringify({
               action: 'send-invite',
               recipientEmail: contact.email,
@@ -9464,7 +9488,7 @@
       if (!c || !c.email) { toast('Contact has no email address.'); return; }
       const res = await API.inviteCreate({ email: c.email, name: c.name, contactId: c.id });
       if (res.alreadyRegistered) {
-        c.linkedUserId = true;
+        c.linkedUserId = res.linkedUserId || true;
         save();
         toast(`${res.linkedName || c.name} is already on the platform — linked!`);
         openCP(contactId);
@@ -10267,6 +10291,8 @@
       updateUserInfo();
       renderImpersonateBanner();
       renderNav();
+      // Load shared groups/investments from other users' blobs
+      if (_IS_SERVER) _loadSharedGroupsAndInvestments();
       // Handle deep link: ?entry=ID — open that entry's invoice directly
       const _dlParams = new URLSearchParams(window.location.search);
       const _dlEntry  = _dlParams.get('entry');
