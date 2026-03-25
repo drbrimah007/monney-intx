@@ -758,7 +758,7 @@
     const logoEl  = document.getElementById('topbarLogo');
     if (brandEl) brandEl.href = _siteUrl || '/';
     if (nameEl)  nameEl.textContent = siteName;
-    if (logoEl && e.logoData && /^https?:\/\//i.test(e.logoData)) {
+    if (logoEl && e.logoData && (/^https?:\/\//i.test(e.logoData) || /^data:image\//i.test(e.logoData))) {
       logoEl.src = e.logoData; logoEl.style.display = '';
     }
 

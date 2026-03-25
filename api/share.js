@@ -214,9 +214,22 @@ module.exports = async function handler(req, res) {
         } catch (_) {}
       }
 
+      // Fetch owner's current logoData from their blob — the snapshot in entry_data
+      // never stored logoData, so we always hydrate it fresh from the owner's settings.
+      let _ownerLogoData = row.entry_data?.logoData || '';
+      if (!_ownerLogoData) {
+        try {
+          const [_ownerBlob] = await sql`SELECT data FROM user_data WHERE user_id = ${row.user_id} LIMIT 1`;
+          if (_ownerBlob) {
+            const _ownerData = await _decompress(_ownerBlob.data || {});
+            _ownerLogoData = _ownerData?.settings?.logoData || '';
+          }
+        } catch (_) {}
+      }
+
       return res.json({
         ok: true,
-        entry:                  row.entry_data,
+        entry:                  { ...row.entry_data, logoData: _ownerLogoData },
         acknowledged:           row.acknowledged,
         acknowledgedAt:         row.acknowledged_at,
         recipientClosed:        row.recipient_closed,

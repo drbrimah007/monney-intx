@@ -618,7 +618,6 @@
       // If already loaded in this session, skip — prevents overwriting entries
       // created by _loadSharedWithMe. Explicit re-loads (login, signup) reset this flag.
       if (_loadCompleted && _IS_SERVER) {
-        console.log('[load] Skipping — already loaded this session');
         return;
       }
       // Read localStorage first — we need it as a recovery source if server is blank
@@ -641,12 +640,6 @@
             const localHasData = localBelongsToUser &&
               ((_localData.entries?.length > 0) || (_localData.contacts?.length > 0) || (_localData.templates?.length > 0));
 
-            console.log('[load] serverHasData:', serverHasData,
-              '| localHasData:', localHasData,
-              '| srvUser:', srvUser?.id,
-              '| localSessionUserId:', _localData?.settings?.sessionUserId,
-              '| localEntries:', _localData?.entries?.length,
-              '| serverEntries:', data?.entries?.length);
 
             if (serverHasData) {
               // Preserve isShared entries from CURRENT in-memory db before overwriting.
@@ -662,26 +655,26 @@
                 for (const e of _liveShared) {
                   if (!_srvTokens.has(e.shareToken)) { db.entries.push(e); _merged++; }
                 }
-                if (_merged) console.log('[load] Preserved', _merged, 'isShared entries from memory');
+                // preserved isShared entries from memory
               }
-              console.log('[load] Using server data (' + (db.entries?.length||0) + ' entries)');
+              // server data loaded
             } else if (localHasData) {
               // Server blob is empty but this device has data for this user.
               // Recover: use local data and push to server immediately (AWAITED so it doesn't get dropped).
               db = _localData;
-              console.log('[load] Recovery path: using local data (' + (_localData.entries?.length||0) + ' entries), pushing to server…');
+              // recovery: local data → server
               // Show toast AFTER render cycle — queue via setTimeout
               setTimeout(() => toast('⏫ Syncing your data to cloud…', 4000), 500);
               try {
                 await _syncToServer(); // AWAIT — don't fire-and-forget, ensure it completes
-                console.log('[load] Recovery sync succeeded');
+                // recovery sync succeeded
                 setTimeout(() => toast('✅ Data synced — reload other devices', 3000), 500);
               } catch(syncErr) {
                 console.error('[load] Recovery sync failed:', syncErr.message);
                 setTimeout(() => toast('⚠️ Sync failed — check connection and try again', 5000), 500);
               }
             } else {
-              console.log('[load] No usable data — using defaults. serverKeys:', Object.keys(data), 'localDataPresent:', !!_localData);
+              // no usable data — defaults
               db = defDB();
             }
 
@@ -733,7 +726,7 @@
           // 401 = not logged in, handled by caller
           if (res.status === 401) { db = defDB(); return; }
         } catch (e) {
-          console.warn('[load] Server unreachable, using localStorage cache:', e.message);
+          // server unreachable — using localStorage cache
         }
       }
       // Fallback: localStorage
@@ -1860,9 +1853,7 @@
         // This is idempotent (_insertSharedEntry checks for existing shareToken).
         if (!_impersonatingDataUserId) {
           let migrated = false;
-          let _dbgTotal = 0, _dbgConfirmed = 0, _dbgInserted = 0, _dbgUpdated = 0, _dbgSkipped = 0;
           for (const mr of records) {
-            _dbgTotal++;
             // Auto-confirm SELLER-initiated settlement receipts regardless of dismissed status.
             // These are not optional — they're settlement proof that must affect the ledger.
             const _isSellerReceipt = mr.entry && !mr.entry.settledByRecipient && (
@@ -1872,7 +1863,6 @@
             if (!mr.confirmed && _isSellerReceipt) { mr.confirmed = true; }
             // Settlement receipts bypass dismissed check — all others require it
             if (mr.confirmed && !mr.recipientClosed && (_isSellerReceipt || !(mr.entry?.dismissed))) {
-              _dbgConfirmed++;
               const _existingE = db.entries.find(e => e.shareToken === mr.token);
               // Run _insertSharedEntry if:
               //   (a) entry doesn't exist yet — initial migration
@@ -1933,11 +1923,8 @@
               }
             }
           }
-          console.log(`[loadSharedWithMe] total=${_dbgTotal} confirmed=${_dbgConfirmed} inserted=${_dbgInserted} dbEntries=${db.entries.length}`);
           if (migrated) {
-            console.log('[loadSharedWithMe] Saving', db.entries.length, 'entries to server…');
             try { await saveNow(); } catch(_) { save(); }
-            console.log('[loadSharedWithMe] Save done, entries:', db.entries.length);
           }
         }
 
