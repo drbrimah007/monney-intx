@@ -4031,15 +4031,15 @@
             const numLbl = f.numericLabel || 'Amount';
             html += `<div class="fg">
               <div style="border:1px solid var(--border);border-radius:8px;overflow:hidden;">
-                <div style="display:grid;grid-template-columns:1fr 64px 1fr 36px;background:var(--bg3);padding:6px 10px;font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid var(--border);">
-                  <span>${esc(txtLbl)}${f.ledgerEffect?` <span style="font-size:10px;color:var(--green);text-transform:none;">[ledger]</span>`:''}</span><span style="text-align:center;">Qty</span><span style="text-align:right;">${esc(numLbl)}</span><span></span>
+                <div style="display:grid;grid-template-columns:1fr 68px 120px 36px;align-items:center;background:var(--bg3);padding:6px 10px;font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid var(--border);">
+                  <span>${esc(txtLbl)}${f.ledgerEffect?` <span style="font-size:10px;color:var(--green);text-transform:none;">[ledger]</span>`:''}</span><span style="text-align:center;">Qty</span><span style="text-align:right;padding-right:2px;">${esc(numLbl)}</span><span></span>
                 </div>
                 <div id="${fid}_rows" data-fieldid="${f.id}">
-                  ${rows.map((r,ri) => `<div class="paired-row" style="display:flex;gap:6px;padding:6px 10px;border-bottom:1px solid var(--border);" data-row="${ri}">
-                    <input type="text" class="pr-text" placeholder="${esc(txtLbl)}" value="${esc(String(r.text||''))}" style="flex:2;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:7px 10px;font-size:14px;color:var(--text);" oninput="runTplCalcs()">
-                    <input type="number" class="pr-qty" placeholder="—" value="${r.qty||''}" step="any" min="0" style="width:60px;flex-shrink:0;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:7px 6px;font-size:14px;color:var(--text);text-align:center;" oninput="runTplCalcs()" onchange="runTplCalcs()">
-                    <input type="number" class="pr-num" placeholder="0.00" value="${r.numeric||''}" step="0.01" min="0" style="flex:1;min-width:90px;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:7px 10px;font-size:14px;color:var(--text);" oninput="runTplCalcs()" onchange="runTplCalcs()">
-                    <button type="button" class="gh sm" onclick="removePairedRow(this)" style="flex-shrink:0;padding:6px 8px;font-size:14px;">✕</button>
+                  ${rows.map((r,ri) => `<div class="paired-row" style="display:grid;grid-template-columns:1fr 68px 120px 36px;align-items:center;gap:6px;padding:6px 10px;border-bottom:1px solid var(--border);" data-row="${ri}">
+                    <input type="text" class="pr-text" placeholder="${esc(txtLbl)}" value="${esc(String(r.text||''))}" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:7px 10px;font-size:14px;color:var(--text);" oninput="runTplCalcs()">
+                    <input type="number" class="pr-qty" placeholder="—" value="${r.qty||''}" step="any" min="0" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:7px 6px;font-size:14px;color:var(--text);text-align:center;" oninput="runTplCalcs()" onchange="runTplCalcs()">
+                    <input type="number" class="pr-num" placeholder="0.00" value="${r.numeric||''}" step="0.01" min="0" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:7px 10px;font-size:14px;color:var(--text);" oninput="runTplCalcs()" onchange="runTplCalcs()">
+                    <button type="button" class="gh sm" onclick="removePairedRow(this)" style="padding:6px 8px;font-size:14px;width:100%;">✕</button>
                   </div>`).join('')}
                 </div>
                 ${f.repeatable!==false ? `<div style="padding:6px 10px;">
@@ -4144,13 +4144,13 @@
       const ri = c.querySelectorAll('.paired-row').length;
       const row = document.createElement('div');
       row.className = 'paired-row';
-      row.style.cssText = 'display:flex;gap:6px;padding:6px 10px;border-bottom:1px solid var(--border);';
+      row.style.cssText = 'display:grid;grid-template-columns:1fr 68px 120px 36px;align-items:center;gap:6px;padding:6px 10px;border-bottom:1px solid var(--border);';
       row.dataset.row = ri;
       row.innerHTML = `
-        <input type="text"   class="pr-text" placeholder="Description" style="flex:2;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:7px 10px;font-size:14px;color:var(--text);" oninput="runTplCalcs()">
-        <input type="number" class="pr-qty"  placeholder="—" step="any" min="0" style="width:60px;flex-shrink:0;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:7px 6px;font-size:14px;color:var(--text);text-align:center;" oninput="runTplCalcs()" onchange="runTplCalcs()">
-        <input type="number" class="pr-num"  placeholder="0.00" step="0.01" min="0" style="flex:1;min-width:90px;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:7px 10px;font-size:14px;color:var(--text);" oninput="runTplCalcs()" onchange="runTplCalcs()">
-        <button type="button" class="gh sm" onclick="removePairedRow(this)" style="flex-shrink:0;padding:6px 8px;font-size:14px;">✕</button>`;
+        <input type="text"   class="pr-text" placeholder="Description" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:7px 10px;font-size:14px;color:var(--text);" oninput="runTplCalcs()">
+        <input type="number" class="pr-qty"  placeholder="—" step="any" min="0" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:7px 6px;font-size:14px;color:var(--text);text-align:center;" oninput="runTplCalcs()" onchange="runTplCalcs()">
+        <input type="number" class="pr-num"  placeholder="0.00" step="0.01" min="0" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:7px 10px;font-size:14px;color:var(--text);" oninput="runTplCalcs()" onchange="runTplCalcs()">
+        <button type="button" class="gh sm" onclick="removePairedRow(this)" style="padding:6px 8px;font-size:14px;width:100%;">✕</button>`;
       c.appendChild(row);
     }
 
