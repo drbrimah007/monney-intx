@@ -2819,22 +2819,7 @@
                 html += '<td>' + _fmtAmtCell(e2.id) + '</td>'; // Type always in col 1, no mobile-label needed
                 html += '<td>' + new Date(e2.date).toLocaleDateString() + '</td>';
                 html += '<td>' + statusBadge(e2.status, e2) + _reminderBadge(e2.reminderCount, e2.id) + '</td>';
-                html += '<td><div class="action-menu"><button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button><div class="action-dropdown">';
-                html += '<button onclick="openEntryInvoice(\'' + e2.id + '\')">📄 View</button>';
-                html += '<button onclick="closeCPModal();editEntry(\'' + e2.id + '\')">✏️ Edit</button>';
-                html += '<button onclick="closeCPModal();openNotifyModal(\'' + e2.id + '\')">🔔 Send Reminder</button>';
-                html += '<button onclick="closeCPModal();openShareModal(\'' + e2.id + '\')">🔗 Share</button>';
-                html += '<button onclick="closeCPModal();duplicateEntry(\'' + e2.id + '\')">📋 Duplicate</button>';
-                if ((isInvoiceMode(e2) || e2.txType === 'they_owe_you' || e2.txType === 'you_owe_them') && e2.status !== 'settled' && e2.status !== 'voided') {
-                  html += '<button onclick="closeCPModal();recordSettlement(\'' + e2.id + '\')">💰 Settle</button>';
-                }
-                html += '<button onclick="closeCPModal();toggleArchiveEntry(\'' + e2.id + '\')">' + (e2.archived ? '📤 Unarchive' : '📥 Archive') + '</button>';
-                if (e2.status !== 'voided') {
-                  html += '<button onclick="closeCPModal();voidEntry(\'' + e2.id + '\')" style="color:var(--amber);">🚫 Void</button>';
-                }
-                html += '<button onclick="closeCPModal();' + (e2.status === 'closed' ? 'reopenEntry' : 'openCloseModal') + '(\'' + e2.id + '\')">' + (e2.status === 'closed' ? '🔓 Reopen' : '🔒 Close Record') + '</button>';
-                html += '<button onclick="(function(){var _cid=\'' + cid + '\';closeCPModal();delEntry(\'' + e2.id + '\');setTimeout(function(){openCP(_cid);},80);})()" style="color:var(--red);">🗑 Delete</button>';
-                html += '</div></div></td></tr>';
+                html += '<td><div class="action-menu"><button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button><div class="action-dropdown">' + _entryMenuHtml(e2.id, cid) + '</div></div></td></tr>';
               }
             }
           });
@@ -3925,22 +3910,10 @@
             <td class="hide-mobile"><button class="gh sm" style="font-size:13px;padding:2px 6px;font-weight:700;color:${txTypeColor(e.txType)};" onclick="openEntryInvoice('${e.id}')" title="View record">${esc(TXL[e.txType]||e.txType)}</button></td>
             <td>${new Date(e.date).toLocaleDateString()}</td>
             <td>${statusBadge(e.status, e)}${_isRcpt ? '' : _reminderBadge(e.reminderCount, e.id)}${!_isRcpt && window._pendingSettlements?.[e.id] ? `<span class="badge" style="background:rgba(245,158,11,.12);color:#d97706;font-size:10px;margin-left:4px;cursor:pointer;" onclick="_reviewSettlement('${window._pendingSettlements[e.id]}')">⏳ Review Payment</span>` : ''}</td>
-            <td>${_isRcpt ? `<div class="action-menu"><button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button><div class="action-dropdown"><button onclick="openEntryInvoice('${e.id}')">📄 View</button><button onclick="delEntry('${e.id}')" style="color:var(--red);">🗑 Delete</button></div></div>` : `<div class="action-menu"><button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button><div class="action-dropdown">
-              <button onclick="openEntryInvoice('${e.id}')">📄 View</button>
-              <button onclick="editEntry('${e.id}')">✏️ Edit</button>
-              ${window._pendingSettlements?.[e.id] ? `<button onclick="_reviewSettlement('${window._pendingSettlements[e.id]}')" style="color:#d97706;font-weight:700;">⏳ Review Payment</button>` : (window._settlementProofs?.[e.id] ? `<button onclick="_reviewSettlement('${window._settlementProofs[e.id]}')">📎 View Proof</button>` : '')}
-              ${(isInvoiceMode(e) || e.txType === 'they_owe_you' || e.txType === 'you_owe_them') && e.status !== 'settled' && e.status !== 'voided' && e.status !== 'fulfilled' && e.status !== 'cancelled' ? `<button onclick="recordSettlement('${e.id}')">💰 Settle</button>` : ''}
-              ${isInvoiceMode(e) && e.status !== 'fulfilled' && e.status !== 'voided' && e.status !== 'cancelled' ? `<button onclick="markFulfilled('${e.id}')" style="color:#16a34a;font-weight:700;">✅ Fulfill</button>` : ''}
-              ${isInvoiceMode(e) && e.status === 'fulfilled' ? `<button onclick="editFulfillDetails('${e.id}')">📦 Edit Fulfillment Details</button>` : ''}
-              <button onclick="openNotifyModal('${e.id}')">🔔 Send Reminder</button>
-              <button onclick="openShareModal('${e.id}')">🔗 Share</button>
-              <button onclick="duplicateEntry('${e.id}')">📋 Duplicate</button>
-              <button onclick="toggleArchiveEntry('${e.id}')">${e.archived ? '📤 Unarchive' : '📥 Archive'}</button>
-              ${e.status !== 'voided' && e.status !== 'fulfilled' ? `<button onclick="voidEntry('${e.id}')" style="color:var(--amber);">🚫 Void</button>` : ''}
-              <button onclick="${e.status==='closed' ? 'reopenEntry' : 'openCloseModal'}('${e.id}')">${e.status==='closed' ? '🔓 Reopen' : '🔒 Close Record'}</button>
-              ${e.noLedger ? `<button onclick="(function(){var _e=db.entries.find(x=>x.id==='${e.id}');if(_e){delete _e.noLedger;save();toast('Restored to ledger');renderEntries();}})()">📊 Restore to Ledger</button>` : `<button onclick="(function(){var _e=db.entries.find(x=>x.id==='${e.id}');if(_e){_e.noLedger=true;save();toast('Removed from ledger');renderEntries();}})()">⊘ Remove from Ledger</button>`}
-              <button onclick="delEntry('${e.id}')" style="color: var(--red);">🗑 Delete</button>
-            </div></div>`}</td>
+            <td>${_isRcpt
+              ? `<div class="action-menu"><button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button><div class="action-dropdown"><button onclick="openEntryInvoice('${e.id}')">View</button><button onclick="delEntry('${e.id}')" style="color:var(--red);">Delete</button></div></div>`
+              : `<div class="action-menu"><button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button><div class="action-dropdown">${_entryMenuHtml(e.id,'')}</div></div>`
+            }</td>
           </tr>`;
         }
       });
@@ -4824,8 +4797,117 @@
       }
     }
 
+    // ── Structured action menu builder ───────────────────────────────────
+    // cpCid: contact-panel contact ID (truthy when called from contact panel)
+    function _entryMenuHtml(eid, cpCid) {
+      const e = db.entries.find(x => x.id === eid);
+      if (!e) return '';
+      const pre = cpCid ? `closeCPModal();` : '';
+      const isInv = isInvoiceMode(e);
+      const st = e.status || 'posted';
+      const settled  = st === 'settled' || st === 'voided' || st === 'cancelled' || st === 'fulfilled';
+      const canSettle = (isInv || e.txType === 'they_owe_you' || e.txType === 'you_owe_them')
+                        && !settled;
+      const canFulfill = isInv && st !== 'fulfilled' && st !== 'voided' && st !== 'cancelled';
+      const isFulfilled = isInv && st === 'fulfilled';
+      const isLocked = st === 'closed';
+      const pendingTok = window._pendingSettlements?.[eid];
+      const proofTok   = window._settlementProofs?.[eid];
+
+      let html = '';
+
+      // ── Section 1: Basic ─────────────────────────────────────────────
+      html += `<button onclick="${pre}openEntryInvoice('${eid}')">View</button>`;
+      html += `<button onclick="${pre}editEntry('${eid}')">Edit</button>`;
+      html += `<button onclick="${pre}openShareModal('${eid}')">Share</button>`;
+
+      // ── Section 2: Workflow ──────────────────────────────────────────
+      html += `<hr style="border:none;border-top:1px solid var(--border);margin:4px 0;">`;
+      if (pendingTok) {
+        html += `<button onclick="${pre}_reviewSettlement('${pendingTok}')" style="color:#d97706;font-weight:700;">Review Payment</button>`;
+      } else if (proofTok) {
+        html += `<button onclick="${pre}_reviewSettlement('${proofTok}')">View Proof</button>`;
+      }
+      if (canSettle) {
+        html += `<button onclick="${pre}recordSettlement('${eid}')">Settle</button>`;
+      }
+      if (canFulfill) {
+        html += `<button onclick="${pre}markFulfilled('${eid}')" style="color:#16a34a;font-weight:700;">Fulfill</button>`;
+      }
+      if (isFulfilled) {
+        html += `<button onclick="${pre}editFulfillDetails('${eid}')">Edit Fulfillment</button>`;
+      }
+      html += `<button onclick="${pre}openNotifyModal('${eid}')">Send Reminder</button>`;
+
+      // ── Section 3: More Actions ──────────────────────────────────────
+      html += `<hr style="border:none;border-top:1px solid var(--border);margin:4px 0;">`;
+      html += `<button onclick="_openMoreActionsModal('${eid}','${cpCid||''}')">More Actions →</button>`;
+
+      return html;
+    }
+
+    // Opens a clean modal with advanced / destructive actions
+    function _openMoreActionsModal(eid, cpCid) {
+      // Close any open action dropdowns first
+      document.querySelectorAll('.action-dropdown.open').forEach(d => d.classList.remove('open'));
+      const e = db.entries.find(x => x.id === eid);
+      if (!e) return;
+      const pre = cpCid ? `closeCPModal();` : '';
+      const st = e.status || 'posted';
+      const isLocked    = st === 'closed';
+      const isVoided    = st === 'voided' || st === 'cancelled';
+      const isFulfilled = st === 'fulfilled';
+      const canCancel   = !isVoided && !isFulfilled;
+      const archiveLabel = e.archived ? 'Unarchive' : 'Archive';
+
+      const d = document.createElement('div');
+      d.innerHTML = `<div class="modal-bg" id="moreActionsBg" onclick="if(event.target===this)this.remove()" style="z-index:10001;">
+        <div class="modal" style="max-width:320px;padding:0;overflow:hidden;" onclick="event.stopPropagation()">
+          <div style="padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;">
+            <span style="font-weight:700;font-size:14px;">More Actions</span>
+            <button class="gh sm" onclick="document.getElementById('moreActionsBg').remove()">✕</button>
+          </div>
+          <div style="padding:6px 0;">
+
+            <button onclick="document.getElementById('moreActionsBg').remove();${pre}duplicateEntry('${eid}')"
+              style="display:block;width:100%;text-align:left;background:none;border:none;color:var(--text);padding:10px 18px;cursor:pointer;font-size:13px;">
+              Duplicate
+            </button>
+            <button onclick="document.getElementById('moreActionsBg').remove();${pre}toggleArchiveEntry('${eid}')"
+              style="display:block;width:100%;text-align:left;background:none;border:none;color:var(--text);padding:10px 18px;cursor:pointer;font-size:13px;">
+              ${archiveLabel}
+            </button>
+
+            <hr style="border:none;border-top:1px solid var(--border);margin:4px 0;">
+
+            <button onclick="document.getElementById('moreActionsBg').remove();${pre}${isLocked ? 'reopenEntry' : 'openCloseModal'}('${eid}')"
+              style="display:block;width:100%;text-align:left;background:none;border:none;color:var(--text);padding:10px 18px;cursor:pointer;font-size:13px;">
+              ${isLocked ? 'Unlock Record' : 'Lock Record'}
+            </button>
+            <button onclick="document.getElementById('moreActionsBg').remove();(function(){var _e=db.entries.find(x=>x.id==='${eid}');if(_e){${e.noLedger ? `delete _e.noLedger;save();toast('Restored to ledger');` : `_e.noLedger=true;save();toast('Removed from ledger');`}refreshCurPage();}})();"
+              style="display:block;width:100%;text-align:left;background:none;border:none;color:var(--text);padding:10px 18px;cursor:pointer;font-size:13px;">
+              ${e.noLedger ? 'Restore to Ledger' : 'Remove from Ledger'}
+            </button>
+
+            <hr style="border:none;border-top:1px solid var(--border);margin:4px 0;">
+
+            ${canCancel ? `<button onclick="document.getElementById('moreActionsBg').remove();${pre}voidEntry('${eid}')"
+              style="display:block;width:100%;text-align:left;background:none;border:none;color:var(--red);padding:10px 18px 6px;cursor:pointer;font-size:13px;font-weight:600;">
+              Cancel Invoice
+            </button>` : ''}
+            <button onclick="document.getElementById('moreActionsBg').remove();${pre}delEntry('${eid}')"
+              style="display:block;width:100%;text-align:left;background:none;border:none;color:var(--red);padding:${canCancel ? '6px' : '10px'} 18px 10px;cursor:pointer;font-size:13px;font-weight:600;">
+              Delete
+            </button>
+
+          </div>
+        </div>
+      </div>`;
+      document.body.appendChild(d.firstChild);
+    }
+
     function voidEntry(eid) {
-      if (!confirm('Void this entry?')) return;
+      if (!confirm('Cancel this invoice?')) return;
       const e = db.entries.find(x => x.id === eid);
       if (e) {
         e.status = 'voided';
