@@ -11666,6 +11666,9 @@
       if (!entry) return;
       const u = curUser();
       if (!u) return;
+      // Skip if user explicitly deleted this entry — check by shareToken
+      const _delIds = new Set(db.settings?._deletedEntryIds || []);
+      if (_delIds.has('st:' + r.token)) return;
 
       // Resolve contact ID from sender name/email
       const senderEmail = (entry.fromEmail || entry.fromName || '').toLowerCase().trim();
