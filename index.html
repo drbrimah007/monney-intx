@@ -835,6 +835,8 @@
       // During impersonation, skip server sync — we only have the user's data merged
       // in-memory and must not push it to the admin's server blob.
       if (_impersonatingDataUserId) { return; }
+      // Keep lastActivity fresh for NOK inactivity tracking
+      if (db.settings && !_impersonatingDataUserId) db.settings.lastActivity = Date.now();
       localStorage.setItem('mxi_v2', JSON.stringify(db));
       // Debounce server sync: wait 3000 ms after last change before pushing
       if (_IS_SERVER) {
@@ -899,6 +901,14 @@
       if (!db.recurring) db.recurring = [];
       if (!db.notifs)    db.notifs    = [];
       if (!db.nok)       db.nok       = [];
+      // Migrate existing NOK records to new schema
+      (db.nok||[]).forEach(n => {
+        if (!n.status)            n.status = 'unverified';
+        if (!n.accessLevel)       n.accessLevel = 'view_only';
+        if (!n.activationTrigger) n.activationTrigger = 'manual';
+        if (!n.nokAuditLog)       n.nokAuditLog = [];
+      });
+      if (!db.settings.lastActivity) db.settings.lastActivity = Date.now();
       if (!db.releases)  db.releases  = [];
       if (!db.audit)     db.audit     = [];
       if (!db.emailLog)  db.emailLog  = [];
@@ -1346,7 +1356,7 @@
           { page: 'recurring', label: 'Recurring' },
           { page: 'groups', label: 'Groups' },
           { page: 'investments', label: 'Investments' },
-          { page: 'nok', label: 'Next of Kin' },
+          { page: 'nok', label: 'Next of Kin (Trusted Access)' },
           { page: 'settings', label: 'Profile' }
         ];
       } else if (role === 'contact') {
@@ -1359,7 +1369,7 @@
       let html = '';
       const unreadNotifs = (db.notifs||[]).filter(n => n.userId === curUser().id && !n.read).length;
       const notifLabel = unreadNotifs > 0 ? `Notifications <span style="display:inline-flex;align-items:center;justify-content:center;background:#ef4444;color:#fff;font-size:10px;font-weight:700;border-radius:99px;min-width:17px;height:17px;padding:0 4px;margin-left:4px;line-height:1;">${unreadNotifs > 99 ? '99+' : unreadNotifs}</span>` : 'Notifications';
-      const navLabels = { dash: 'Dashboard', contacts: 'Contacts', entries: 'Entries', notifs: notifLabel, templates: 'Templates', templatedb: 'Template DB', recurring: 'Recurring', groups: 'Groups', investments: 'Investments', nok: 'Next of Kin', audit: 'Audit Log', users: 'Users' };
+      const navLabels = { dash: 'Dashboard', contacts: 'Contacts', entries: 'Entries', notifs: notifLabel, templates: 'Templates', templatedb: 'Template DB', recurring: 'Recurring', groups: 'Groups', investments: 'Investments', nok: 'Next of Kin (Trusted Access)', audit: 'Audit Log', users: 'Users' };
 
       // Primary nav items
       primaryItems.forEach(page => {
@@ -1433,7 +1443,7 @@
         { page: 'recurring', icon: '🔁', label: 'Recurring',    roles: ['admin','standard'] },
         { page: 'groups',    icon: '🤝', label: 'Groups',       roles: ['admin','standard'] },
         { page: 'investments', icon: '📈', label: 'Investments', roles: ['admin','standard'] },
-        { page: 'nok',       icon: '🔐', label: 'Next of Kin',  roles: ['admin','standard'] },
+        { page: 'nok',       icon: '🔐', label: 'Next of Kin (Trusted Access)',  roles: ['admin','standard'] },
         { page: 'audit',     icon: '📝', label: 'Audit Log',    roles: ['admin'] },
         { page: 'users',     icon: '👥', label: 'Users',        roles: ['admin'] },
       ].filter(i => !i.roles || i.roles.includes(role));
@@ -1728,7 +1738,7 @@
               <button class="bs sm" onclick="nav('templates')">📄 Templates</button>
               <button class="bs sm" onclick="nav('recurring')">🔁 Recurring</button>
               <button class="bs sm" onclick="nav('notifs')">🔔 Notifications</button>
-              <button class="bs sm" onclick="nav('nok')">🔐 Next of Kin</button>
+              <button class="bs sm" onclick="nav('nok')">🔐 Trusted Access</button>
               <button class="bs sm" onclick="nav('users')">👥 User Mgmt</button>
               <button class="bs sm" onclick="nav('audit')">📝 Audit Log</button>
             </div>
@@ -1795,7 +1805,7 @@
             <button class="bs sm" onclick="nav('templates')">📄 Templates</button>
             <button class="bs sm" onclick="nav('recurring')">🔁 Recurring</button>
             <button class="bs sm" onclick="nav('notifs')">🔔 Notifications</button>
-            <button class="bs sm" onclick="nav('nok')">🔐 Next of Kin</button>
+            <button class="bs sm" onclick="nav('nok')">🔐 Trusted Access</button>
           </div>
         </div>`;
         // Merge own entries (including isShared:true db.entries) + pending unconfirmed shared records
@@ -6943,148 +6953,381 @@
       renderNotifs();
     }
 
-    // ============ PAGE: NEXT OF KIN ============
+    // ============ PAGE: NEXT OF KIN (TRUSTED ACCESS) ============
+
     // ── NOK HELPERS ────────────────────────────────────────────────────
-    // Find linked contact for a NOK record (same user, name match or explicit id)
     function nokLinkedContact(n) {
       if (n.nokContactId) return db.contacts.find(c=>c.id===n.nokContactId)||null;
-      // Fuzzy name match within same user's contacts
       const name = (n.fullName||'').toLowerCase().trim();
       return db.contacts.find(c=>c.userId===n.userId && c.name.toLowerCase().trim()===name)||null;
     }
 
+    function _nokStatusBadge(n) {
+      if (n.status === 'active')     return '<span class="badge badge-green">✅ Active</span>';
+      if (n.status === 'verified')   return '<span class="badge badge-blue">✔ Verified</span>';
+      if (n.status === 'revoked')    return '<span class="badge badge-red">🚫 Revoked</span>';
+      return '<span class="badge badge-yellow">⏳ Unverified</span>';
+    }
+
+    function _nokAccessBadge(level) {
+      const map = { view_only:['badge-gray','👁 View Only'], notify_only:['badge-yellow','🔔 Notify Only'], limited_control:['badge-blue','⚙️ Limited Control'], full_control:['badge-green','🔑 Full Control'] };
+      const [cls, label] = map[level] || ['badge-gray', level || 'View Only'];
+      return `<span class="badge ${cls}">${label}</span>`;
+    }
+
+    function _nokTriggerLabel(n) {
+      const map = { manual:'Manual activation only', inactivity_30:'30-day inactivity', inactivity_60:'60-day inactivity', inactivity_90:'90-day inactivity', emergency:'Emergency verification' };
+      return map[n.activationTrigger] || 'Manual';
+    }
+
+    function _updateLastActivity() {
+      if (!db.settings) db.settings = {};
+      db.settings.lastActivity = Date.now();
+    }
+
+    function _checkNokInactivity() {
+      const u = curUser();
+      const lastAct = db.settings.lastActivity || Date.now();
+      const daysSince = Math.floor((Date.now() - lastAct) / 86400000);
+      (db.nok||[]).filter(n => n.userId === u.id && n.status !== 'revoked' && n.status !== 'active').forEach(n => {
+        if (!n.activationTrigger || !n.activationTrigger.startsWith('inactivity')) return;
+        const threshold = parseInt(n.activationTrigger.split('_')[1] || '90');
+        if (daysSince >= threshold) {
+          n.status = 'active'; n.activatedAt = Date.now(); n.triggerActivatedBy = 'inactivity';
+          if (!n.nokAuditLog) n.nokAuditLog = [];
+          n.nokAuditLog.push({ action:'auto_activated', by:'system', at:Date.now(), detail:`Auto-activated after ${daysSince} days of inactivity (threshold: ${threshold}d)` });
+          save();
+          if (n.email) _sendNokActivationEmail(n);
+        }
+      });
+    }
+
     function renderNok() {
       const u = curUser();
-      // Admin sees all NOK but scoped: admin's own NOK on their settings, others in user-management context
-      // On the main NOK page: show current user's own NOK only (admin's own too)
       const noks = db.nok.filter(n => n.userId === u.id);
-      PG['nok'] = PG['nok'] || 1;
-      const p = paginate(noks, 'nok');
+      _checkNokInactivity();
+      const lastAct = db.settings.lastActivity || Date.now();
+      const daysSince = Math.floor((Date.now() - lastAct) / 86400000);
+      const activeCount = noks.filter(n=>n.status==='active').length;
+      const verifiedCount = noks.filter(n=>n.status==='verified').length;
 
-      let html = `<div class="page-header">
-        <div>
-          <h2>Next of Kin</h2>
-          <p style="color:var(--muted);font-size:13px;margin-top:2px;">Designate trusted contacts who can receive your records. This releases <strong>information only</strong> — not money or assets.</p>
+      let html = `<div class="page-header" style="align-items:center;">
+        <div style="display:flex;align-items:center;gap:14px;">
+          <div style="font-size:44px;line-height:1;">🔐</div>
+          <div><h2 style="margin:0;">Next of Kin <span style="font-size:14px;font-weight:500;color:var(--muted);">(Trusted Access)</span></h2>
+            <p style="font-size:13px;color:var(--accent);font-weight:600;margin:2px 0 0;">Information Release &amp; Continuity System</p>
+          </div>
         </div>
-        <button class="btn sm" onclick="openNokModal()">+ Add NOK</button>
+        <button class="btn sm" onclick="openNokModal()">+ Add Trusted Contact</button>
+      </div>`;
+
+      html += `<div style="background:linear-gradient(135deg,rgba(255,255,255,0.04),rgba(108,99,255,0.07));border:1px solid rgba(255,255,255,0.09);border-radius:12px;padding:14px 18px;margin-bottom:16px;font-size:13px;line-height:1.75;box-shadow:inset 0 1px 0 rgba(255,255,255,0.06);">
+        <strong style="color:var(--accent);">"Your financial memory doesn't die with you."</strong><br>
+        <span style="color:var(--muted);">Designate trusted contacts who can access your records when needed. Set access levels, activation conditions, and stay in full control until you decide otherwise. This releases <strong>information only</strong> — not money or legal title.</span>
+      </div>`;
+
+      // Activity health panel
+      const inactivityNoks = noks.filter(n => n.activationTrigger?.startsWith('inactivity'));
+      html += `<div class="card" style="margin-bottom:16px;padding:14px 18px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+          <div><div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin-bottom:2px;">Account Activity</div>
+            <div style="font-size:13px;">Last active: <strong>${daysSince === 0 ? 'Today' : daysSince + ' day' + (daysSince!==1?'s':'') + ' ago'}</strong></div>
+          </div>
+          <div style="text-align:right;font-size:12px;">${noks.length === 0 ? '<span style="color:var(--muted);">No trusted contacts yet</span>' : `<span style="color:var(--green);">${activeCount} active</span> · <span style="color:var(--blue);">${verifiedCount} verified</span> · ${noks.length} total`}</div>
+        </div>
+        ${inactivityNoks.length > 0 ? (() => {
+          const earliest = Math.min(...inactivityNoks.map(n=>parseInt(n.activationTrigger.split('_')[1]||'90')));
+          const pct = Math.min(100, (daysSince / earliest) * 100);
+          const col = pct >= 80 ? 'var(--red)' : pct >= 50 ? 'var(--amber)' : 'var(--green)';
+          return `<div style="margin-top:10px;"><div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-bottom:4px;"><span>Inactivity trigger at ${earliest} days</span><span>${daysSince}/${earliest} days</span></div><div style="background:var(--bg3);border-radius:99px;height:6px;overflow:hidden;"><div style="height:100%;width:${pct}%;background:${col};border-radius:99px;transition:width .4s;"></div></div></div>`;
+        })() : ''}
       </div>`;
 
       if (noks.length === 0) {
-        html += `<div class="card"><p style="color:var(--muted);text-align:center;padding:24px;">No Next of Kin designated yet. Add one to set up your information release plan.</p></div>`;
+        html += `<div class="card" style="text-align:center;padding:40px 24px;">
+          <div style="font-size:48px;margin-bottom:12px;">🔐</div>
+          <div style="font-size:16px;font-weight:700;margin-bottom:8px;">No Trusted Contacts designated yet</div>
+          <div style="font-size:13px;color:var(--muted);max-width:420px;margin:0 auto 20px;">Add trusted people who should be able to access your records if you're unavailable. You control what they can see and when.</div>
+          <button class="btn" onclick="openNokModal()">+ Designate First Trusted Contact</button>
+        </div>`;
       } else {
         html += `<div style="display:flex;flex-direction:column;gap:12px;">`;
-        p.items.forEach(n => {
+        noks.forEach(n => {
           const linked = nokLinkedContact(n);
-          html += `<div class="card">
+          const isRevoked = n.status === 'revoked';
+          const isActive  = n.status === 'active';
+          html += `<div class="card" style="${isRevoked?'opacity:.55;':''}">
             <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;">
-              <div>
-                <div style="font-size:16px;font-weight:700;">${esc(n.fullName)}</div>
-                <div style="font-size:13px;color:var(--muted);margin-top:2px;">${esc(n.relationship||'—')}</div>
-                <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
-                  ${n.email?`<span style="font-size:12px;">✉ ${esc(n.email)}</span>`:''}
-                  ${n.phone?`<span style="font-size:12px;">📞 ${esc(n.phone)}</span>`:''}
-                  ${linked
-                    ? `<span style="font-size:12px;background:rgba(74,222,128,.12);color:var(--green);border-radius:5px;padding:2px 8px;border:1px solid rgba(74,222,128,.25);">
-                        🔗 Linked: ${cLink(linked.id, linked.name)}</span>`
-                    : `<span style="font-size:12px;color:var(--muted);">No linked contact record</span>`
-                  }
+              <div style="flex:1;min-width:200px;">
+                <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px;">
+                  <span style="font-size:16px;font-weight:700;">${esc(n.fullName)}</span>
+                  ${_nokStatusBadge(n)}
+                  ${_nokAccessBadge(n.accessLevel||'view_only')}
                 </div>
-                ${n.notes?`<div style="margin-top:6px;font-size:12px;color:var(--muted);">${esc(n.notes)}</div>`:''}
+                <div style="font-size:13px;color:var(--muted);">${esc(n.relationship||'—')}</div>
+                <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;font-size:12px;">
+                  ${n.email?`<span>✉ ${esc(n.email)}</span>`:''}
+                  ${n.phone?`<span>📞 ${esc(n.phone)}</span>`:''}
+                  ${linked?`<span style="background:rgba(74,222,128,.12);color:var(--green);border-radius:5px;padding:2px 8px;border:1px solid rgba(74,222,128,.25);">🔗 ${esc(linked.name)}</span>`:''}
+                </div>
+                <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;">
+                  <span style="background:var(--bg3);padding:3px 8px;border-radius:6px;font-size:12px;color:var(--muted);">⏱ ${esc(_nokTriggerLabel(n))}</span>
+                  <span style="background:var(--bg3);padding:3px 8px;border-radius:6px;font-size:12px;color:var(--muted);">📄 ${{full:'Full export',summary:'Summary',selected:'Selected fields'}[n.releaseType]||'Full export'}</span>
+                </div>
+                ${n.notes?`<div style="margin-top:6px;font-size:12px;color:var(--muted);font-style:italic;">${esc(n.notes)}</div>`:''}
+                ${isActive&&n.activatedAt?`<div style="margin-top:6px;font-size:11px;color:var(--green);">Activated ${new Date(n.activatedAt).toLocaleDateString()}${n.triggerActivatedBy?' ('+n.triggerActivatedBy+')'  :''}</div>`:''}
+                ${n.verifiedAt?`<div style="margin-top:2px;font-size:11px;color:var(--muted);">Verified ${new Date(n.verifiedAt).toLocaleDateString()}</div>`:''}
               </div>
-              <div style="display:flex;gap:6px;flex-shrink:0;">
-                <button class="bs sm" onclick="openNokModal('${n.id}')">✏️ Edit</button>
-                <button class="bs sm" style="color:var(--red);" onclick="delNok('${n.id}')">🗑</button>
-              </div>
+              <div class="action-menu"><button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button><div class="action-dropdown">
+                ${!isRevoked?`<button onclick="openNokModal('${n.id}')">✏️ Edit</button>`:''}
+                ${!isRevoked&&n.email?`<button onclick="sendNokVerificationEmail('${n.id}')">📧 Send Verification</button>`:''}
+                ${!isRevoked&&!isActive?`<button onclick="activateNok('${n.id}')" style="color:var(--green);">✅ Activate Access</button>`:''}
+                ${isActive?`<button onclick="deactivateNok('${n.id}')" style="color:var(--amber);">⏸ Suspend Access</button>`:''}
+                ${!isRevoked?`<button onclick="previewNokAccess('${n.id}')">👁 Preview Access</button>`:''}
+                ${!isRevoked?`<button onclick="viewNokAudit('${n.id}')">📋 Audit Log</button>`:''}
+                ${!isRevoked?`<button onclick="revokeNok('${n.id}')" style="color:var(--red);">🚫 Revoke</button>`:''}
+                <button onclick="delNok('${n.id}')" style="color:var(--red);">🗑 Delete</button>
+              </div></div>
             </div>
           </div>`;
         });
         html += `</div>`;
-        if (p.pages > 1) html += `<div style="display:flex;gap:4px;justify-content:center;padding:16px 0">${Array.from({length:p.pages},(_,i)=>`<button class="bs sm${i+1===p.page?' on':''}" onclick="PG.nok=${i+1};renderNok()">${i+1}</button>`).join('')}</div>`;
       }
+
+      html += `<div style="margin-top:20px;padding:12px 16px;border-radius:10px;background:rgba(251,191,36,.06);border:1px solid rgba(251,191,36,.2);font-size:11px;color:var(--muted);line-height:1.7;">⚠️ <strong>Legal Notice:</strong> This system releases <strong>information only</strong>. It is not a bank, payment processor, legal will, or estate tool. It does not transfer money, assign legal ownership of debts, or create legally binding obligations.</div>`;
+
       document.getElementById('content').innerHTML = html;
     }
 
     function openNokModal(nid) {
       const n = nid ? db.nok.find(x=>x.id===nid) : null;
       const u = curUser();
-      // Contact options for linking
       const myContacts = db.contacts.filter(c=>c.userId===u.id&&!c.archived);
       const cOpts = myContacts.map(c=>`<option value="${c.id}" ${n?.nokContactId===c.id?'selected':''}>${esc(c.name)}</option>`).join('');
+      const curAccess  = n?.accessLevel  || 'view_only';
+      const curTrigger = n?.activationTrigger || 'manual';
       const d = document.createElement('div');
       d.innerHTML = `<div class="modal-bg" id="nokModalBg" onclick="if(event.target===this)this.remove()">
-        <div class="modal" onclick="event.stopPropagation()">
+        <div class="modal" style="max-width:560px;" onclick="event.stopPropagation()">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
-            <div class="modal-title" style="margin:0;">${n?'Edit':'Add'} Next of Kin</div>
+            <div class="modal-title" style="margin:0;">${n?'Edit':'Add'} Trusted Contact</div>
             <button class="gh sm" onclick="document.getElementById('nokModalBg').remove()">✕</button>
           </div>
+
+          <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:10px;">Identity</div>
           <div class="grid2">
             <div class="fg"><label>Full Legal Name *</label><input id="nok_name" value="${esc(n?.fullName||'')}" placeholder="Jane Doe"></div>
-            <div class="fg"><label>Relationship *</label><input id="nok_rel" value="${esc(n?.relationship||'')}" placeholder="Spouse, Child, Sibling..."></div>
+            <div class="fg"><label>Relationship *</label><input id="nok_rel" value="${esc(n?.relationship||'')}" placeholder="Spouse, Child, Executor..."></div>
             <div class="fg"><label>Email</label><input type="email" id="nok_email" value="${esc(n?.email||'')}"></div>
             <div class="fg"><label>Phone</label><input type="tel" id="nok_phone" value="${esc(n?.phone||'')}"></div>
           </div>
-          <div class="fg"><label>Address</label><textarea id="nok_addr" rows="2">${esc(n?.address||'')}</textarea></div>
-          <div class="fg">
-            <label>Link to Contact Record <span style="color:var(--muted);font-weight:400;">(optional — links this NOK to an existing contact)</span></label>
-            <select id="nok_cid">
-              <option value="">— No linked contact —</option>
-              ${cOpts}
-            </select>
+          <div class="fg"><label>Address <span style="font-weight:400;color:var(--muted);">(optional)</span></label><textarea id="nok_addr" rows="2">${esc(n?.address||'')}</textarea></div>
+          <div class="fg"><label>Link to Contact Record <span style="font-weight:400;color:var(--muted);">(optional)</span></label>
+            <select id="nok_cid"><option value="">— No linked contact —</option>${cOpts}</select></div>
+
+          <hr style="border:none;border-top:1px solid var(--border);margin:16px 0 12px;">
+          <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:10px;">Access Level</div>
+          <div class="fg"><select id="nok_access">
+            <option value="view_only"        ${curAccess==='view_only'?'selected':''}>👁 View Only — see contacts, entries, balances; cannot modify</option>
+            <option value="notify_only"      ${curAccess==='notify_only'?'selected':''}>🔔 Notify Only — receives alerts only; no direct record access</option>
+            <option value="limited_control"  ${curAccess==='limited_control'?'selected':''}>⚙️ Limited Control — can mark settled, send reminders, manage shared entries</option>
+            <option value="full_control"     ${curAccess==='full_control'?'selected':''}>🔑 Full Control — full read/write; for business partners or legal executors</option>
+          </select>
+          <span style="font-size:11px;color:var(--muted);margin-top:3px;line-height:1.5;">You can change this level at any time. Access only becomes active once you trigger it.</span></div>
+
+          <hr style="border:none;border-top:1px solid var(--border);margin:16px 0 12px;">
+          <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:10px;">Activation Conditions</div>
+          <div class="fg"><label>Trigger</label><select id="nok_trigger">
+            <option value="manual"           ${curTrigger==='manual'?'selected':''}>Manual — I activate this myself at any time</option>
+            <option value="inactivity_30"    ${curTrigger==='inactivity_30'?'selected':''}>30-day inactivity — notify after 30 days without login</option>
+            <option value="inactivity_60"    ${curTrigger==='inactivity_60'?'selected':''}>60-day inactivity — notify after 60 days without login</option>
+            <option value="inactivity_90"    ${curTrigger==='inactivity_90'?'selected':''}>90-day inactivity — notify after 90 days without login</option>
+            <option value="emergency"        ${curTrigger==='emergency'?'selected':''}>Emergency — triggered by secure verification request</option>
+          </select></div>
+          <div class="fg"><label>Optional Passphrase <span style="font-weight:400;color:var(--muted);">(NOK must provide this to confirm identity)</span></label>
+            <input id="nok_pass" type="text" value="${esc(n?.passphrase||'')}" placeholder="A shared code word or phrase"></div>
+
+          <hr style="border:none;border-top:1px solid var(--border);margin:16px 0 12px;">
+          <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:10px;">Data Release</div>
+          <div class="fg"><select id="nok_release">
+            <option value="full"     ${(!n||n.releaseType==='full')?'selected':''}>Full ledger export — all entries, balances, contacts</option>
+            <option value="summary"  ${n?.releaseType==='summary'?'selected':''}>Summary report only — totals and status overview</option>
+            <option value="selected" ${n?.releaseType==='selected'?'selected':''}>Selected fields only — admin-controlled release</option>
+          </select></div>
+
+          <hr style="border:none;border-top:1px solid var(--border);margin:16px 0 12px;">
+          <div class="fg"><label>Message to Recipient <span style="font-weight:400;color:var(--muted);">(included in activation notification)</span></label>
+            <textarea id="nok_msg" rows="3">${esc(n?.message||'Your kind attention is requested regarding the financial records in this account. Please review all outstanding matters carefully.')}</textarea></div>
+          <div class="fg"><label>Notes <span style="font-weight:400;color:var(--muted);">(internal — not shared with the recipient)</span></label>
+            <textarea id="nok_notes" rows="2">${esc(n?.notes||'')}</textarea></div>
+
+          <div style="background:rgba(251,191,36,.08);border:1px solid rgba(251,191,36,.3);border-radius:8px;padding:10px 14px;font-size:12px;color:var(--yellow);margin-bottom:14px;line-height:1.6;">
+            ⚠️ Releases <strong>information only</strong>. Not a legal will. Does not transfer money or assign legal ownership of debts.
           </div>
-          <div class="fg">
-            <label>Data Release Type</label>
-            <select id="nok_release">
-              <option value="full" ${(!n||n.releaseType==='full')?'selected':''}>Full ledger export</option>
-              <option value="summary" ${n?.releaseType==='summary'?'selected':''}>Summary report only</option>
-              <option value="selected" ${n?.releaseType==='selected'?'selected':''}>Selected fields only</option>
-            </select>
-          </div>
-          <div class="fg"><label>Message to Recipient</label><textarea id="nok_msg" rows="2">${esc(n?.message||'Your kind attention is requested')}</textarea></div>
-          <div class="fg"><label>Notes</label><textarea id="nok_notes" rows="2">${esc(n?.notes||'')}</textarea></div>
-          <div style="background:rgba(251,191,36,.08);border:1px solid rgba(251,191,36,.3);border-radius:8px;padding:10px 14px;font-size:12px;color:var(--yellow);margin-bottom:14px;">
-            ⚠️ This system releases <strong>information only</strong>. It is not a legal will, does not transfer money, and is not legally binding for debt assignment.
-          </div>
-          <div style="display:flex;gap:8px;justify-content:flex-end;">
+          <div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;">
             <button class="bs" onclick="document.getElementById('nokModalBg').remove()">Cancel</button>
-            <button class="btn" onclick="saveNokModal('${nid||''}')">Save</button>
+            <button class="btn" onclick="saveNokModal('${nid||''}')">💾 Save</button>
+            <button class="btn" style="background:var(--green);" onclick="saveNokModal('${nid||''}',true)">💾 Save &amp; Send Verification</button>
           </div>
         </div></div>`;
       document.body.appendChild(d.firstChild);
     }
 
-    function saveNokModal(nid) {
-      const fullName    = document.getElementById('nok_name')?.value.trim();
-      const relationship= document.getElementById('nok_rel')?.value.trim();
-      if (!fullName||!relationship) return alert('Full name and relationship required');
+    function saveNokModal(nid, sendVerif) {
+      const fullName     = document.getElementById('nok_name')?.value.trim();
+      const relationship = document.getElementById('nok_rel')?.value.trim();
+      if (!fullName || !relationship) { toast('Full name and relationship are required'); return; }
       const data = {
         fullName, relationship,
-        email:       document.getElementById('nok_email')?.value.trim()||'',
-        phone:       document.getElementById('nok_phone')?.value.trim()||'',
-        address:     document.getElementById('nok_addr')?.value.trim()||'',
-        nokContactId:document.getElementById('nok_cid')?.value||null,
-        releaseType: document.getElementById('nok_release')?.value||'full',
-        message:     document.getElementById('nok_msg')?.value.trim()||'Your kind attention is requested',
-        notes:       document.getElementById('nok_notes')?.value.trim()||''
+        email:            document.getElementById('nok_email')?.value.trim()||'',
+        phone:            document.getElementById('nok_phone')?.value.trim()||'',
+        address:          document.getElementById('nok_addr')?.value.trim()||'',
+        nokContactId:     document.getElementById('nok_cid')?.value||null,
+        accessLevel:      document.getElementById('nok_access')?.value||'view_only',
+        activationTrigger:document.getElementById('nok_trigger')?.value||'manual',
+        passphrase:       document.getElementById('nok_pass')?.value.trim()||'',
+        releaseType:      document.getElementById('nok_release')?.value||'full',
+        message:          document.getElementById('nok_msg')?.value.trim()||'Your kind attention is requested.',
+        notes:            document.getElementById('nok_notes')?.value.trim()||''
       };
+      let savedNok;
       if (nid) {
-        const n = db.nok.find(x=>x.id===nid);
-        if (n) Object.assign(n, data);
+        savedNok = db.nok.find(x=>x.id===nid);
+        if (savedNok) Object.assign(savedNok, data);
         logAudit('edit_nok',{nid,fullName});
-        toast('NOK updated');
+        toast('Trusted contact updated');
       } else {
-        db.nok.push({ id:uuid(), userId:curUser().id, ...data, createdAt:Date.now() });
+        savedNok = { id:uuid(), userId:curUser().id, ...data, status:'unverified', nokAuditLog:[], createdAt:Date.now() };
+        db.nok.push(savedNok);
         logAudit('add_nok',{fullName,relationship});
-        toast('NOK added');
+        toast('Trusted contact added');
       }
       save();
       document.getElementById('nokModalBg')?.remove();
+      if (sendVerif && savedNok?.email) sendNokVerificationEmail(savedNok.id);
       renderNok();
     }
 
+    function activateNok(nid) {
+      const n = db.nok.find(x=>x.id===nid);
+      if (!n || !confirm('Activate access for ' + n.fullName + '?\n\nThey will be notified by email if one is on file.')) return;
+      n.status = 'active'; n.activatedAt = Date.now(); n.triggerActivatedBy = 'manual';
+      if (!n.nokAuditLog) n.nokAuditLog = [];
+      n.nokAuditLog.push({ action:'activated', by:curUser().email, at:Date.now(), detail:'Manual activation by account owner' });
+      save(); logAudit('activate_nok',{nid,fullName:n.fullName});
+      toast(n.fullName + ' — access activated');
+      if (n.email) _sendNokActivationEmail(n);
+      renderNok();
+    }
+
+    function deactivateNok(nid) {
+      const n = db.nok.find(x=>x.id===nid);
+      if (!n) return;
+      n.status = 'verified'; n.activatedAt = null; n.triggerActivatedBy = null;
+      if (!n.nokAuditLog) n.nokAuditLog = [];
+      n.nokAuditLog.push({ action:'suspended', by:curUser().email, at:Date.now(), detail:'Access suspended by account owner' });
+      save(); toast(n.fullName + ' — access suspended'); renderNok();
+    }
+
+    function revokeNok(nid) {
+      const n = db.nok.find(x=>x.id===nid);
+      if (!n || !confirm('Permanently revoke access for ' + n.fullName + '?\n\nThis cannot be undone.')) return;
+      n.status = 'revoked'; n.revokedAt = Date.now();
+      if (!n.nokAuditLog) n.nokAuditLog = [];
+      n.nokAuditLog.push({ action:'revoked', by:curUser().email, at:Date.now(), detail:'Permanently revoked by account owner' });
+      save(); logAudit('revoke_nok',{nid,fullName:n.fullName}); toast(n.fullName + ' — access permanently revoked'); renderNok();
+    }
+
     function delNok(nid) {
-      if (!confirm('Remove this Next of Kin record?')) return;
+      if (!confirm('Remove this trusted contact record?')) return;
       db.nok = db.nok.filter(x=>x.id!==nid);
-      save(); logAudit('delete_nok',{nid}); toast('NOK removed'); renderNok();
+      save(); logAudit('delete_nok',{nid}); toast('Trusted contact removed'); renderNok();
+    }
+
+    async function sendNokVerificationEmail(nid) {
+      const n = db.nok.find(x=>x.id===nid);
+      if (!n || !n.email) { toast('No email on this record'); return; }
+      const u = curUser();
+      const tok = localStorage.getItem('mxi_token');
+      const headers = { 'Content-Type':'application/json' };
+      if (tok) headers['Authorization'] = 'Bearer ' + tok;
+      try {
+        const res = await fetch('/api/email', { method:'POST', credentials:'include', headers,
+          body: JSON.stringify({ action:'send-nok-verification', recipientEmail:n.email, recipientName:n.fullName,
+            fromName:u.displayName||u.email, relationship:n.relationship, accessLevel:n.accessLevel||'view_only',
+            siteUrl:db.settings?.siteUrl||window.location.origin, appName:db.settings?.appName||'Money IntX',
+            tagline:db.settings?.tagline||'Making Money Matters Memorable', logoData:db.settings?.logoData||'' }) });
+        const r = await res.json().catch(()=>({}));
+        if (r.ok) {
+          if (!n.nokAuditLog) n.nokAuditLog = [];
+          n.nokAuditLog.push({ action:'verification_sent', by:u.email, at:Date.now(), detail:'Verification email sent to '+n.email });
+          save(); toast('Verification email sent to ' + n.email);
+        } else { toast('Email failed: '+(r.error||'unknown'), 4000); }
+      } catch(e) { toast('Could not send email', 3000); }
+    }
+
+    async function _sendNokActivationEmail(n) {
+      const u = curUser();
+      const tok = localStorage.getItem('mxi_token');
+      const headers = { 'Content-Type':'application/json' };
+      if (tok) headers['Authorization'] = 'Bearer ' + tok;
+      try {
+        await fetch('/api/email', { method:'POST', credentials:'include', headers,
+          body: JSON.stringify({ action:'send-nok-activation', recipientEmail:n.email, recipientName:n.fullName,
+            fromName:u.displayName||u.email, relationship:n.relationship, message:n.message||'',
+            accessLevel:n.accessLevel||'view_only', releaseType:n.releaseType||'full',
+            triggerReason:n.triggerActivatedBy||'manual',
+            siteUrl:db.settings?.siteUrl||window.location.origin, appName:db.settings?.appName||'Money IntX',
+            tagline:db.settings?.tagline||'Making Money Matters Memorable', logoData:db.settings?.logoData||'' }) });
+      } catch(e) { console.error('[nok activation email]', e); }
+    }
+
+    function viewNokAudit(nid) {
+      const n = db.nok.find(x=>x.id===nid);
+      if (!n) return;
+      const log = (n.nokAuditLog||[]).slice().reverse();
+      const rows = log.length === 0
+        ? '<p style="color:var(--muted);font-size:13px;text-align:center;padding:16px;">No actions recorded yet.</p>'
+        : log.map(e=>`<div style="padding:8px 0;border-bottom:1px solid var(--border);">
+            <div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:4px;">
+              <strong style="font-size:13px;text-transform:capitalize;">${esc((e.action||'').replace(/_/g,' '))}</strong>
+              <span style="font-size:11px;color:var(--muted);">${new Date(e.at).toLocaleString()}</span>
+            </div>
+            <div style="font-size:12px;color:var(--muted);">${esc(e.detail||'')}${e.by?' — by '+esc(e.by):''}</div>
+          </div>`).join('');
+      document.body.insertAdjacentHTML('beforeend', `<div class="modal-bg" onclick="this.remove()"><div class="modal" style="max-width:480px;" onclick="event.stopPropagation()">
+        <div class="modal-title">Audit Log — ${esc(n.fullName)}</div>${rows}
+        <div style="margin-top:14px;text-align:right;"><button class="bs" onclick="this.closest('.modal-bg').remove()">Close</button></div>
+      </div></div>`);
+    }
+
+    function previewNokAccess(nid) {
+      const n = db.nok.find(x=>x.id===nid);
+      if (!n) return;
+      const u = curUser();
+      const ownEntries  = db.entries.filter(e=>e.userId===u.id&&!e.archived);
+      const ownContacts = db.contacts.filter(c=>c.userId===u.id&&!c.archived);
+      let tYou=0, tThem=0;
+      ownContacts.forEach(c=>{ tYou+=(c.startToy||0); tThem+=(c.startYot||0); });
+      ownEntries.forEach(e=>{ const a=parseFloat(e.amount)||0; if(e.type==='they_owe_you')tYou+=a; else if(e.type==='you_owe_them')tThem+=a; else if(e.type==='they_paid_you')tYou-=a; else if(e.type==='you_paid_them')tThem-=a; });
+      const notifyOnly = n.accessLevel === 'notify_only';
+      const canModify  = ['limited_control','full_control'].includes(n.accessLevel);
+      let preview = notifyOnly
+        ? `<div style="text-align:center;padding:20px;color:var(--muted);"><div style="font-size:32px;margin-bottom:8px;">🔔</div><div style="font-size:14px;">Notifications only — no direct record access.</div><div style="margin-top:14px;font-size:13px;background:var(--bg3);padding:12px;border-radius:8px;text-align:left;line-height:1.8;"><strong>Notified when:</strong><br>• Payments are overdue<br>• New records are created<br>• Account is inactive (${esc(_nokTriggerLabel(n))})</div></div>`
+        : `<div><div class="grid2" style="margin-bottom:12px;">
+            <div class="stat-card"><div class="stat-lbl">Others Owe Account</div><div class="stat-val" style="color:var(--green);">${fmt(tYou)}</div></div>
+            <div class="stat-card"><div class="stat-lbl">Account Owes Others</div><div class="stat-val" style="color:var(--red);">${fmt(tThem)}</div></div>
+          </div>
+          <div style="font-size:12px;color:var(--muted);margin-bottom:10px;">${ownContacts.length} contacts · ${ownEntries.length} entries</div>
+          <div style="font-size:12px;${canModify?'background:rgba(74,222,128,.08);border:1px solid rgba(74,222,128,.2);color:var(--green);':'background:var(--bg3);color:var(--muted);'}border-radius:6px;padding:8px 12px;">
+            ${canModify?'✅ Can mark records settled, send reminders'+(n.accessLevel==='full_control'?', and full account access':''):'👁 Read-only — cannot modify any records'}</div></div>`;
+      document.body.insertAdjacentHTML('beforeend', `<div class="modal-bg" onclick="this.remove()"><div class="modal" style="max-width:460px;" onclick="event.stopPropagation()">
+        <div class="modal-title">Access Preview — ${esc(n.fullName)}</div>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;flex-wrap:wrap;">${_nokStatusBadge(n)}${_nokAccessBadge(n.accessLevel||'view_only')}<span style="font-size:12px;color:var(--muted);">${esc(n.relationship)}</span></div>
+        ${preview}
+        <div style="margin-top:10px;font-size:12px;color:var(--muted);font-style:italic;">Preview of what ${esc(n.fullName)} would see when access is activated.</div>
+        <div style="margin-top:14px;text-align:right;"><button class="bs" onclick="this.closest('.modal-bg').remove()">Close</button></div>
+      </div></div>`);
     }
 
     // ============ PAGE: USER MANAGEMENT ============
@@ -7235,9 +7478,9 @@
       if (entries.length > 20) html += `<tr><td colspan="5" style="color:var(--muted);text-align:center;font-size:12px;">…and ${entries.length - 20} more</td></tr>`;
       html += `</tbody></table></div>`;
       // NOK section — scoped to this user only
-      html += `<h3>Next of Kin (${noks.length})</h3>`;
+      html += `<h3>Next of Kin / Trusted Access (${noks.length})</h3>`;
       if (noks.length === 0) {
-        html += `<p style="color:var(--muted);font-size:13px;margin-bottom:20px;">No Next of Kin designated for this user.</p>`;
+        html += `<p style="color:var(--muted);font-size:13px;margin-bottom:20px;">No trusted contacts designated for this user.</p>`;
       } else {
         html += `<div style="display:flex;flex-direction:column;gap:8px;margin-bottom:20px;">`;
         noks.forEach(n => {
@@ -9442,8 +9685,8 @@
             </div>
             <div class="lp-feature-card">
               <div class="lp-feature-icon">🔐</div>
-              <h3>Next of Kin Access</h3>
-              <p>Your records stay accessible if needed — secure and controlled.</p>
+              <h3>Next of Kin (Trusted Access)</h3>
+              <p>Designate trusted contacts who can access your records if you're unavailable. Set access levels, triggers, and stay in full control.</p>
             </div>
             <div class="lp-feature-card">
               <div style="margin-bottom:14px;">
