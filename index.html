@@ -2014,8 +2014,7 @@
           </tbody></table></div>`}
         </div>`;
 
-        // Shared with you section — loaded async, replaces onboarding if records exist
-        html += `<div id="shared-with-me"></div>`;
+        // Shared records are now integrated into Recent Entries above (no separate panel needed)
 
         // Show first entry CTA only if no entries — async loader will hide it if shared records found
         if (myEntries.length === 0) {
@@ -2349,142 +2348,13 @@
         const ctaEl = document.getElementById('first-entry-cta');
         if (ctaEl) ctaEl.style.display = 'none';
 
+        // Lower panel removed — shared records are now integrated into
+        // Recent Entries (dashboard) and the Shared With Me tab (entries page).
+        // Clear any leftover panel content
+        const el2 = document.getElementById('shared-with-me');
+        if (el2) el2.innerHTML = '';
         const justLinked = sessionStorage.getItem('justLinkedShare');
         if (justLinked) sessionStorage.removeItem('justLinkedShare');
-
-        let html = `<div class="card" style="margin-top:16px;${justLinked ? 'border:2px solid var(--accent);' : ''}">
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
-            <h3 style="margin:0;">🔗 Shared With You</h3>
-            <span style="font-size:12px;color:var(--muted)">${records.length} record${records.length !== 1 ? 's' : ''}</span>
-          </div>`;
-
-        if (justLinked) {
-          html += `<div style="background:rgba(108,99,255,.08);border:1px solid rgba(108,99,255,.2);border-radius:8px;padding:12px 16px;margin-bottom:14px;font-size:13px;color:var(--accent);font-weight:600;">
-            ✅ Record linked to your account — you can view it any time from here.
-          </div>`;
-        }
-
-        // Direction label from RECIPIENT's perspective
-        const _recipDirLabel = t => ({
-          they_owe_you:'You Owe',  invoice:'Invoice Due',  bill:'Bill Due',
-          you_owe_them:'Owed To You', lend:'You Borrowed', borrow:'Owed To You',
-          they_paid_you:'I Settled Them',  you_paid_them:'They Settled Me', gift:'Gift'
-        }[t] || 'Shared');
-        const _recipDirColor = t => (t==='they_owe_you'||t==='invoice'||t==='bill'||t==='lend') ? 'var(--red)' : 'var(--green)';
-
-        // Show "New records received" banner for unconfirmed, non-dismissed records
-        const pendingRecs = records.filter(r => !r.confirmed && !r.entry?.dismissed && !r.recipientClosed);
-        if (pendingRecs.length > 0) {
-          html += `<div style="background:#fef3c7;border:1px solid #fde68a;border-radius:10px;padding:14px 16px;margin-bottom:14px;">
-            <div style="font-weight:700;font-size:14px;margin-bottom:10px;color:#92400e;">📬 New Record${pendingRecs.length>1?'s':''} Received (${pendingRecs.length})</div>`;
-          pendingRecs.forEach(r => {
-            const pe = r.entry;
-            const pAmt = parseFloat(pe?.amount||0);
-            html += `<div style="background:#fff;border:1px solid #fde68a;border-radius:8px;padding:10px 14px;margin-bottom:8px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
-              <div>
-                <div style="font-weight:700;font-size:13px;">${esc(pe?.fromName||'Someone')}</div>
-                <div style="font-size:12px;color:var(--muted);">${fmt(pAmt)} · <span style="color:${_recipDirColor(pe?.txType)};font-weight:600;">${_recipDirLabel(pe?.txType)}</span> · ${pe?.date ? new Date(pe.date).toLocaleDateString() : ''}</div>
-              </div>
-              <div style="display:flex;gap:8px;">
-                ${!_isSettlementEntry(pe) ? `<button onclick="doConfirmShared('${esc(r.token)}')" style="background:var(--accent);color:#fff;border:none;border-radius:7px;padding:7px 14px;font-size:12px;font-weight:700;cursor:pointer;">✅ Confirm &amp; Track</button>` : ''}
-                <button onclick="doDismissShared('${esc(r.token)}')" style="background:var(--bg3);color:var(--text);border:1px solid var(--border);border-radius:7px;padding:7px 14px;font-size:12px;cursor:pointer;">✕ Dismiss</button>
-              </div>
-            </div>`;
-          });
-          html += `</div>`;
-        }
-
-        const hiddenCount  = records.filter(r => _sharedHidden.has(r.token)).length;
-        const visibleRecs  = records.filter(r => !_sharedHidden.has(r.token));
-
-        html += `<div class="tbl-wrap"><table><thead><tr>
-          <th>From</th><th>Amount</th><th>Direction</th><th>Date</th><th>Status</th><th style="width:36px;"></th>
-        </tr></thead><tbody>`;
-
-        visibleRecs.forEach(r => {
-          const e       = r.entry;
-          const rawAmt  = parseFloat(e.amount) || 0;
-          const offset  = _sharedOffsets[r.token] || 0;
-          const netAmt  = Math.max(0, rawAmt - offset);
-          const isClosed = (e.status === 'closed' || r.recipientClosed);
-          const isExpired = isClosed;
-
-          // Amount display: show net with strikethrough original if depreciated
-          const amtHtml = offset > 0
-            ? `<span style="text-decoration:line-through;color:var(--muted);font-size:12px;">$${rawAmt.toFixed(2)}</span> <strong>$${netAmt.toFixed(2)}</strong>`
-            : `<strong>$${rawAmt.toFixed(2)}</strong>`;
-
-          const dt = e.date ? new Date(e.date).toLocaleDateString() : '—';
-
-          // Status badge
-          const statusMap = { posted:'#888', accepted:'var(--green)', rejected:'var(--red)',
-                              settled:'var(--accent)', disputed:'orange', closed:'var(--muted)',
-                              paid:'var(--green)', voided:'var(--muted)' };
-          let statusLabel = e.status || 'posted';
-          let statusColor = statusMap[statusLabel] || '#888';
-          if (isExpired) { statusLabel = 'expired'; statusColor = 'var(--muted)'; }
-          if (offset > 0 && !isExpired) {
-            if (netAmt === 0) { statusLabel = 'settled'; statusColor = 'var(--green)'; }
-            else              { statusLabel = 'partial'; statusColor = 'var(--accent)'; }
-          }
-          const sBadge = `<span style="font-size:11px;font-weight:700;color:${statusColor};text-transform:uppercase;">${statusLabel}</span>`;
-
-          const siteUrl = e.siteUrl || 'https://moneyinteractions.com';
-          const rowStyle = isExpired ? 'opacity:.55;' : '';
-
-          // Make sender name clickable — resolve identity (prefer display name over email)
-          const _displayFromName = e._resolvedFromName || e.fromName || '—';
-          const _senderContact = (() => {
-            const u2 = curUser();
-            if (!u2) return null;
-            const nl = _displayFromName.toLowerCase().trim();
-            const byName  = db.contacts.find(c => c.userId === u2.id && (c.name||'').toLowerCase().trim() === nl);
-            if (byName) return byName;
-            // Also try matching by email (fromName might be email)
-            const emailLk = (e.fromName||'').toLowerCase().trim();
-            return db.contacts.find(c => c.userId === u2.id && (c.email||'').toLowerCase().trim() === emailLk) || null;
-          })();
-          const _senderLink = _senderContact
-            ? `<a href="#" onclick="cLink_open('${_senderContact.id}');return false;" style="font-weight:700;color:var(--accent);text-decoration:none;">${esc(_displayFromName)}</a>`
-            : `<strong>${esc(_displayFromName)}</strong>`;
-          const _pendingBadge = !r.confirmed && !e.dismissed ? `<span style="font-size:10px;background:#fef3c7;color:#92400e;border:1px solid #fde68a;border-radius:4px;padding:1px 5px;margin-left:4px;font-weight:700;">NEW</span>` : '';
-
-          html += `<tr style="${rowStyle}">
-            <td>${_senderLink}${_pendingBadge}</td>
-            <td>${amtHtml}</td>
-            <td><span style="font-weight:700;color:${isExpired?'var(--muted)':_recipDirColor(e.txType)}">${esc(_recipDirLabel(e.txType))}</span></td>
-            <td>${dt}</td>
-            <td>${sBadge}</td>
-            <td>
-              <div class="action-menu">
-                <button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button>
-                <div class="action-dropdown">
-                  <a href="${esc(siteUrl)}/view?t=${esc(r.token)}" target="_blank" style="display:block;padding:8px 14px;font-size:13px;color:var(--accent);text-decoration:none;font-weight:600;">👁 View</a>
-                  ${!r.confirmed && !e.dismissed && !_isSettlementEntry(e) ? `<button onclick="doConfirmShared('${esc(r.token)}')">✅ Confirm &amp; Track</button>` : ''}
-                  ${!r.confirmed && !e.dismissed ? `<button onclick="doDismissShared('${esc(r.token)}')">✕ Dismiss</button>` : ''}
-                  ${!isExpired && e.status !== 'settled' && e.status !== 'paid' ? `<button onclick="_sharedMarkPaid('${esc(r.token)}')" style="color:var(--green);font-weight:700;">💰 Record Payment</button>` : ''}
-                  <button onclick="_sharedDepreciateModal('${esc(r.token)}','${esc(e.fromName||'')}',${rawAmt})">📉 Depreciate</button>
-                  ${!isExpired ? `<button onclick="_sharedExpire('${esc(r.token)}')">⏰ Expire</button>` : ''}
-                  <button onclick="_sharedHideToggle('${esc(r.token)}')">🙈 Hide</button>
-                </div>
-              </div>
-            </td>
-          </tr>`;
-        });
-
-        if (hiddenCount > 0) {
-          html += `<tr><td colspan="6" style="text-align:center;padding:10px;font-size:12px;color:var(--muted);">
-            ${hiddenCount} hidden record${hiddenCount!==1?'s':''} —
-            <button style="background:none;border:none;color:var(--accent);font-size:12px;cursor:pointer;font-weight:600;padding:0;"
-              onclick="_cachedSharedRecords.forEach(r=>_sharedHidden.delete(r.token));_saveSharedPrefs();_loadSharedWithMe();">Show all</button>
-          </td></tr>`;
-        }
-
-        html += `</tbody></table></div></div>`;
-        if (el) el.innerHTML = html;
-        // Also populate entries-page shared section if visible
-        const entriesSharedEl = document.getElementById('entries-shared-with-me');
-        if (entriesSharedEl) entriesSharedEl.innerHTML = html;
 
         // ── Update balance stat cards with shared-with-me amounts ──────────
         // txType is from SENDER's perspective:
@@ -4061,10 +3931,7 @@
         </div>`;
       html += '</div>';
 
-      // Placeholder for Shared With You section below entries (dashboard-style)
-      if (isStd) {
-        html += `<div id="entries-shared-with-me" style="margin-top:0;"></div>`;
-      }
+      // Shared records integrated into entries table via tabs — no separate panel needed
       document.getElementById('content').innerHTML = html;
 
       // ── Floating bulk action bar — injected to body so it's truly fixed ──
