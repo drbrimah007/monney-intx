@@ -5502,6 +5502,7 @@
 
     async function openNotifyModal(eid) {
       window._notifyWhoVal = 'them'; // reset to default on each open
+      window._notifyWhenVal = 'now'; // default to immediate send
       const e = db.entries.find(x => x.id === eid);
       if (!e) return;
       let c = db.contacts.find(x => x.id === e.cId);
