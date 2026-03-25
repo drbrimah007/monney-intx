@@ -7251,12 +7251,14 @@
 
       let html = `<div class="page-header" style="align-items:center;">
         <div style="display:flex;align-items:center;gap:12px;">
-          <img src="group-logo.png" alt="Groups" style="width:44px;height:44px;border-radius:50%;object-fit:cover;">
+          <img src="group-logo.png" alt="Groups" style="width:110px;height:110px;border-radius:50%;object-fit:cover;">
           <div><h2 style="margin:0;">Group Savings</h2><p style="color:var(--muted);font-size:12px;margin:2px 0 0;">Contributions tracked separately — does not affect your ledger.</p></div>
         </div>
-        <button class="btn sm" onclick="openNewGroup()">+ New Group</button>
+        <div style="display:flex;align-items:center;gap:10px;">
+          <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;"><input type="checkbox" ${showArchived?'checked':''} onchange="window._arch_groups=this.checked;renderGroups()"> Archived</label>
+          <button class="btn sm" onclick="openNewGroup()">+ New Group</button>
+        </div>
       </div>`;
-      html += `<div style="margin-bottom:12px;"><label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;"><input type="checkbox" ${showArchived?'checked':''} onchange="window._arch_groups=this.checked;renderGroups()"> Show Archived</label></div>`;
 
       if (filtered.length === 0) {
         html += `<div class="card"><p style="color:var(--muted);font-size:14px;padding:12px 0;">No groups yet. Create one to start tracking group savings.</p></div>`;
@@ -7620,10 +7622,13 @@
 
       let html = `<div class="page-header" style="align-items:center;">
         <div style="display:flex;align-items:center;gap:12px;">
-          <img src="investment-logo.png" alt="Investments" style="width:44px;height:44px;border-radius:50%;object-fit:cover;">
+          <img src="investment-logo.png" alt="Investments" style="width:110px;height:110px;border-radius:50%;object-fit:cover;">
           <div><h2 style="margin:0;">Investments</h2><p style="color:var(--muted);font-size:12px;margin:2px 0 0;">Track returns and partners — does not affect your ledger.</p></div>
         </div>
-        <button class="btn sm" onclick="openNewInvestment()">+ New Investment</button>
+        <div style="display:flex;align-items:center;gap:10px;">
+          <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;"><input type="checkbox" ${showArchived?'checked':''} onchange="window._arch_investments=this.checked;renderInvestments()"> Archived</label>
+          <button class="btn sm" onclick="openNewInvestment()">+ New Investment</button>
+        </div>
       </div>`;
       html += `<div class="grid3" style="margin-bottom:16px;">
         <div class="stat-card"><div class="stat-lbl">Total Invested</div><div class="stat-val">${fmt(totalInvested)}</div></div>
@@ -7637,7 +7642,6 @@
           <option value="all"${typeFilter==='all'?' selected':''}>All Types</option>
           ${Object.entries(INV_TYPES).map(([k,v])=>`<option value="${k}"${typeFilter===k?' selected':''}>${v}</option>`).join('')}
         </select>
-        <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;"><input type="checkbox" ${showArchived?'checked':''} onchange="window._arch_investments=this.checked;renderInvestments()"> Archived</label>
       </div>`;
 
       const displayed = typeFilter === 'all' ? filtered : filtered.filter(inv => inv.type === typeFilter);
