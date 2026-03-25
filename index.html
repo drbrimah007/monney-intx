@@ -4738,7 +4738,7 @@
           if (_ct && !_ct.email) { _ct.email = _neInlineEmail; saveNow(); }
         }
         const _notifyMsg = _neNotifyMsg || (invoiceNumber ? `Invoice ${invoiceNumber} has been created for your records.` : 'A new record has been created for your account.');
-        _sendReminder(newEid, _notifyMsg, _neNotifyWho);
+        _sendReminder(newEid, _notifyMsg, _neNotifyWho, { isInitial: true });
       }
     }
 
@@ -5490,7 +5490,8 @@
 
     // Sends an explicit reminder for an existing entry (sender action only).
     // Logs as type 'reminder' — distinct from the original send/share event.
-    async function _sendReminder(eid, message, who) {
+    async function _sendReminder(eid, message, who, opts) {
+      const _isInitial = opts?.isInitial || false;
       if (!_canSendEmail('reminder_' + eid)) return;
       // Disable submit button while sending
       const _remBtn = document.querySelector('#notifyModalBg .btn.sm, .notify-send-btn');
@@ -5526,18 +5527,24 @@
       const _notifNow = Date.now();
       db.notifs.push({
         id: uuid(), userId: u.id, cId: e.cId, eid,
-        type: 'reminder', isReminder: true,
+        type: _isInitial ? 'notification' : 'reminder',
+        isReminder: !_isInitial,
         msg: message, channel: 'email', sent: false,
         who, sentTo: toAddresses,
         read: false, createdAt: _notifNow
       });
-      // Update activity metadata — reminderCount tracks explicit Send Reminder actions
+      // Update activity metadata — reminderCount only tracks explicit follow-up reminders
       e.lastActivityAt     = _notifNow;
-      e.lastReminderAt     = _notifNow;
-      e.lastReminderMethod = 'email';
-      e.reminderCount      = (e.reminderCount || 0) + 1;
+      if (_isInitial) {
+        e.lastNotifiedAt     = _notifNow;
+        e.lastNotifyMethod   = 'email';
+      } else {
+        e.lastReminderAt     = _notifNow;
+        e.lastReminderMethod = 'email';
+        e.reminderCount      = (e.reminderCount || 0) + 1;
+      }
       save();
-      logAudit('send_reminder', { eid, to: who });
+      logAudit(_isInitial ? 'send_notification' : 'send_reminder', { eid, to: who });
       if (toAddresses.length === 0) {
         toast('⚠️ No email on record for this contact — notification saved but not emailed.', 4000);
         return;
@@ -5635,14 +5642,14 @@
           });
           const _result = await _resp.json().catch(() => ({}));
           if (!db.emailLog) db.emailLog = [];
-          db.emailLog.push({ id: uuid(), ts: Date.now(), type: 'reminder', to: addr, status: _result.ok ? 'sent' : 'failed', error: _result.error || null, invoiceNumber: e.invoiceNumber || null });
+          db.emailLog.push({ id: uuid(), ts: Date.now(), type: _isInitial ? 'notification' : 'reminder', to: addr, status: _result.ok ? 'sent' : 'failed', error: _result.error || null, invoiceNumber: e.invoiceNumber || null });
           if (_result.ok) _emailOk++; else _emailFail++;
         }
         save();
         // Mark notification as sent
         const notif = db.notifs.find(n => n.eid === eid && n.msg === message);
         if (notif) { notif.sent = true; save(); }
-        if (_emailOk > 0 && _emailFail === 0) toast('✅ Reminder sent to ' + toAddresses.join(', '));
+        if (_emailOk > 0 && _emailFail === 0) toast(_isInitial ? '✅ Notification sent to ' + toAddresses.join(', ') : '✅ Reminder sent to ' + toAddresses.join(', '));
         else if (_emailOk > 0) toast('⚠️ Sent to ' + _emailOk + ', failed ' + _emailFail);
         else toast('❌ Email failed — check Settings > Email Log', 4000);
       } catch(err) {
