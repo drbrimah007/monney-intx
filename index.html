@@ -410,7 +410,7 @@
       disputed: 'Disputed',
       paid: 'Settled',
       settled: 'Settled',
-      payment: 'Payment',
+      payment: 'Receipt',
       partially_settled: 'Partially Settled',
       overdue: 'Overdue',
       voided: 'Voided',
@@ -854,9 +854,9 @@
       });
       // Ensure each entry has a valid status
       db.entries.forEach(e => { if (!ENTRY_STATUS[e.status]) e.status = 'posted'; });
-      // Change receipt entries status from 'settled' to 'payment'
+      // Change all settlement/receipt entries status from 'settled' to 'payment' (shows as "Receipt")
       db.entries.forEach(e => {
-        if ((e.isReceipt || e.settledByRecipient) && e.status === 'settled') {
+        if (e.status === 'settled' && (e.isReceipt || e.settledByRecipient || e.linkedInvoiceId)) {
           e.status = 'payment';
         }
       });
@@ -1875,8 +1875,9 @@
               } else if (_existingE && mr.entry) {
                 // ── Status + amount sync: keep recipient's isShared entry in sync with token ──
                 let _entryChanged = false;
-                // Don't overwrite 'payment' status on receipt entries with 'settled' from token
-                const _skipStatusSync = _existingE.status === 'payment' && (mr.entry.status === 'settled' || !mr.entry.status);
+                // Don't overwrite 'payment'/'receipt' status on receipt entries with 'settled' from token
+                const _isReceiptEntry = _existingE.isReceipt || _existingE.settledByRecipient || _existingE.linkedInvoiceId;
+                const _skipStatusSync = _isReceiptEntry && _existingE.status === 'payment' && (mr.entry.status === 'settled' || !mr.entry.status);
                 if (mr.entry.status && _existingE.status !== mr.entry.status && !_skipStatusSync) {
                   _existingE.status = mr.entry.status; _entryChanged = true;
                 }
@@ -3320,7 +3321,7 @@
         id: uuid(), userId: curUser().id, cId: e.cId, txType: creditType,
         amount: applyAmt,
         note: `Settlement for ${docRef}`,
-        date: Date.now(), status: 'settled', archived: false, shared: false,
+        date: Date.now(), status: 'payment', archived: false, shared: false,
         responses: [], templateId: null, templateData: {},
         invoiceNumber: null, entryNum: db.settings.entryCounter, createdAt: Date.now(),
         linkedInvoiceId: eid
@@ -6554,7 +6555,7 @@
         if (t === 'closed')    return `<span class="badge badge-gray" style="font-size:11px;">🔒 Closed</span>`;
         if (t === 'reminder')  return `<span class="badge" style="background:rgba(239,68,68,.12);color:#dc2626;font-size:11px;">🚩 Reminder</span>`;
         if (t === 'self-reminder') return `<span class="badge" style="background:rgba(245,158,11,.12);color:#d97706;font-size:11px;">⏰ Self-Reminder</span>`;
-        if (t === 'payment')   return `<span class="badge" style="background:rgba(22,163,74,.12);color:#16a34a;font-size:11px;">💰 Payment</span>`;
+        if (t === 'payment')   return `<span class="badge" style="background:rgba(22,163,74,.12);color:#16a34a;font-size:11px;">📋 Receipt</span>`;
         if (t === 'fulfilled') return `<span class="badge badge-green" style="font-size:11px;">✅ Fulfilled</span>`;
         if (t === 'settlement_pending')   return `<span class="badge" style="background:rgba(245,158,11,.12);color:#d97706;font-size:11px;">⏳ Review Payment</span>`;
         if (t === 'settlement_confirmed') return `<span class="badge" style="background:rgba(22,163,74,.12);color:#16a34a;font-size:11px;">✅ Payment Confirmed</span>`;
