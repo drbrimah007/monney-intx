@@ -5059,7 +5059,17 @@
       if (isFulfilled) {
         html += `<button onclick="${pre}editFulfillDetails('${eid}')">Edit Fulfillment</button>`;
       }
-      html += `<button onclick="${pre}openNotifyModal('${eid}')">Send Reminder</button>`;
+      // Whoever owes gets "Remind Me", whoever is owed gets "Send Reminder"
+      // Sender recorded "I Owe Them" (you_owe_them) → sender OWES → Remind Me
+      // Sender recorded "They Owe Me" / Invoice / Bill → sender is OWED → Send Reminder
+      const _senderOwes = e.txType === 'you_owe_them' || e.txType === 'you_paid_them';
+      if (!settled) {
+        if (_senderOwes) {
+          html += `<button onclick="${pre}_selfRemindMe('${eid}')">Remind Me</button>`;
+        } else {
+          html += `<button onclick="${pre}openNotifyModal('${eid}')">Send Reminder</button>`;
+        }
+      }
 
       // ── Section 3: More Actions ──────────────────────────────────────
       html += `<hr style="border:none;border-top:1px solid var(--border);margin:4px 0;">`;
@@ -5134,17 +5144,25 @@
       if (!e || !e.isShared) return '';
       const st = e.status || 'posted';
       const isTerminal = st === 'settled' || st === 'voided' || st === 'fulfilled' || st === 'cancelled' || st === 'payment';
-      const isRemindable = (e.txType === 'they_owe_you' || e.txType === 'you_owe_them' || e.txType === 'borrow') && !isTerminal;
       const siteUrl = e.fromSiteUrl || db.settings?.siteUrl || window.location.origin;
       const viewUrl = e.shareToken ? siteUrl + '/view?t=' + e.shareToken : '#';
+      // Receiver's txType is already flipped. Use senderTxType to determine who owes.
+      // If sender recorded "they_owe_you" → receiver OWES → Remind Me
+      // If sender recorded "you_owe_them" → receiver is OWED → Send Reminder
+      const _senderTx = e.senderTxType || e.txType;
+      const _receiverOwes = _senderTx === 'they_owe_you' || _senderTx === 'invoice' || _senderTx === 'bill' || _senderTx === 'lend';
 
       let html = '';
       html += `<a href="${esc(viewUrl)}" target="_blank" style="display:block;padding:8px 14px;font-size:13px;color:var(--accent);text-decoration:none;font-weight:600;">View</a>`;
       if (!isTerminal) {
         html += `<button onclick="_sharedMarkPaid('${esc(e.shareToken)}')" style="color:var(--green);font-weight:700;">Record Payment</button>`;
       }
-      if (isRemindable) {
-        html += `<button onclick="_selfRemindMe('${esc(e.shareToken)}')">Remind Me</button>`;
+      if (!isTerminal) {
+        if (_receiverOwes) {
+          html += `<button onclick="_selfRemindMe('${esc(e.shareToken)}')">Remind Me</button>`;
+        } else {
+          html += `<button onclick="openNotifyModal('${eid}')">Send Reminder</button>`;
+        }
       }
       html += `<hr style="border:none;border-top:1px solid var(--border);margin:4px 0;">`;
       html += e.noLedger
@@ -5163,7 +5181,10 @@
       const isSettled = e?.status === 'settled' || e?.status === 'paid' || e?.status === 'fulfilled' || e?.status === 'cancelled';
       const _isReceipt = e?.linkedInvoiceId || e?.settledByRecipient || e?.txType === 'they_paid_you' || e?.txType === 'you_paid_them';
       const isPending = !r.confirmed && !e?.dismissed && !_isReceipt;
-      const isRemindable = (e?.txType === 'you_owe_them' || e?.txType === 'borrow') && !isSettled;
+      // Sender's txType (not flipped yet for pending records)
+      // If sender recorded "they_owe_you" → receiver OWES → Remind Me
+      // If sender recorded "you_owe_them" → receiver is OWED → Send Reminder
+      const _receiverOwes = e?.txType === 'they_owe_you' || e?.txType === 'invoice' || e?.txType === 'bill' || e?.txType === 'lend';
 
       let html = '';
       html += `<a href="${esc(siteUrl)}/view?t=${esc(r.token)}" target="_blank" style="display:block;padding:8px 14px;font-size:13px;color:var(--accent);text-decoration:none;font-weight:600;">View</a>`;
@@ -5174,8 +5195,12 @@
       if (!isSettled) {
         html += `<button onclick="_sharedMarkPaid('${esc(r.token)}')" style="color:var(--green);font-weight:700;">Record Payment</button>`;
       }
-      if (isRemindable) {
-        html += `<button onclick="_selfRemindMe('${esc(r.token)}')">Remind Me</button>`;
+      if (!isSettled) {
+        if (_receiverOwes) {
+          html += `<button onclick="_selfRemindMe('${esc(r.token)}')">Remind Me</button>`;
+        } else {
+          html += `<button onclick="_sharedSendReminder('${esc(r.token)}')">Send Reminder</button>`;
+        }
       }
       html += `<hr style="border:none;border-top:1px solid var(--border);margin:4px 0;">`;
       const _sNoLedger = _sharedNoLedger.has(r.token);
