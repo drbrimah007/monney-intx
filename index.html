@@ -900,6 +900,8 @@
       if (!db.releases)  db.releases  = [];
       if (!db.audit)     db.audit     = [];
       if (!db.emailLog)  db.emailLog  = [];
+      if (!db.groups)      db.groups      = [];
+      if (!db.investments) db.investments = [];
       // Ensure settings and ALL nested sub-objects exist
       if (!db.settings) db.settings = def.settings;
       if (!db.settings.company)       db.settings.company       = def.settings.company;
@@ -7414,10 +7416,12 @@
       saveNow(); toast(g.archived ? 'Group archived' : 'Group unarchived'); renderGroups();
     }
 
-    function delGroup(gid) {
+    async function delGroup(gid) {
       if (!confirm('Delete this group? This cannot be undone.')) return;
       db.groups = (db.groups||[]).filter(x => x.id !== gid);
-      saveNow(); toast('Group deleted — syncing…'); renderGroups();
+      await saveNow();
+      toast('Group deleted & synced');
+      renderGroups();
     }
 
     function addGroupRound(gid) {
@@ -7972,10 +7976,12 @@
       saveNow(); toast(inv.archived ? 'Investment archived' : 'Investment unarchived'); renderInvestments();
     }
 
-    function delInvestment(iid) {
+    async function delInvestment(iid) {
       if (!confirm('Delete this investment? This cannot be undone.')) return;
       db.investments = (db.investments||[]).filter(x => x.id !== iid);
-      saveNow(); toast('Investment deleted — syncing…'); renderInvestments();
+      await saveNow();
+      toast('Investment deleted & synced');
+      renderInvestments();
     }
 
     function addInvMember(iid) {
