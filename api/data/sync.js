@@ -90,15 +90,10 @@ module.exports = async function handler(req, res) {
           merged++;
         }
       }
-      // Also merge notifs
-      const srvNotifs = Array.isArray(serverData.notifs) ? serverData.notifs : [];
-      const newNotifs = Array.isArray(data.notifs) ? data.notifs : [];
-      const incomingNotifIds = new Set(newNotifs.map(n => n.id));
-      for (const sn of srvNotifs) {
-        if (sn.id && !incomingNotifIds.has(sn.id)) {
-          data.notifs.push(sn);
-        }
-      }
+      // Do NOT merge notifications — they are transient events, not critical data.
+      // If a user deletes notifications, they should stay deleted. Merging them
+      // back from the old server blob causes "zombie notifications" that refill
+      // after every delete.
       if (merged > 0) {
         console.log(`[sync] Merged ${merged} missing items from server blob for user ${payload.id}`);
       }

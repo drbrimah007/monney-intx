@@ -917,12 +917,8 @@
                   if (!localCids.has(sc.id)) db.contacts.push(sc);
                 }
               }
-              // Merge server notifs not present locally (by id)
-              if (Array.isArray(srvData.notifs)) {
-                const localNids = new Set((db.notifs||[]).map(n => n.id));
-                for (const sn of srvData.notifs) {
-                  if (!localNids.has(sn.id)) db.notifs.push(sn);
-                }
+              // Do NOT merge notifications — deleted notifs should stay deleted
+              if (false) {
               }
               // Merge server groups/investments not present locally
               if (Array.isArray(srvData.groups)) {
