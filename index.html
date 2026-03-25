@@ -853,6 +853,22 @@
       }
       // Retype old notification events as 'notification' if they lack a type
       db.notifs.forEach(n => { if (!n.type) n.type = 'notification'; });
+      // Fix contacts whose name is an email — find a better name from users list or email username
+      const _emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      db.contacts.forEach(c => {
+        if (!c.name || !_emailRe.test(c.name)) return;
+        // Try to find real name from db.users (allUsers synced for admin)
+        const matchedUser = db.users.find(u => (u.email||'').toLowerCase() === c.name.toLowerCase()
+          || (u.email||'').toLowerCase() === (c.email||'').toLowerCase());
+        if (matchedUser && matchedUser.displayName && !_emailRe.test(matchedUser.displayName)) {
+          c.name = matchedUser.displayName;
+        } else if (c.email && !_emailRe.test(c.email)) {
+          // email field has a non-email value? unlikely but check
+        } else {
+          // Use username part of email as fallback
+          c.name = c.name.split('@')[0].replace(/[._]/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+        }
+      });
       // Mark settlement receipt entries as noLedger + isReceipt (backfill)
       db.entries.forEach(e => {
         if (e.settledByRecipient && e.linkedInvoiceId) {
@@ -1859,12 +1875,21 @@
               const _looksLikeEmail = s => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s||'');
               if (_looksLikeEmail(e.fromName)) {
                 const emailLower = (e.fromName||'').toLowerCase().trim();
+                // Check contacts first
                 const byEmail = db.contacts.find(c =>
                   c.userId === u.id && (c.email||'').toLowerCase().trim() === emailLower
                 );
                 if (byEmail && byEmail.name && !_looksLikeEmail(byEmail.name)) {
-                  // Patch the in-memory display name so Shared With You shows the real name
                   e._resolvedFromName = byEmail.name;
+                } else {
+                  // Fallback: check db.users for a registered user with that email
+                  const byUser = db.users.find(u2 => (u2.email||'').toLowerCase() === emailLower);
+                  if (byUser && byUser.displayName && !_looksLikeEmail(byUser.displayName)) {
+                    e._resolvedFromName = byUser.displayName;
+                  } else {
+                    // Last resort: use username part of email
+                    e._resolvedFromName = emailLower.split('@')[0].replace(/[._]/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+                  }
                 }
               }
 
