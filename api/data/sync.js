@@ -8,6 +8,7 @@ const { requireAuth }  = require('../../lib/auth');
 const zlib             = require('zlib');
 const { promisify }    = require('util');
 const gzip             = promisify(zlib.gzip);
+const gunzip           = promisify(zlib.gunzip);
 
 // Max uncompressed blob size — 8 MB
 const MAX_BYTES = 8 * 1024 * 1024;
@@ -49,6 +50,58 @@ module.exports = async function handler(req, res) {
     const { data } = req.body || {};
     if (!data || typeof data !== 'object') {
       return res.status(400).json({ ok: false, error: 'data must be a JSON object.' });
+    }
+
+    // ── Stale-write protection ──────────────────────────────────────────
+    // Before overwriting, check if the incoming blob has FEWER entries or
+    // contacts than what's on the server. If so, the client has stale data
+    // and would wipe out entries created on another device. Merge instead.
+    const [existing] = await sql`
+      SELECT data FROM user_data WHERE user_id = ${payload.id} LIMIT 1
+    `;
+    if (existing?.data) {
+      let serverData = existing.data;
+      // Decompress if needed
+      if (serverData._c === 1 && typeof serverData.v === 'string') {
+        try {
+          const buf = await gunzip(Buffer.from(serverData.v, 'base64'));
+          serverData = JSON.parse(buf.toString('utf8'));
+        } catch (_) { serverData = {}; }
+      }
+      const srvEntries  = Array.isArray(serverData.entries)  ? serverData.entries  : [];
+      const srvContacts = Array.isArray(serverData.contacts) ? serverData.contacts : [];
+      const newEntries  = Array.isArray(data.entries)  ? data.entries  : [];
+      const newContacts = Array.isArray(data.contacts) ? data.contacts : [];
+
+      // Server-side merge: add any server entries/contacts missing from the incoming blob
+      const incomingEntryIds = new Set(newEntries.map(e => e.id));
+      const incomingEntryTokens = new Set(newEntries.filter(e => e.shareToken).map(e => e.shareToken));
+      let merged = 0;
+      for (const se of srvEntries) {
+        if (!incomingEntryIds.has(se.id) && !(se.shareToken && incomingEntryTokens.has(se.shareToken))) {
+          data.entries.push(se);
+          merged++;
+        }
+      }
+      const incomingContactIds = new Set(newContacts.map(c => c.id));
+      for (const sc of srvContacts) {
+        if (!incomingContactIds.has(sc.id)) {
+          data.contacts.push(sc);
+          merged++;
+        }
+      }
+      // Also merge notifs
+      const srvNotifs = Array.isArray(serverData.notifs) ? serverData.notifs : [];
+      const newNotifs = Array.isArray(data.notifs) ? data.notifs : [];
+      const incomingNotifIds = new Set(newNotifs.map(n => n.id));
+      for (const sn of srvNotifs) {
+        if (sn.id && !incomingNotifIds.has(sn.id)) {
+          data.notifs.push(sn);
+        }
+      }
+      if (merged > 0) {
+        console.log(`[sync] Merged ${merged} missing items from server blob for user ${payload.id}`);
+      }
     }
 
     // Prune transient / unlimited-growth data
