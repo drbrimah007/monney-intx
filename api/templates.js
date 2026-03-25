@@ -90,7 +90,11 @@ module.exports = async function handler(req, res) {
 
       if (action === 'publish') {
         tpl.isPublic    = true;
-        tpl.creatorName = tpl.creatorName || payload.displayName || payload.email || 'Anonymous';
+        // JWT payload has no displayName — look it up from the users table
+        if (!tpl.creatorName) {
+          const [_cr] = await sql`SELECT display_name FROM users WHERE id = ${payload.id} LIMIT 1`;
+          tpl.creatorName = _cr?.display_name || payload.email || 'Anonymous';
+        }
       } else if (action === 'unpublish') {
         tpl.isPublic = false;
       } else {

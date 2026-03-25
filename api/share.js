@@ -672,7 +672,7 @@ module.exports = async function handler(req, res) {
           proofFilename: proofFilename || null,
           uploadedAt:    Date.now(),
           recipientId:   payload.id,
-          recipientName: payload.displayName || payload.email || 'recipient'
+          recipientName: (await sql`SELECT display_name FROM users WHERE id = ${payload.id} LIMIT 1`)[0]?.display_name || payload.email || 'recipient'
         };
 
         // Update share_token entry_data with CUMULATIVE amounts
@@ -767,7 +767,9 @@ module.exports = async function handler(req, res) {
         const siteUrl  = settings.siteUrl || 'https://moneyinteractions.com';
         const appName  = settings.appName || 'Money IntX';
         const tagline  = settings.tagline || 'Making Money Matters Memorable';
-        const fromName = payload.displayName || payload.email || appName;
+        // JWT payload does not carry displayName — look it up from the users table.
+        const [_senderRow] = await sql`SELECT display_name FROM users WHERE id = ${payload.id} LIMIT 1`;
+        const fromName = (_senderRow?.display_name) || payload.email || appName;
 
         let created = 0;
         for (const e of entries) {
@@ -1118,8 +1120,9 @@ module.exports = async function handler(req, res) {
           if (blobRow) {
             const ownerData = await _decompress(blobRow.data || {});
             const entry = (ownerData.entries || []).find(e => e.id === row.entry_id);
-            const contact = entry ? (ownerData.contacts || []).find(c => c.id === entry.cId) : null;
-            senderName = contact?.name || payload.displayName || payload.email || 'the sender';
+            // senderName = the ORIGINAL SENDER's display name (not the recipient's, not the contact name)
+            const [_sndRow] = await sql`SELECT display_name FROM users WHERE id = ${row.user_id} LIMIT 1`;
+            senderName = _sndRow?.display_name || payload.email || 'the sender';
             // Update sender's notification from settlement_pending → settlement_rejected
             let senderBlobChanged = false;
             if (ownerData.notifs) {

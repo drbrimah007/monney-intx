@@ -1900,6 +1900,14 @@
                 if (mr.entry.fulfilledAt && !_existingE.fulfilledAt) {
                   _existingE.fulfilledAt = mr.entry.fulfilledAt; _entryChanged = true;
                 }
+                // Refresh fromName if the token has a better (non-email) name than what was stored.
+                // This fixes entries that were inserted when fromName was still an email address.
+                if (mr.entry.fromName && mr.entry.fromName !== _existingE.fromName) {
+                  const _newIsEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(mr.entry.fromName);
+                  const _oldIsEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(_existingE.fromName || '');
+                  // Update if: token has a real name (not email), OR existing is an email and token has anything better
+                  if (!_newIsEmail || _oldIsEmail) { _existingE.fromName = mr.entry.fromName; _entryChanged = true; }
+                }
                 // Settlement credits handled by auto-confirmed seller receipt tokens.
                 if (_entryChanged) migrated = true;
               }
@@ -8463,7 +8471,9 @@
         isShared:     true,          // KEY: unified record layer
         isReceipt:    isSettlementReceipt || false,
         shareToken:   r.token,       // link back to share_tokens
-        fromName:     dispName,
+        // Always use the sender's name from the token (their actual current name),
+        // not the locally-stored contact name which may be stale or an old display name.
+        fromName:     entry.fromName || dispName,
         fromEmail:    entry.fromEmail || '',
         fromSiteUrl:  siteUrl,
         // noLedger NOT set — confirmed shared records are ledger-active by default

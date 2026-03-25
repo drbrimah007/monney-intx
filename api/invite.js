@@ -336,7 +336,7 @@ module.exports = async function handler(req, res) {
             id:        'n' + Math.random().toString(36).substr(2, 9),
             userId:    inviterId,
             type:      'invite_accepted',
-            msg:       `${payload.displayName || invite.email} accepted your invite and joined the platform!`,
+            msg:       `${(await sql`SELECT display_name FROM users WHERE id = ${payload.id} LIMIT 1`)[0]?.display_name || invite.email} accepted your invite and joined the platform!`,
             channel:   'in-app',
             sent:      true,
             read:      false,
