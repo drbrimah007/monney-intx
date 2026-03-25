@@ -446,11 +446,11 @@
 
     // ── Email rate limiter ────────────────────────────────────────────────
     const _emailThrottle = new Map(); // key → timestamp of last send
-    function _canSendEmail(key, cooldownMs = 30000) {
+    function _canSendEmail(key, cooldownMs = 5000) {
       const last = _emailThrottle.get(key) || 0;
       if (Date.now() - last < cooldownMs) {
         const secsLeft = Math.ceil((cooldownMs - (Date.now() - last)) / 1000);
-        toast(`Please wait ${secsLeft}s before sending again`, 3000);
+        toast(`Please wait ${secsLeft}s before sending again`, 2000);
         return false;
       }
       _emailThrottle.set(key, Date.now());
@@ -4246,13 +4246,11 @@
               </div>
             </div>
           </div>
-          <div style="display:flex;align-items:center;gap:8px;">
+          <div style="display:flex;align-items:center;justify-content:flex-end;gap:10px;">
             <button type="button" id="ne_notify_btn" class="bs sm" style="font-size:12px;" onclick="toggleFormNotify('ne')">🔔 Notify on Save</button>
             <span id="ne_notify_sw" style="font-size:11px;color:var(--muted);">Off</span>
-            <div style="margin-left:auto;display:flex;gap:8px;">
-              <button class="bs" onclick="closeEntryModal()">Cancel</button>
-              <button class="btn" onclick="saveNewEntry()">Save Entry</button>
-            </div>
+            <button class="bs" onclick="closeEntryModal()">Cancel</button>
+            <button class="btn" onclick="saveNewEntry()">Save Entry</button>
           </div>
         </div>`;
       if (_entryTpl) runTplCalcs();
@@ -6955,7 +6953,9 @@
         if (t === 'reconciliation_mismatch') return `<span class="badge" style="background:rgba(239,68,68,.12);color:#dc2626;font-size:11px;">⚠ Balance Mismatch</span>`;
         if (t === 'invite') return `<span class="badge" style="background:rgba(108,99,255,.12);color:var(--accent);font-size:11px;">🤝 Invitation</span>`;
         if (t === 'invite_sent') return `<span class="badge" style="background:rgba(108,99,255,.12);color:var(--accent);font-size:11px;">📨 Invite Sent</span>`;
-        if (t === 'join_request') return `<span class="badge" style="background:rgba(245,158,11,.12);color:#d97706;font-size:11px;">🙋 Join Request</span>`;
+        if (t === 'join_request')       return `<span class="badge" style="background:rgba(245,158,11,.12);color:#d97706;font-size:11px;">🙋 Join Request</span>`;
+        if (t === 'group_created')      return `<span class="badge" style="background:rgba(22,163,74,.12);color:#16a34a;font-size:11px;">👥 Group Created</span>`;
+        if (t === 'investment_created') return `<span class="badge" style="background:rgba(108,99,255,.12);color:var(--accent);font-size:11px;">📈 Investment Created</span>`;
         return `<span class="badge badge-blue" style="font-size:11px;">📤 Sent</span>`;
       };
 
@@ -8217,6 +8217,13 @@
       if (!db.groups) db.groups = [];
       db.groups.push(g);
       await saveNow();
+      // Owner notification — group created
+      db.notifs.push({
+        id: uuid(), userId: curUser().id, cId: null, eid: null,
+        type: 'group_created', msg: `Group "${g.name}" created with ${_invitedContacts.length} member(s)`,
+        channel: 'in-app', sent: false, who: 'you', sentTo: [], read: false, createdAt: Date.now()
+      });
+      save();
       _invitedContacts.forEach(c => _sendMemberInvite(c, g.name, 'a Group Savings circle'));
       document.querySelector('.modal-bg:last-of-type')?.remove();
       toast('Group created & synced');
@@ -9230,6 +9237,13 @@
       if (!db.investments) db.investments = [];
       db.investments.push(inv);
       await saveNow();
+      // Owner notification — investment created
+      db.notifs.push({
+        id: uuid(), userId: curUser().id, cId: null, eid: null,
+        type: 'investment_created', msg: `Investment "${inv.name}" created with ${_invitedContacts2.length} member(s)`,
+        channel: 'in-app', sent: false, who: 'you', sentTo: [], read: false, createdAt: Date.now()
+      });
+      save();
       _invitedContacts2.forEach(c => _sendMemberInvite(c, inv.name, 'an Investment'));
       document.querySelector('.modal-bg:last-of-type')?.remove();
       toast('Investment created & synced');
@@ -11714,14 +11728,49 @@
           const curIdx = _SHARE_STATUS_ORDER.indexOf(entry.status || 'posted');
           const newIdx = _SHARE_STATUS_ORDER.indexOf(targetStatus);
           if (newIdx > curIdx) {
+            const prevStatus = entry.status;
             entry.status = targetStatus;
             changed = true;
+            // Push in-app notification for status transitions the sender should know about
+            const _cname = (db.contacts.find(c => c.id === entry.cId) || {}).name || 'Someone';
+            const _eref  = entry.invoiceNumber || entry.docRef || entry.description || ('Entry #' + (entry.id||'').slice(-4));
+            if (targetStatus === 'viewed' && prevStatus !== 'viewed') {
+              db.notifs.push({
+                id: uuid(), userId: u.id, cId: entry.cId, eid: entry.id,
+                type: 'viewed', msg: `${_cname} viewed ${_eref}`,
+                channel: 'in-app', sent: false, who: 'them', sentTo: [],
+                read: false, createdAt: Date.now()
+              });
+            } else if (targetStatus === 'accepted') {
+              db.notifs.push({
+                id: uuid(), userId: u.id, cId: entry.cId, eid: entry.id,
+                type: 'confirmed', msg: `${_cname} accepted/confirmed ${_eref}`,
+                channel: 'in-app', sent: false, who: 'them', sentTo: [],
+                read: false, createdAt: Date.now()
+              });
+            }
+          }
+          // Notify sender when recipient submits a settlement/payment proof
+          if (ed.settlementPending && ed.pendingSettlement) {
+            const _alreadyNotified = (db.notifs||[]).some(n => n.type === 'settlement_pending' && n.eid === tok.entryId);
+            if (!_alreadyNotified) {
+              const _cname2 = (db.contacts.find(c => c.id === entry.cId) || {}).name || 'Someone';
+              const _eref2  = entry.invoiceNumber || entry.docRef || entry.description || ('Entry #' + (entry.id||'').slice(-4));
+              db.notifs.push({
+                id: uuid(), userId: u.id, cId: entry.cId, eid: tok.entryId,
+                type: 'settlement_pending',
+                msg: `${_cname2} submitted a payment for ${_eref2} — review required`,
+                channel: 'in-app', sent: false, who: 'them', sentTo: [],
+                read: false, createdAt: Date.now()
+              });
+              changed = true;
+            }
           }
         });
         const pendingChanged = JSON.stringify(window._pendingSettlements) !== prevPending;
         if (changed || pendingChanged) {
-          if (changed) save();
-          if (_curPage === 'entries' || _curPage === 'dash') refreshCurPage();
+          if (changed) { save(); renderNav(); }
+          if (_curPage === 'entries' || _curPage === 'dash' || _curPage === 'notifs') refreshCurPage();
         }
       } catch (_) {}
     }
