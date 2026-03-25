@@ -8866,37 +8866,41 @@
         <!-- ═══ MEMBERS ═══ -->
         <div style="padding:0 24px 24px;">
           <div style="font-size:14px;font-weight:800;margin-bottom:12px;">Members</div>
-          ${members.length === 0 ? '<div style="color:var(--muted);font-size:13px;">No members yet.</div>' :
-            members.map(m => {
-              const mRole = m.role || 'member';
-              const paid = curRound ? (curRound.contributions||[]).find(c => c.memberId === m.id) : null;
-              const statusDot = !curRound ? '' : paid?.paid
-                ? '<span style="color:var(--green);font-size:16px;line-height:1;" title="Paid">●</span>'
-                : '<span style="color:var(--yellow);font-size:16px;line-height:1;" title="Due">●</span>';
-              const lastPaid = paid?.paidAt ? new Date(paid.paidAt).toLocaleDateString() : '—';
-              return `<div style="background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:8px;">
-                <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
-                  <div class="avatar" style="width:32px;height:32px;font-size:13px;">${(m.name||'?')[0].toUpperCase()}</div>
-                  <div style="flex:1;">
-                    <div style="font-weight:700;font-size:14px;">${esc(m.name)}</div>
-                    <div style="font-size:11px;color:var(--muted);display:flex;gap:10px;margin-top:2px;">
-                      <span>Status: ${statusDot} ${!curRound ? '—' : paid?.paid ? '<strong style="color:var(--green);">Paid</strong>' : '<strong style="color:var(--yellow);">Due</strong>'}</span>
-                      <span>Last Paid: <strong>${lastPaid}</strong></span>
-                      <span>Role: <strong>${mRole.charAt(0).toUpperCase()+mRole.slice(1)}</strong></span>
-                    </div>
-                  </div>
-                </div>
-                <div style="display:flex;gap:6px;flex-wrap:wrap;">
-                  ${_canManage && curRound ? `<button class="bs sm" style="font-size:11px;" onclick="markContribution('${g.id}','${curRound.id}','${m.id}')">${paid?.paid ? 'Undo Payment' : 'Mark Paid'}</button>` : ''}
-                  ${_canManage ? `<select style="width:auto;font-size:11px;padding:3px 6px;border-radius:6px;" onchange="changeMemberRole('${g.id}','groups','${m.id}',this.value)">
-                    <option value="invitee"${mRole==='invitee'?' selected':''}>Invitee</option>
-                    <option value="member"${mRole==='member'?' selected':''}>Member</option>
-                    ${_amOwner?`<option value="admin"${mRole==='admin'?' selected':''}>Admin</option>`:''}
-                  </select>` : ''}
-                  ${_canManage ? `<button class="gh sm" style="font-size:11px;color:var(--red);" onclick="removeGroupMember('${g.id}','${m.id}')">Remove</button>` : ''}
-                </div>
-              </div>`;
-            }).join('')}
+          <div style="display:flex;flex-wrap:wrap;gap:10px;">
+          ${(() => {
+            // Build full list: creator + members
+            const creator = db.users.find(u2 => u2.id === g.userId);
+            const creatorCard = creator ? [{ _isCreator: true, name: creator.displayName || creator.email, role: 'owner' }] : [];
+            const allCards = [...creatorCard, ...members];
+            return allCards.length === 0 ? '<div style="color:var(--muted);font-size:13px;">No members yet.</div>' :
+              allCards.map(m => {
+                const mRole = m._isCreator ? 'owner' : (m.role || 'member');
+                const paid = !m._isCreator && curRound ? (curRound.contributions||[]).find(c => c.memberId === m.id) : null;
+                const statusDot = m._isCreator ? '' : (!curRound ? '' : paid?.paid
+                  ? '<span style="color:var(--green);font-size:14px;" title="Paid">●</span>'
+                  : '<span style="color:var(--yellow);font-size:14px;" title="Due">●</span>');
+                const lastPaid = paid?.paidAt ? new Date(paid.paidAt).toLocaleDateString() : '—';
+                const roleLbl = mRole.charAt(0).toUpperCase()+mRole.slice(1);
+                const roleColor = mRole === 'owner' ? 'var(--accent)' : mRole === 'admin' ? 'var(--blue)' : mRole === 'invitee' ? 'var(--muted)' : 'var(--text)';
+                return `<div style="background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:12px;width:calc(20% - 8px);min-width:150px;flex:1 1 150px;max-width:calc(20% - 8px);display:flex;flex-direction:column;align-items:center;text-align:center;">
+                  <div class="avatar" style="width:40px;height:40px;font-size:15px;margin-bottom:6px;">${(m.name||'?')[0].toUpperCase()}</div>
+                  <div style="font-weight:700;font-size:13px;margin-bottom:2px;word-break:break-word;">${esc(m.name)}</div>
+                  <div style="font-size:10px;font-weight:700;color:${roleColor};text-transform:uppercase;letter-spacing:.04em;margin-bottom:6px;">${roleLbl}</div>
+                  ${!m._isCreator && curRound ? `<div style="font-size:11px;color:var(--muted);margin-bottom:2px;">${statusDot} ${paid?.paid ? '<strong style="color:var(--green);">Paid</strong>' : '<strong style="color:var(--yellow);">Due</strong>'}</div>` : ''}
+                  ${!m._isCreator ? `<div style="font-size:10px;color:var(--muted);">Last: ${lastPaid}</div>` : ''}
+                  ${!m._isCreator ? `<div style="display:flex;gap:4px;flex-wrap:wrap;justify-content:center;margin-top:8px;">
+                    ${_canManage && curRound ? `<button class="bs sm" style="font-size:10px;padding:3px 6px;" onclick="markContribution('${g.id}','${curRound.id}','${m.id}')">${paid?.paid ? 'Undo' : 'Mark Paid'}</button>` : ''}
+                    ${_canManage ? `<select style="width:auto;font-size:10px;padding:2px 4px;border-radius:5px;" onchange="changeMemberRole('${g.id}','groups','${m.id}',this.value)">
+                      <option value="invitee"${mRole==='invitee'?' selected':''}>Invitee</option>
+                      <option value="member"${mRole==='member'?' selected':''}>Member</option>
+                      ${_amOwner?`<option value="admin"${mRole==='admin'?' selected':''}>Admin</option>`:''}
+                    </select>` : ''}
+                    ${_canManage ? `<button class="gh sm" style="font-size:10px;color:var(--red);padding:2px 4px;" onclick="removeGroupMember('${g.id}','${m.id}')">✕</button>` : ''}
+                  </div>` : ''}
+                </div>`;
+              }).join('');
+          })()}
+          </div>
         </div>
 
         <!-- ═══ NOTICE BOARD (inline) ═══ -->
