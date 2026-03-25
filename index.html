@@ -1924,6 +1924,7 @@
       // Skip if _dashSharedLoading is set (we're already inside a _loadSharedWithMe → renderDash cycle)
       if (_IS_SERVER && !window._dashSharedLoading) {
         _loadSharedWithMe();
+        _loadSharedGroupsAndInvestments();
       }
     }
 
@@ -1933,6 +1934,27 @@
       _sharedWithMeRunning = true;
       try { await _loadSharedWithMeInner(); } finally { _sharedWithMeRunning = false; }
     }
+    // ── Load groups/investments where current user is an invited member ──
+    window._sharedGroups = [];
+    window._sharedInvestments = [];
+    async function _loadSharedGroupsAndInvestments() {
+      try {
+        const _tok = localStorage.getItem('mxi_token');
+        const _headers = {};
+        if (_tok) _headers['Authorization'] = 'Bearer ' + _tok;
+        const res = await fetch('/api/shared-groups', { credentials: 'include', headers: _headers });
+        if (!res.ok) return;
+        const { groups, investments } = await res.json();
+        window._sharedGroups = groups || [];
+        window._sharedInvestments = investments || [];
+        // Re-render if currently on those pages
+        if (_curPage === 'groups') renderGroups();
+        if (_curPage === 'investments') renderInvestments();
+      } catch (e) {
+        console.error('[shared-groups] load failed:', e.message);
+      }
+    }
+
     async function _loadSharedWithMeInner() {
       const el = document.getElementById('shared-with-me');
       // Note: el may be null if we're on the entries page — that's fine, we still load the data
@@ -7247,7 +7269,11 @@
     function renderGroups() {
       const u = curUser();
       if (!db.groups) db.groups = [];
-      const myGroups = isAdmin() ? db.groups : db.groups.filter(g => g.userId === u.id || (g.members||[]).some(m => m.contactId === u.id));
+      // Own groups + shared groups from other users' blobs
+      const ownGroups = isAdmin() ? db.groups : db.groups.filter(g => g.userId === u.id || (g.members||[]).some(m => m.contactId === u.id));
+      const existingIds = new Set(ownGroups.map(g => g.id));
+      const shared = (window._sharedGroups || []).filter(g => !existingIds.has(g.id));
+      const myGroups = [...ownGroups, ...shared];
       const showArchived = window._arch_groups || false;
       const filtered = showArchived ? myGroups : myGroups.filter(g => !g.archived);
 
@@ -7493,12 +7519,12 @@
             method: 'POST', credentials: 'include',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              action: 'send-reminder',
+              action: 'send-invite',
               recipientEmail: contact.email,
               fromName: inviterName,
-              fromEmail: u.email || '',
-              message: msg,
-              viewUrl: _siteUrl,
+              itemName: itemName,
+              itemType: itemType,
+              message: `You've been invited to join ${itemType}: "${itemName}". Log in to view details and participate.`,
               siteUrl: _siteUrl,
               appName: db.settings?.appName || 'Money IntX',
               tagline: db.settings?.tagline || 'Making Money Matters Memorable',
@@ -7755,7 +7781,11 @@
     function renderInvestments() {
       const u = curUser();
       if (!db.investments) db.investments = [];
-      const myInv = isAdmin() ? db.investments : db.investments.filter(inv => inv.userId === u.id || (inv.members||[]).some(m => m.contactId === u.id));
+      // Own investments + shared investments from other users' blobs
+      const ownInv = isAdmin() ? db.investments : db.investments.filter(inv => inv.userId === u.id || (inv.members||[]).some(m => m.contactId === u.id));
+      const existingInvIds = new Set(ownInv.map(inv => inv.id));
+      const sharedInv = (window._sharedInvestments || []).filter(inv => !existingInvIds.has(inv.id));
+      const myInv = [...ownInv, ...sharedInv];
       const showArchived = window._arch_investments || false;
       const filtered = showArchived ? myInv : myInv.filter(inv => !inv.archived);
 

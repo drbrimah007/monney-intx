@@ -3,8 +3,8 @@
 // POST { action:'send-reminder', recipientEmail, fromName, message?, invoiceNumber?, … }
 // POST { action:'send-invoice',  recipientEmail, fromName, invoiceNumber, amount, viewUrl? }
 
-const { requireAuth }                         = require('../lib/auth');
-const { sendReminderEmail, sendInvoiceEmail } = require('../lib/email');
+const { requireAuth }                                        = require('../lib/auth');
+const { sendReminderEmail, sendInvoiceEmail, sendInviteEmail } = require('../lib/email');
 
 module.exports = async function handler(req, res) {
   if (req.method === 'OPTIONS') return res.status(200).end();
@@ -31,5 +31,12 @@ module.exports = async function handler(req, res) {
     return res.json(result);
   }
 
-  return res.status(400).json({ ok: false, error: 'Invalid action. Use send-reminder or send-invoice.' });
+  if (action === 'send-invite') {
+    const { recipientEmail, fromName, itemName, itemType, message, siteUrl, appName, tagline, logoData } = req.body;
+    if (!recipientEmail) return res.status(400).json({ ok: false, error: 'recipientEmail is required.' });
+    const result = await sendInviteEmail({ to: recipientEmail, fromName, itemName, itemType, message, siteUrl, appName, tagline, logoData });
+    return res.json(result);
+  }
+
+  return res.status(400).json({ ok: false, error: 'Invalid action. Use send-reminder, send-invoice, or send-invite.' });
 };
