@@ -8570,162 +8570,162 @@
       const paidCount = curRound ? (curRound.contributions||[]).filter(c => c.paid).length : 0;
       const dueCount = curRound ? (curRound.contributions||[]).length - paidCount : 0;
       const groupBalance = rounds.reduce((sum, r) => sum + (r.contributions||[]).filter(c => c.paid).reduce((s, c) => s + (parseFloat(c.amount)||0), 0), 0);
+      const roundNum = curRound ? curRound.roundNum : 0;
+      const _cl = "document.querySelector('.grp-detail-modal')?.remove();";
 
-      // Build activity feed from board + contribution events
-      const activities = [];
-      board.slice(0, 10).forEach(n => activities.push({ type: 'comment', name: n.userName||'User', msg: n.msg, ts: n.createdAt }));
-      rounds.forEach(r => (r.contributions||[]).filter(c => c.paid).forEach(c => {
-        const mem = members.find(m => m.id === c.memberId);
-        activities.push({ type: 'paid', name: mem?.name||'Member', msg: fmt(c.amount||g.amount, g.currency), ts: c.paidAt||r.createdAt });
-      }));
-      activities.sort((a, b) => (b.ts||0) - (a.ts||0));
-
-      // Manage Group dropdown items
-      const manageItems = [
-        _canManage ? `<button onclick="document.querySelector('.grp-detail-modal')?.remove();addGroupMember('${g.id}')">👤 Add Member</button>` : '',
-        `<button onclick="document.querySelector('.grp-detail-modal')?.remove();emailInviteToItem('${g.id}','groups','a Group Savings circle')">✉ Invite by Email</button>`,
-        `<button onclick="document.querySelector('.grp-detail-modal')?.remove();openInviteLink('${g.id}','groups')">🔗 Copy Invite Link</button>`,
-        _canManage ? `<button onclick="document.querySelector('.grp-detail-modal')?.remove();addGroupRound('${g.id}')">➕ New Round</button>` : '',
-        _canManage ? `<button onclick="document.querySelector('.grp-detail-modal')?.remove();editGroup('${g.id}')">✏️ Edit Group</button>` : '',
-        _amOwner ? `<button onclick="document.querySelector('.grp-detail-modal')?.remove();delGroup('${g.id}')" style="color:var(--red);">🗑 Delete</button>` : '',
-        !_amOwner ? `<button onclick="document.querySelector('.grp-detail-modal')?.remove();exitItem('${g.id}','groups')" style="color:var(--red);">🚪 Leave Group</button>` : ''
+      // Manage Group dropdown
+      const _mgItems = [
+        _canManage ? `<button onclick="${_cl}addGroupMember('${g.id}')">Add Member</button>` : '',
+        `<button onclick="${_cl}emailInviteToItem('${g.id}','groups','a Group Savings circle')">Invite by Email</button>`,
+        `<button onclick="${_cl}openInviteLink('${g.id}','groups')">Copy Invite Link</button>`,
+        _canManage ? `<button onclick="${_cl}addGroupRound('${g.id}')">New Round</button>` : '',
+        _canManage ? `<button onclick="${_cl}editGroup('${g.id}')">Edit Group</button>` : '',
+        _amOwner ? `<button onclick="${_cl}delGroup('${g.id}')" style="color:var(--red);">Delete Group</button>` : '',
+        !_amOwner ? `<button onclick="${_cl}exitItem('${g.id}','groups')" style="color:var(--red);">Leave Group</button>` : ''
       ].filter(Boolean).join('');
 
-      const modal = `<div class="modal-bg grp-detail-modal" onclick="this.remove()"><div class="modal" style="max-width:720px;padding:0;" onclick="event.stopPropagation()">
-        <!-- HEADER -->
-        <div style="padding:20px 24px 16px;display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px;">
+      // Status line
+      const statusLine = curRound
+        ? (dueCount > 0 ? `<span style="color:var(--yellow);">${dueCount} member${dueCount!==1?'s':''} due</span>` : `<span style="color:var(--green);">All paid</span>`)
+        : '<span style="color:var(--muted);">No active round</span>';
+
+      const modal = `<div class="modal-bg grp-detail-modal" onclick="this.remove()"><div class="modal" style="max-width:600px;padding:0;overflow-y:auto;max-height:90vh;" onclick="event.stopPropagation()">
+
+        <!-- ═══ HEADER ═══ -->
+        <div style="padding:24px 24px 0;display:flex;justify-content:space-between;align-items:center;">
           <div>
-            <h2 style="margin:0 0 2px;font-size:20px;">${esc(g.name)}</h2>
+            <h2 style="margin:0;font-size:20px;font-weight:800;">${esc(g.name)}</h2>
             <div style="font-size:13px;color:var(--accent);font-weight:600;">Contribution Circle</div>
-            <div style="font-size:12px;color:var(--muted);margin-top:2px;">Your role: <strong>${_myRole.charAt(0).toUpperCase()+_myRole.slice(1)}</strong></div>
           </div>
-          <div class="action-menu"><button class="bs sm" onclick="toggleActionMenu(this)">⚙ Manage Group ▾</button><div class="action-dropdown">${manageItems}</div></div>
+          <div class="action-menu"><button class="bs sm" onclick="toggleActionMenu(this)">Manage Group ▾</button><div class="action-dropdown">${_mgItems}</div></div>
         </div>
 
-        <!-- BALANCE + ACTIVITY ROW -->
-        <div style="display:flex;gap:16px;padding:0 24px 16px;flex-wrap:wrap;">
-          <!-- Group Balance Card -->
-          <div style="flex:1;min-width:220px;background:var(--bg3);border:1px solid var(--border);border-radius:12px;padding:20px;text-align:center;">
-            <div style="font-size:32px;font-weight:900;letter-spacing:-.5px;">${fmt(groupBalance, g.currency)}</div>
-            <div style="font-size:12px;color:var(--muted);font-weight:600;text-transform:uppercase;margin-top:4px;">Group Balance</div>
-            <div style="font-size:11px;color:var(--muted);margin-top:8px;">🔔 Remittance: ${fmt(g.amount, g.currency)} / ${esc(g.frequency||'month')}</div>
-            ${g.description ? `<div style="font-size:11px;color:var(--muted);margin-top:4px;">${esc(g.description)}</div>` : ''}
-          </div>
-          <!-- Activity Feed -->
-          <div style="flex:1;min-width:200px;background:var(--bg3);border:1px solid var(--border);border-radius:12px;padding:16px;max-height:200px;overflow-y:auto;">
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
-              <strong style="font-size:13px;">Activity</strong>
-              <button class="gh sm" onclick="openGroupDetail('${g.id}')" title="Refresh" style="font-size:14px;">↻</button>
+        <!-- ═══ GROUP OVERVIEW ═══ -->
+        <div style="padding:20px 24px;margin:16px 24px;background:var(--bg3);border:1px solid var(--border);border-radius:12px;">
+          <div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:12px;">
+            <div>
+              <div style="font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.04em;">Balance</div>
+              <div style="font-size:28px;font-weight:900;margin-top:2px;">${fmt(groupBalance, g.currency)}</div>
             </div>
-            ${activities.length === 0 ? '<p style="color:var(--muted);font-size:12px;">No activity yet.</p>' :
-              activities.slice(0, 8).map(a => `<div style="display:flex;gap:8px;padding:5px 0;border-bottom:1px solid var(--border);font-size:12px;">
-                <div class="avatar" style="width:28px;height:28px;font-size:11px;">${(a.name||'?')[0].toUpperCase()}</div>
-                <div style="flex:1;">
-                  <strong>${esc(a.name)}</strong> ${a.type === 'paid' ? `<span style="color:var(--green);">${esc(a.msg)}</span>` : ''}
-                  ${a.type === 'comment' ? `<div style="color:var(--muted);margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:180px;">${esc(a.msg)}</div>` : ''}
-                  <div style="color:var(--muted);font-size:10px;">${a.ts ? new Date(a.ts).toLocaleDateString() : ''}</div>
-                </div>
-              </div>`).join('')}
+            <div style="text-align:right;">
+              <div style="font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.04em;">${esc(g.frequency||'Monthly')} Target</div>
+              <div style="font-size:28px;font-weight:900;margin-top:2px;">${fmt(g.amount, g.currency)}</div>
+            </div>
+          </div>
+          <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border);display:flex;justify-content:space-between;font-size:13px;color:var(--muted);flex-wrap:wrap;gap:8px;">
+            <div>Status: <strong style="color:var(--text);">${statusLine}</strong></div>
+            <div>Cycle: <strong style="color:var(--text);">Round ${roundNum || '—'}</strong></div>
           </div>
         </div>
 
-        ${_pending.length > 0 && _amOwner ? `<div style="padding:0 24px 12px;"><div class="section-title" style="color:var(--yellow);">Pending Invites (${_pending.length})</div>
-          ${_pending.map(p => `<div class="trow" style="padding:6px 0;">
-            <div style="flex:1;"><strong style="font-size:13px;">${esc(p.name)}</strong><span style="font-size:11px;color:var(--muted);margin-left:6px;">${esc(p.email)}</span></div>
-            <button class="btn sm" style="font-size:11px;padding:4px 8px;" onclick="approvePendingInvite('${g.id}','groups','${p.id}','a Group Savings circle')">✓</button>
-            <button class="gh sm" onclick="rejectPendingInvite('${g.id}','groups','${p.id}')" style="color:var(--red);">✕</button>
-          </div>`).join('')}</div>` : ''}
-
-        <!-- MEMBER CONTRIBUTIONS TABLE -->
-        <div style="padding:0 24px 16px;">
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
-            <div class="section-title" style="margin:0;border:none;padding:0;">Member Contributions</div>
-            ${_canManage ? `<button class="btn sm" style="font-size:11px;" onclick="_sendGroupReminder('${g.id}')">Send Reminder</button>` : ''}
-          </div>
-          ${curRound ? `<div class="tbl-wrap"><table><thead><tr><th>Member</th><th>Status</th><th>Last Paid</th>${_canManage?'<th style="width:48px;"></th>':''}</tr></thead><tbody>
-            ${(curRound.contributions||[]).map(c => {
-              const mem = members.find(m => m.id === c.memberId);
-              return `<tr>
-                <td style="font-weight:600;">${esc(mem?.name||'Unknown')}</td>
-                <td>${c.paid ? '<span style="color:var(--green);font-weight:700;">Paid</span>' : '<span style="color:var(--yellow);font-weight:700;">Due</span>'}</td>
-                <td style="font-size:12px;color:var(--muted);">${c.paidAt ? new Date(c.paidAt).toLocaleDateString() : '—'}</td>
-                ${_canManage ? `<td><button class="gh sm" onclick="markContribution('${g.id}','${curRound.id}','${c.memberId}')" title="${c.paid?'Unmark':'Mark Paid'}">${c.paid?'↩':'✓'}</button></td>` : ''}
-              </tr>`;
-            }).join('')}
-          </tbody></table></div>
-          <div style="font-size:11px;color:var(--muted);margin-top:8px;">Remaining till cycle ends: ${dueCount} · Members due: ${dueCount} · Round ${curRound.roundNum}</div>`
-          : `<p style="color:var(--muted);font-size:13px;">${_canManage ? 'No rounds yet. Start one to track contributions.' : 'No active round.'}</p>
-            ${_canManage ? `<button class="btn sm" style="margin-top:8px;" onclick="document.querySelector('.grp-detail-modal')?.remove();addGroupRound('${g.id}')">+ Start First Round</button>` : ''}`}
-          ${rounds.length > 1 ? `<details style="margin-top:12px;"><summary style="font-size:12px;color:var(--accent);cursor:pointer;font-weight:600;">Previous Rounds (${rounds.length - 1})</summary>
-            ${[...rounds].slice(0, -1).reverse().map(r => {
-              const paid = (r.contributions||[]).filter(c => c.paid).length;
-              const total = (r.contributions||[]).length;
-              return `<div style="padding:8px 0;border-bottom:1px solid var(--border);font-size:12px;display:flex;justify-content:space-between;">
-                <span>Round ${r.roundNum}</span><span class="badge ${paid===total?'badge-green':'badge-yellow'}" style="font-size:10px;">${paid}/${total}</span>
-              </div>`;
-            }).join('')}
-          </details>` : ''}
+        <!-- ═══ ACTION BAR ═══ -->
+        <div style="padding:0 24px 24px;display:flex;gap:8px;flex-wrap:wrap;">
+          ${_canManage ? `<button class="btn sm" onclick="_sendGroupReminder('${g.id}')">Send Reminder</button>` : ''}
+          ${_canManage ? `<button class="bs sm" onclick="markContribution('${g.id}','${curRound?.id||''}','_prompt')" style="${!curRound?'opacity:.5;pointer-events:none;':''}">Add Payment</button>` : ''}
+          <button class="bs sm" onclick="window._grpTab='activity';openGroupDetail('${g.id}')">View Activity</button>
         </div>
 
-        <!-- MEMBERS LIST (collapsible) -->
-        <details style="padding:0 24px 16px;" ${members.length <= 5 ? 'open' : ''}>
-          <summary class="section-title" style="cursor:pointer;border:none;padding:0;margin-bottom:8px;">Members (${members.length})</summary>
-          ${members.map(m => {
-            const mRole = m.role || 'member';
-            const roleBadge = mRole === 'admin' ? ' <span class="badge badge-blue" style="font-size:9px;">Admin</span>' : mRole === 'invitee' ? ' <span class="badge badge-gray" style="font-size:9px;">Invitee</span>' : '';
-            return `<div style="display:flex;align-items:center;gap:8px;padding:5px 0;font-size:13px;">
-              <div class="avatar" style="width:28px;height:28px;font-size:11px;">${(m.name||'?')[0].toUpperCase()}</div>
-              <span style="flex:1;font-weight:600;">${esc(m.name)}${roleBadge}</span>
-              ${_canManage ? `<select style="width:auto;font-size:10px;padding:2px 4px;" onchange="changeMemberRole('${g.id}','groups','${m.id}',this.value)">
-                <option value="invitee"${mRole==='invitee'?' selected':''}>Invitee</option>
-                <option value="member"${mRole==='member'?' selected':''}>Member</option>
-                ${_amOwner?`<option value="admin"${mRole==='admin'?' selected':''}>Admin</option>`:''}
-              </select>` : ''}
-              ${_canManage ? `<button class="gh sm" onclick="removeGroupMember('${g.id}','${m.id}')" style="color:var(--red);font-size:12px;">✕</button>` : ''}
-            </div>`;
-          }).join('')}
-        </details>
-
-        ${g.useRotation ? `<!-- ROTATION -->
-        <details style="padding:0 24px 16px;">
-          <summary class="section-title" style="cursor:pointer;border:none;padding:0;margin-bottom:8px;">Rotation Order</summary>
-          ${(g.rotationOrder||[]).length === 0 ? '<p style="color:var(--muted);font-size:12px;">Add members first.</p>' :
-            (g.rotationOrder||[]).map((mid, i) => {
-              const mem = members.find(m => m.id === mid);
-              const nextIdx = rounds.length % (g.rotationOrder||[]).length;
-              return `<div style="display:flex;align-items:center;gap:8px;padding:5px 0;font-size:13px;${i===nextIdx?'background:rgba(108,99,255,.08);border-radius:6px;padding:5px 8px;':''}">
-                <span style="font-weight:700;color:var(--muted);width:22px;">#${i+1}</span>
-                <span style="flex:1;font-weight:600;">${esc(mem?.name||'?')}</span>
-                ${i===nextIdx?'<span class="badge badge-blue" style="font-size:9px;">Next</span>':''}
-                ${_canManage ? `${i>0?`<button class="gh sm" onclick="_moveRotation('${g.id}',${i},-1)" style="font-size:14px;">↑</button>`:''}${i<(g.rotationOrder||[]).length-1?`<button class="gh sm" onclick="_moveRotation('${g.id}',${i},1)" style="font-size:14px;">↓</button>`:''}` : ''}
-              </div>`;
-            }).join('')}
-        </details>` : ''}
-
-        <!-- GROUP DOCUMENTS -->
-        <div style="padding:0 24px 16px;">
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
-            <div class="section-title" style="margin:0;border:none;padding:0;">Group Documents</div>
-            <button class="btn sm" style="font-size:11px;" onclick="_uploadGroupDoc('${g.id}','Receipt')">Upload Receipt</button>
-          </div>
-          ${_renderDocList(g.docs||[], '_delGroupDoc', g.id)}
-          ${(g.docs||[]).length > 0 || true ? `<button class="bs sm" style="margin-top:6px;font-size:11px;" onclick="_uploadGroupDoc('${g.id}','Document')">📄 Upload Document</button>` : ''}
-        </div>
-
-        <!-- NOTICE BOARD -->
+        ${_pending.length > 0 && _amOwner ? `<!-- PENDING INVITES -->
         <div style="padding:0 24px 20px;">
-          <div class="section-title" style="margin-bottom:8px;">Notice Board ${board.length>0?'('+board.length+')':''}</div>
+          <div style="font-size:13px;font-weight:700;color:var(--yellow);margin-bottom:8px;">Pending Invites</div>
+          ${_pending.map(p => `<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);">
+            <div style="flex:1;font-size:13px;"><strong>${esc(p.name)}</strong> <span style="color:var(--muted);font-size:11px;">${esc(p.email)}</span></div>
+            <button class="btn sm" style="font-size:11px;padding:3px 10px;" onclick="approvePendingInvite('${g.id}','groups','${p.id}','a Group Savings circle')">Approve</button>
+            <button class="gh sm" onclick="rejectPendingInvite('${g.id}','groups','${p.id}')" style="color:var(--red);">Reject</button>
+          </div>`).join('')}
+        </div>` : ''}
+
+        <!-- ═══ MEMBERS ═══ -->
+        <div style="padding:0 24px 24px;">
+          <div style="font-size:14px;font-weight:800;margin-bottom:12px;">Members</div>
+          ${members.length === 0 ? '<div style="color:var(--muted);font-size:13px;">No members yet.</div>' :
+            members.map(m => {
+              const mRole = m.role || 'member';
+              const paid = curRound ? (curRound.contributions||[]).find(c => c.memberId === m.id) : null;
+              const statusDot = !curRound ? '' : paid?.paid
+                ? '<span style="color:var(--green);font-size:16px;line-height:1;" title="Paid">●</span>'
+                : '<span style="color:var(--yellow);font-size:16px;line-height:1;" title="Due">●</span>';
+              const lastPaid = paid?.paidAt ? new Date(paid.paidAt).toLocaleDateString() : '—';
+              return `<div style="background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:8px;">
+                <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
+                  <div class="avatar" style="width:32px;height:32px;font-size:13px;">${(m.name||'?')[0].toUpperCase()}</div>
+                  <div style="flex:1;">
+                    <div style="font-weight:700;font-size:14px;">${esc(m.name)}</div>
+                    <div style="font-size:11px;color:var(--muted);display:flex;gap:10px;margin-top:2px;">
+                      <span>Status: ${statusDot} ${!curRound ? '—' : paid?.paid ? '<strong style="color:var(--green);">Paid</strong>' : '<strong style="color:var(--yellow);">Due</strong>'}</span>
+                      <span>Last Paid: <strong>${lastPaid}</strong></span>
+                      <span>Role: <strong>${mRole.charAt(0).toUpperCase()+mRole.slice(1)}</strong></span>
+                    </div>
+                  </div>
+                </div>
+                <div style="display:flex;gap:6px;flex-wrap:wrap;">
+                  ${_canManage && curRound ? `<button class="bs sm" style="font-size:11px;" onclick="markContribution('${g.id}','${curRound.id}','${m.id}')">${paid?.paid ? 'Undo Payment' : 'Mark Paid'}</button>` : ''}
+                  ${_canManage ? `<select style="width:auto;font-size:11px;padding:3px 6px;border-radius:6px;" onchange="changeMemberRole('${g.id}','groups','${m.id}',this.value)">
+                    <option value="invitee"${mRole==='invitee'?' selected':''}>Invitee</option>
+                    <option value="member"${mRole==='member'?' selected':''}>Member</option>
+                    ${_amOwner?`<option value="admin"${mRole==='admin'?' selected':''}>Admin</option>`:''}
+                  </select>` : ''}
+                  ${_canManage ? `<button class="gh sm" style="font-size:11px;color:var(--red);" onclick="removeGroupMember('${g.id}','${m.id}')">Remove</button>` : ''}
+                </div>
+              </div>`;
+            }).join('')}
+        </div>
+
+        <!-- ═══ NOTICE BOARD (inline) ═══ -->
+        <div style="padding:0 24px 24px;">
+          <div style="font-size:14px;font-weight:800;margin-bottom:10px;">Notice Board</div>
           <div style="display:flex;gap:8px;margin-bottom:12px;">
             <input type="text" id="gcomment_${g.id}" placeholder="Write a message…" style="flex:1;padding:8px 12px;font-size:13px;">
             <button class="btn sm" onclick="addGroupComment('${g.id}')">Post</button>
           </div>
-          ${board.length === 0 ? '<p style="color:var(--muted);font-size:12px;">No messages yet.</p>' :
-            board.slice(0, 5).map(n => `<div style="padding:6px 0;border-bottom:1px solid var(--border);font-size:12px;">
-              <div style="display:flex;justify-content:space-between;"><strong>${esc(n.userName||'User')}</strong><span style="color:var(--muted);font-size:10px;">${new Date(n.createdAt).toLocaleString()}</span></div>
-              <div style="margin-top:2px;white-space:pre-line;color:var(--text);">${esc(n.msg)}</div>
+          ${board.length === 0 ? '<div style="color:var(--muted);font-size:12px;">No messages yet.</div>' :
+            board.slice(0, 5).map(n => `<div style="padding:8px 0;border-bottom:1px solid var(--border);">
+              <div style="display:flex;justify-content:space-between;font-size:12px;"><strong>${esc(n.userName||'User')}</strong><span style="color:var(--muted);font-size:10px;">${new Date(n.createdAt).toLocaleString()}</span></div>
+              <div style="font-size:13px;margin-top:3px;white-space:pre-line;">${esc(n.msg)}</div>
             </div>`).join('')}
-          ${board.length > 5 ? `<button class="gh sm" style="margin-top:6px;font-size:11px;color:var(--accent);" onclick="window._grpTab='board_full';openGroupDetail('${g.id}')">View all ${board.length} messages →</button>` : ''}
         </div>
+
+        <!-- ═══ COLLAPSED SECTIONS ═══ -->
+        ${g.useRotation ? `<details style="padding:0 24px 16px;">
+          <summary style="font-size:14px;font-weight:800;cursor:pointer;padding:8px 0;">▶ Rotation Order</summary>
+          <div style="padding-top:8px;">
+          ${(g.rotationOrder||[]).map((mid, i) => {
+            const mem = members.find(m => m.id === mid);
+            const nextIdx = rounds.length % (g.rotationOrder||[]).length;
+            return `<div style="display:flex;align-items:center;gap:8px;padding:6px 0;font-size:13px;${i===nextIdx?'background:rgba(108,99,255,.08);border-radius:6px;padding:6px 8px;':''}">
+              <span style="font-weight:700;color:var(--muted);width:24px;">#${i+1}</span>
+              <span style="flex:1;font-weight:600;">${esc(mem?.name||'?')}</span>
+              ${i===nextIdx?'<span class="badge badge-blue" style="font-size:9px;">Next</span>':''}
+              ${_canManage ? `<div style="display:flex;gap:2px;">${i>0?`<button class="gh sm" onclick="_moveRotation('${g.id}',${i},-1)" style="font-size:13px;">↑</button>`:''}${i<(g.rotationOrder||[]).length-1?`<button class="gh sm" onclick="_moveRotation('${g.id}',${i},1)" style="font-size:13px;">↓</button>`:''}</div>` : ''}
+            </div>`;
+          }).join('')}
+          </div>
+        </details>` : ''}
+
+        <details style="padding:0 24px 20px;">
+          <summary style="font-size:14px;font-weight:800;cursor:pointer;padding:8px 0;">▶ Documents${(g.docs||[]).length>0?' ('+(g.docs||[]).length+')':''}</summary>
+          <div style="padding-top:8px;">
+            <div style="display:flex;gap:8px;margin-bottom:10px;">
+              <button class="btn sm" style="font-size:11px;" onclick="_uploadGroupDoc('${g.id}','Receipt')">Upload Receipt</button>
+              <button class="bs sm" style="font-size:11px;" onclick="_uploadGroupDoc('${g.id}','Document')">Upload Document</button>
+            </div>
+            ${_renderDocList(g.docs||[], '_delGroupDoc', g.id)}
+          </div>
+        </details>
+
+        ${rounds.length > 1 ? `<details style="padding:0 24px 20px;">
+          <summary style="font-size:14px;font-weight:800;cursor:pointer;padding:8px 0;">▶ Previous Rounds (${rounds.length - 1})</summary>
+          <div style="padding-top:8px;">
+          ${[...rounds].slice(0, -1).reverse().map(r => {
+            const pd = (r.contributions||[]).filter(c => c.paid).length;
+            const tt = (r.contributions||[]).length;
+            return `<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);font-size:12px;">
+              <span>Round ${r.roundNum}</span><span class="badge ${pd===tt?'badge-green':'badge-yellow'}" style="font-size:10px;">${pd}/${tt}</span>
+            </div>`;
+          }).join('')}
+          </div>
+        </details>` : ''}
+
       </div></div>`;
       document.body.insertAdjacentHTML('beforeend', modal);
     }
