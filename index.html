@@ -1875,7 +1875,9 @@
               } else if (_existingE && mr.entry) {
                 // ── Status + amount sync: keep recipient's isShared entry in sync with token ──
                 let _entryChanged = false;
-                if (mr.entry.status && _existingE.status !== mr.entry.status) {
+                // Don't overwrite 'payment' status on receipt entries with 'settled' from token
+                const _skipStatusSync = _existingE.status === 'payment' && (mr.entry.status === 'settled' || !mr.entry.status);
+                if (mr.entry.status && _existingE.status !== mr.entry.status && !_skipStatusSync) {
                   _existingE.status = mr.entry.status; _entryChanged = true;
                 }
                 if (mr.entry.settledAmt != null && _existingE.settledAmt !== mr.entry.settledAmt) {
