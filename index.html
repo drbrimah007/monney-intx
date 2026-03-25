@@ -8801,15 +8801,15 @@
       const roundNum = curRound ? curRound.roundNum : 0;
       const _cl = "document.querySelector('.grp-detail-modal')?.remove();";
 
-      // Manage Group dropdown
-      const _mgItems = [
-        _canManage ? `<button onclick="${_cl}addGroupMember('${g.id}')">Add Member</button>` : '',
-        `<button onclick="${_cl}emailInviteToItem('${g.id}','groups','a Group Savings circle')">Invite by Email</button>`,
-        `<button onclick="${_cl}openInviteLink('${g.id}','groups')">Copy Invite Link</button>`,
-        _canManage ? `<button onclick="${_cl}addGroupRound('${g.id}')">New Round</button>` : '',
-        _canManage ? `<button onclick="${_cl}editGroup('${g.id}')">Edit Group</button>` : '',
-        _amOwner ? `<button onclick="${_cl}delGroup('${g.id}')" style="color:var(--red);">Delete Group</button>` : '',
-        !_amOwner ? `<button onclick="${_cl}exitItem('${g.id}','groups')" style="color:var(--red);">Leave Group</button>` : ''
+      // Manage Group items for popup panel
+      const _mgRows = [
+        _canManage ? `<button style="display:flex;align-items:center;gap:12px;width:100%;padding:12px 16px;background:none;border:none;border-bottom:1px solid var(--border);color:var(--text);font-size:14px;cursor:pointer;text-align:left;" onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background='none'" onclick="${_cl}addGroupMember('${g.id}')"><span style="font-size:18px;width:24px;text-align:center;">👤</span> Add Member</button>` : '',
+        `<button style="display:flex;align-items:center;gap:12px;width:100%;padding:12px 16px;background:none;border:none;border-bottom:1px solid var(--border);color:var(--text);font-size:14px;cursor:pointer;text-align:left;" onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background='none'" onclick="${_cl}emailInviteToItem('${g.id}','groups','a Group Savings circle')"><span style="font-size:18px;width:24px;text-align:center;">✉</span> Invite by Email</button>`,
+        `<button style="display:flex;align-items:center;gap:12px;width:100%;padding:12px 16px;background:none;border:none;border-bottom:1px solid var(--border);color:var(--text);font-size:14px;cursor:pointer;text-align:left;" onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background='none'" onclick="${_cl}openInviteLink('${g.id}','groups')"><span style="font-size:18px;width:24px;text-align:center;">🔗</span> Copy Invite Link</button>`,
+        _canManage ? `<button style="display:flex;align-items:center;gap:12px;width:100%;padding:12px 16px;background:none;border:none;border-bottom:1px solid var(--border);color:var(--text);font-size:14px;cursor:pointer;text-align:left;" onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background='none'" onclick="${_cl}addGroupRound('${g.id}')"><span style="font-size:18px;width:24px;text-align:center;">➕</span> New Round</button>` : '',
+        _canManage ? `<button style="display:flex;align-items:center;gap:12px;width:100%;padding:12px 16px;background:none;border:none;border-bottom:1px solid var(--border);color:var(--text);font-size:14px;cursor:pointer;text-align:left;" onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background='none'" onclick="${_cl}editGroup('${g.id}')"><span style="font-size:18px;width:24px;text-align:center;">✏️</span> Edit Group</button>` : '',
+        _amOwner ? `<button style="display:flex;align-items:center;gap:12px;width:100%;padding:12px 16px;background:none;border:none;border-bottom:1px solid var(--border);color:var(--red);font-size:14px;cursor:pointer;text-align:left;" onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background='none'" onclick="${_cl}delGroup('${g.id}')"><span style="font-size:18px;width:24px;text-align:center;">🗑</span> Delete Group</button>` : '',
+        !_amOwner ? `<button style="display:flex;align-items:center;gap:12px;width:100%;padding:12px 16px;background:none;border:none;color:var(--red);font-size:14px;cursor:pointer;text-align:left;" onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background='none'" onclick="${_cl}exitItem('${g.id}','groups')"><span style="font-size:18px;width:24px;text-align:center;">🚪</span> Leave Group</button>` : ''
       ].filter(Boolean).join('');
 
       // Status line
@@ -8817,7 +8817,7 @@
         ? (dueCount > 0 ? `<span style="color:var(--yellow);">${dueCount} member${dueCount!==1?'s':''} due</span>` : `<span style="color:var(--green);">All paid</span>`)
         : '<span style="color:var(--muted);">No active round</span>';
 
-      const modal = `<div class="modal-bg grp-detail-modal" onclick="this.remove()"><div class="modal" style="max-width:800px;padding:0;overflow-y:auto;max-height:90vh;" onclick="event.stopPropagation()">
+      const modal = `<div class="modal-bg grp-detail-modal" onclick="this.remove()"><div class="modal" style="max-width:800px;width:fit-content;min-width:340px;padding:0;overflow-y:auto;max-height:90vh;" onclick="event.stopPropagation()">
 
         <!-- ═══ HEADER ═══ -->
         <div style="padding:24px 24px 0;display:flex;justify-content:space-between;align-items:center;">
@@ -8825,7 +8825,13 @@
             <h2 style="margin:0;font-size:20px;font-weight:800;">${esc(g.name)}</h2>
             <div style="font-size:13px;color:var(--accent);font-weight:600;">Contribution Circle</div>
           </div>
-          <div class="action-menu"><button class="bs sm" onclick="toggleActionMenu(this)">Manage Group ▾</button><div class="action-dropdown">${_mgItems}</div></div>
+          <button class="btn sm" onclick="document.getElementById('_mgPanel').style.display=document.getElementById('_mgPanel').style.display==='none'?'block':'none'">Manage Group</button>
+        </div>
+
+        <!-- ═══ MANAGE PANEL (toggle) ═══ -->
+        <div id="_mgPanel" style="display:none;margin:0 24px 16px;background:var(--bg3);border:1px solid var(--border);border-radius:12px;overflow:hidden;">
+          <div style="padding:14px 16px 8px;font-size:13px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;">Manage Group</div>
+          ${_mgRows}
         </div>
 
         <!-- ═══ GROUP OVERVIEW ═══ -->
