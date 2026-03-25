@@ -78,38 +78,84 @@ module.exports = async function handler(req, res) {
 
   // ── POST: push notification to another user's blob ──────────────────
   if (req.method === 'POST') {
-    const { targetEmail, notification } = req.body || {};
-    if (!targetEmail || !notification) {
-      return res.status(400).json({ ok: false, error: 'targetEmail and notification required.' });
-    }
+    const { action } = req.body || {};
 
-    try {
-      // Support lookup by userId or email
-      let targetUser;
-      if (targetEmail.startsWith('_byUserId:')) {
-        const uid = targetEmail.replace('_byUserId:', '');
-        [targetUser] = await sql`SELECT id FROM users WHERE id = ${uid} LIMIT 1`;
-      } else {
-        [targetUser] = await sql`SELECT id FROM users WHERE LOWER(email) = ${targetEmail.toLowerCase()} LIMIT 1`;
+    // ── Action: push notification to another user's blob ──
+    if (!action || action === 'push-notification') {
+      const { targetEmail, notification } = req.body || {};
+      if (!targetEmail || !notification) {
+        return res.status(400).json({ ok: false, error: 'targetEmail and notification required.' });
       }
-      if (!targetUser) return res.json({ ok: true, delivered: false, reason: 'User not found.' });
+      try {
+        let targetUser;
+        if (targetEmail.startsWith('_byUserId:')) {
+          const uid = targetEmail.replace('_byUserId:', '');
+          [targetUser] = await sql`SELECT id FROM users WHERE id = ${uid} LIMIT 1`;
+        } else {
+          [targetUser] = await sql`SELECT id FROM users WHERE LOWER(email) = ${targetEmail.toLowerCase()} LIMIT 1`;
+        }
+        if (!targetUser) return res.json({ ok: true, delivered: false, reason: 'User not found.' });
 
-      const [row] = await sql`SELECT data FROM user_data WHERE user_id = ${targetUser.id} LIMIT 1`;
-      if (!row) return res.json({ ok: true, delivered: false, reason: 'No user data.' });
+        const [row] = await sql`SELECT data FROM user_data WHERE user_id = ${targetUser.id} LIMIT 1`;
+        if (!row) return res.json({ ok: true, delivered: false, reason: 'No user data.' });
 
-      const data = await decompress(row.data || {});
-      if (!data.notifs) data.notifs = [];
-      notification.userId = targetUser.id;
-      data.notifs.push(notification);
+        const data = await decompress(row.data || {});
+        if (!data.notifs) data.notifs = [];
+        notification.userId = targetUser.id;
+        data.notifs.push(notification);
 
-      const compressed = await compress(data);
-      await sql`UPDATE user_data SET data = ${compressed}, updated_at = now() WHERE user_id = ${targetUser.id}`;
-
-      return res.json({ ok: true, delivered: true });
-    } catch (e) {
-      console.error('[shared-groups/POST]', e.message);
-      return res.status(500).json({ ok: false, error: 'Failed to deliver notification.' });
+        const compressed = await compress(data);
+        await sql`UPDATE user_data SET data = ${compressed}, updated_at = now() WHERE user_id = ${targetUser.id}`;
+        return res.json({ ok: true, delivered: true });
+      } catch (e) {
+        console.error('[shared-groups/POST push]', e.message);
+        return res.status(500).json({ ok: false, error: 'Failed to deliver notification.' });
+      }
     }
+
+    // ── Action: remove member from owner's blob (member exits) ──
+    if (action === 'remove-member') {
+      const { itemId, collection, memberEmail } = req.body || {};
+      if (!itemId || !collection || !memberEmail) {
+        return res.status(400).json({ ok: false, error: 'itemId, collection, memberEmail required.' });
+      }
+      try {
+        // Search all blobs for the item
+        const allBlobs = await sql`SELECT user_id, data FROM user_data`;
+        for (const row of allBlobs) {
+          const data = await decompress(row.data || {});
+          const items = data[collection] || [];
+          const item = items.find(x => x.id === itemId);
+          if (!item) continue;
+
+          // Find the member by email match on contacts
+          const contacts = data.contacts || [];
+          const memberContactIds = contacts
+            .filter(c => c.email && c.email.toLowerCase() === memberEmail.toLowerCase())
+            .map(c => c.id);
+
+          const before = (item.members || []).length;
+          item.members = (item.members || []).filter(m => !memberContactIds.includes(m.contactId));
+          if (item.rotationOrder) {
+            const removedIds = new Set((item.members || []).map(m => m.id));
+            // keep only members still in the list
+          }
+
+          if ((item.members || []).length < before) {
+            // Member was removed — save back
+            const compressed = await compress(data);
+            await sql`UPDATE user_data SET data = ${compressed}, updated_at = now() WHERE user_id = ${row.user_id}`;
+            return res.json({ ok: true, removed: true });
+          }
+        }
+        return res.json({ ok: true, removed: false, reason: 'Member not found in any blob.' });
+      } catch (e) {
+        console.error('[shared-groups/POST remove]', e.message);
+        return res.status(500).json({ ok: false, error: 'Failed to remove member.' });
+      }
+    }
+
+    return res.status(400).json({ ok: false, error: 'Unknown action.' });
   }
 
   return res.status(405).json({ ok: false, error: 'Method not allowed.' });

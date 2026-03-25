@@ -7627,17 +7627,41 @@
     }
 
     // Member exits group/investment
-    function exitItem(itemId, collection) {
-      const item = (db[collection]||[]).find(x => x.id === itemId);
-      if (!item) return;
+    async function exitItem(itemId, collection) {
       if (!confirm('Leave this ' + (collection === 'groups' ? 'group' : 'investment') + '?')) return;
       const u = curUser();
-      // Find my member entry by matching contact
-      item.members = (item.members||[]).filter(m => {
-        const c = db.contacts.find(x => x.id === m.contactId);
-        return !(c && (c.linkedUserId === u.id || (c.email||'').toLowerCase() === (u.email||'').toLowerCase()));
-      });
-      saveNow(); toast('You left');
+      const item = (db[collection]||[]).find(x => x.id === itemId);
+
+      if (item && !item._shared) {
+        // Item is in OUR blob (we're the owner or it's local) — modify directly
+        item.members = (item.members||[]).filter(m => {
+          const c = db.contacts.find(x => x.id === m.contactId);
+          return !(c && (c.linkedUserId === u.id || (c.email||'').toLowerCase() === (u.email||'').toLowerCase()));
+        });
+        await saveNow();
+      } else {
+        // Item is in someone else's blob (_shared) — send removal request to server
+        const _tok = localStorage.getItem('mxi_token');
+        const _headers = { 'Content-Type': 'application/json' };
+        if (_tok) _headers['Authorization'] = 'Bearer ' + _tok;
+        try {
+          await fetch('/api/shared-groups', {
+            method: 'POST', credentials: 'include', headers: _headers,
+            body: JSON.stringify({
+              action: 'remove-member',
+              itemId, collection,
+              memberEmail: u.email
+            })
+          });
+        } catch (e) { console.error('[exitItem]', e.message); }
+      }
+      // Remove from local shared cache
+      if (collection === 'groups') {
+        window._sharedGroups = (window._sharedGroups||[]).filter(g => g.id !== itemId);
+      } else {
+        window._sharedInvestments = (window._sharedInvestments||[]).filter(i => i.id !== itemId);
+      }
+      toast('You left');
       if (collection === 'groups') renderGroups();
       else renderInvestments();
     }
@@ -7802,13 +7826,13 @@
       openGroupDetail(gid);
     }
 
-    function removeGroupMember(gid, mid) {
+    async function removeGroupMember(gid, mid) {
       const g = (db.groups||[]).find(x => x.id === gid);
       if (!g) return;
       if (!confirm('Remove this member?')) return;
       g.members = (g.members||[]).filter(m => m.id !== mid);
       if (g.rotationOrder) g.rotationOrder = g.rotationOrder.filter(x => x !== mid);
-      save(); openGroupDetail(gid);
+      await saveNow(); openGroupDetail(gid);
     }
 
     function addGroupComment(gid) {
@@ -8317,12 +8341,12 @@
       renderInvestments();
     }
 
-    function removeInvMember(iid, mid) {
+    async function removeInvMember(iid, mid) {
       const inv = (db.investments||[]).find(x => x.id === iid);
       if (!inv) return;
       if (!confirm('Remove this member?')) return;
       inv.members = (inv.members||[]).filter(m => m.id !== mid);
-      save();
+      await saveNow();
       openInvestmentDetail(iid);
     }
 
