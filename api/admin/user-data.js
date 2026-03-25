@@ -50,19 +50,19 @@ module.exports = async function handler(req, res) {
     // Also fetch confirmed share tokens linked to this user so admin
     // impersonation can display and migrate the user's incoming shared records.
     const shareRows = await sql`
-      SELECT token, confirmed, recipient_closed, shared_at, entry_data
+      SELECT token, confirmed, recipient_closed, created_at, entry_data
       FROM share_tokens
       WHERE linked_user_id = ${userId}
         AND confirmed = true
         AND (recipient_closed IS NULL OR recipient_closed = false)
-      ORDER BY shared_at DESC
+      ORDER BY created_at DESC
       LIMIT 100
     `;
     const sharedRecords = shareRows.map(r => ({
       token:           r.token,
       confirmed:       r.confirmed,
       recipientClosed: r.recipient_closed || false,
-      sharedAt:        r.shared_at,
+      sharedAt:        r.created_at,
       entry:           r.entry_data || {}
     }));
 
