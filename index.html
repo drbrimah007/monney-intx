@@ -7860,7 +7860,7 @@
       if (contact.email) {
         try {
           const _siteUrl = db.settings?.siteUrl || window.location.origin;
-          await fetch('/api/email', {
+          const _emailRes = await fetch('/api/email', {
             method: 'POST', credentials: 'include', headers: _headers,
             body: JSON.stringify({
               action: 'send-invite',
@@ -7875,12 +7875,23 @@
               logoData: db.settings?.logoData || ''
             })
           });
+          const _emailResult = await _emailRes.json().catch(() => ({}));
           db.emailLog = db.emailLog || [];
-          db.emailLog.push({ id: uuid(), ts: Date.now(), type: 'invite', to: contact.email, status: 'sent' });
+          if (_emailResult.ok) {
+            db.emailLog.push({ id: uuid(), ts: Date.now(), type: 'invite', to: contact.email, status: 'sent' });
+            toast('Invite email sent to ' + contact.email, 3000);
+          } else {
+            db.emailLog.push({ id: uuid(), ts: Date.now(), type: 'invite', to: contact.email, status: 'failed', error: _emailResult.error });
+            console.error('[invite email] API error:', _emailResult.error);
+            toast('Notification sent but email failed: ' + (_emailResult.error || 'unknown'), 4000);
+          }
           save();
         } catch (e) {
-          console.error('[invite email]', e.message);
+          console.error('[invite email] fetch error:', e.message);
+          toast('Notification sent but email failed', 3000);
         }
+      } else {
+        toast('Notification sent (no email on this contact)', 3000);
       }
     }
 
