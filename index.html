@@ -887,6 +887,65 @@
         const _tok = localStorage.getItem('mxi_token');
         const _headers = { 'Content-Type': 'application/json' };
         if (_tok) _headers['Authorization'] = 'Bearer ' + _tok;
+
+        // ── Merge-before-write: fetch latest server blob and merge in any entries/contacts
+        // that exist on the server but not locally. This prevents one device from
+        // overwriting another device's new data (the #1 cause of "missing entries").
+        try {
+          const _freshRes = await fetch('/api/data/load?_t=' + Date.now(), {
+            credentials: 'include', cache: 'no-store',
+            headers: _tok ? { 'Authorization': 'Bearer ' + _tok } : {}
+          });
+          if (_freshRes.ok) {
+            const _fresh = await _freshRes.json();
+            if (_fresh.data && Object.keys(_fresh.data).length > 0) {
+              const srvData = _fresh.data;
+              // Merge server entries not present locally (by id)
+              if (Array.isArray(srvData.entries)) {
+                const localIds = new Set((db.entries||[]).map(e => e.id));
+                const localTokens = new Set((db.entries||[]).filter(e => e.shareToken).map(e => e.shareToken));
+                for (const se of srvData.entries) {
+                  if (!localIds.has(se.id) && !(se.shareToken && localTokens.has(se.shareToken))) {
+                    db.entries.push(se);
+                  }
+                }
+              }
+              // Merge server contacts not present locally (by id)
+              if (Array.isArray(srvData.contacts)) {
+                const localCids = new Set((db.contacts||[]).map(c => c.id));
+                for (const sc of srvData.contacts) {
+                  if (!localCids.has(sc.id)) db.contacts.push(sc);
+                }
+              }
+              // Merge server notifs not present locally (by id)
+              if (Array.isArray(srvData.notifs)) {
+                const localNids = new Set((db.notifs||[]).map(n => n.id));
+                for (const sn of srvData.notifs) {
+                  if (!localNids.has(sn.id)) db.notifs.push(sn);
+                }
+              }
+              // Merge server groups/investments not present locally
+              if (Array.isArray(srvData.groups)) {
+                const localGids = new Set((db.groups||[]).filter(g => !g._shared).map(g => g.id));
+                for (const sg of srvData.groups) {
+                  if (!localGids.has(sg.id)) db.groups.push(sg);
+                }
+              }
+              if (Array.isArray(srvData.investments)) {
+                const localIids = new Set((db.investments||[]).filter(i => !i._shared).map(i => i.id));
+                for (const si of srvData.investments) {
+                  if (!localIids.has(si.id)) db.investments.push(si);
+                }
+              }
+              // Update localStorage with merged data
+              localStorage.setItem('mxi_v2', JSON.stringify(db));
+            }
+          }
+        } catch(_mergeErr) {
+          // Merge failed — proceed with local data (better than not saving at all)
+          console.warn('[sync] merge-before-write failed:', _mergeErr.message);
+        }
+
         // Strip shared items before syncing — they belong to other users' blobs
         const _cleanDb = { ...db };
         _cleanDb.groups = (db.groups || []).filter(g => !g._shared);
