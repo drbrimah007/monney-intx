@@ -1530,10 +1530,15 @@
           if (r.ok) {
             const { data, sharedRecords, user: impUser } = await r.json();
             // Merge their entries/contacts/templates into db in-memory only (NOT saved)
-            (data.entries   || []).forEach(e => { if (!db.entries.find(x=>x.id===e.id))   db.entries.push(e); });
-            (data.contacts  || []).forEach(c => { if (!db.contacts.find(x=>x.id===c.id))  db.contacts.push(c); });
-            (data.templates || []).forEach(t => { if (!db.templates.find(x=>x.id===t.id)) db.templates.push(t); });
-            (data.recurring || []).forEach(r => { if (!db.recurring.find(x=>x.id===r.id)) db.recurring.push(r); });
+            (data.entries      || []).forEach(e => { if (!db.entries.find(x=>x.id===e.id))      db.entries.push(e); });
+            (data.contacts     || []).forEach(c => { if (!db.contacts.find(x=>x.id===c.id))     db.contacts.push(c); });
+            (data.templates    || []).forEach(t => { if (!db.templates.find(x=>x.id===t.id))    db.templates.push(t); });
+            (data.recurring    || []).forEach(r => { if (!db.recurring.find(x=>x.id===r.id))    db.recurring.push(r); });
+            (data.groups       || []).forEach(g => { if (!db.groups.find(x=>x.id===g.id))       db.groups.push(g); });
+            (data.investments  || []).forEach(i => { if (!db.investments.find(x=>x.id===i.id))  db.investments.push(i); });
+            (data.nok          || []).forEach(n => { if (!db.nok.find(x=>x.id===n.id))          db.nok.push(n); });
+            (data.assetLockers || []).forEach(l => { if (!db.assetLockers.find(x=>x.id===l.id)) db.assetLockers.push(l); });
+            (data.notifs       || []).forEach(n => { if (!db.notifs.find(x=>x.id===n.id))       db.notifs.push(n); });
             // Inject the impersonated user's record so curUser() resolves to them
             // (not the admin fallback), ensuring myContacts/myEntries filter correctly.
             if (impUser && !db.users.find(u => u.id === impUser.id)) {
@@ -1570,11 +1575,16 @@
       if (!userId) return;
       // Remove entries/contacts/templates/users that were injected for impersonation
       const adminId = db.settings.sessionUserId;
-      db.entries   = db.entries.filter(e => e.userId === adminId || e.userId === 'admin_001');
-      db.contacts  = db.contacts.filter(c => c.userId === adminId || c.userId === 'admin_001');
-      db.templates = db.templates.filter(t => t.userId === adminId || t.userId === 'admin_001');
-      db.recurring = db.recurring.filter(r => r.userId === adminId || r.userId === 'admin_001');
-      db.users     = db.users.filter(u => u.id === adminId || u.id === 'admin_001' || u.role === 'admin');
+      db.entries      = db.entries.filter(e => e.userId === adminId || e.userId === 'admin_001');
+      db.contacts     = db.contacts.filter(c => c.userId === adminId || c.userId === 'admin_001');
+      db.templates    = db.templates.filter(t => t.userId === adminId || t.userId === 'admin_001');
+      db.recurring    = db.recurring.filter(r => r.userId === adminId || r.userId === 'admin_001');
+      db.groups       = db.groups.filter(g => (g.userId === adminId || g.userId === 'admin_001') && !g._impersonated);
+      db.investments  = db.investments.filter(i => (i.userId === adminId || i.userId === 'admin_001') && !i._impersonated);
+      db.nok          = db.nok.filter(n => n.userId === adminId || n.userId === 'admin_001');
+      db.assetLockers = db.assetLockers.filter(l => l.userId === adminId || l.userId === 'admin_001');
+      db.notifs       = db.notifs.filter(n => n.userId === adminId || n.userId === 'admin_001');
+      db.users        = db.users.filter(u => u.id === adminId || u.id === 'admin_001' || u.role === 'admin');
       _impersonatingDataUserId = null;
     }
 
