@@ -5312,8 +5312,9 @@
       const _emailPaid  = _emailSt.settled > 0 ? _emailSt.settled : null;
 
       try {
+        let _emailOk = 0, _emailFail = 0;
         for (const addr of toAddresses) {
-          await fetch('/api/email', {
+          const _resp = await fetch('/api/email', {
             method: 'POST',
             credentials: 'include',
             headers: { 'Content-Type': 'application/json' },
@@ -5337,14 +5338,21 @@
               logoData: db.settings?.logoData || ''
             })
           });
+          const _result = await _resp.json().catch(() => ({}));
+          if (!db.emailLog) db.emailLog = [];
+          db.emailLog.push({ id: uuid(), ts: Date.now(), type: 'reminder', to: addr, status: _result.ok ? 'sent' : 'failed', error: _result.error || null, invoiceNumber: e.invoiceNumber || null });
+          if (_result.ok) _emailOk++; else _emailFail++;
         }
-        // Mark sent
+        save();
+        // Mark notification as sent
         const notif = db.notifs.find(n => n.eid === eid && n.msg === message);
         if (notif) { notif.sent = true; save(); }
-        toast('✅ Reminder sent');
+        if (_emailOk > 0 && _emailFail === 0) toast('✅ Reminder sent to ' + toAddresses.join(', '));
+        else if (_emailOk > 0) toast('⚠️ Sent to ' + _emailOk + ', failed ' + _emailFail);
+        else toast('❌ Email failed — check Settings > Email Log', 4000);
       } catch(err) {
         console.error('send-reminder error:', err);
-        toast('⚠️ Saved but email failed — check console');
+        toast('⚠️ Saved but email failed: ' + err.message, 4000);
       }
       } finally {
         // Re-enable submit button
@@ -9620,7 +9628,7 @@
 
         // ── EMAIL SYSTEM ──────────────────────────────────────────────────
         const emailLog = db.emailLog || [];
-        const recentEmails = emailLog.slice(-10).reverse();
+        const recentEmails = emailLog.slice(-25).reverse();
         html += `<div class="card" style="margin-bottom:16px;">
           <div class="section-title">📧 Email System</div>
           <p style="color:var(--muted);font-size:13px;margin-bottom:14px;">Test email delivery and view recent email activity.</p>
@@ -9630,15 +9638,16 @@
           <div id="testEmailResult"></div>
           ${recentEmails.length > 0 ? `
           <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border);">
-            <div style="font-size:13px;font-weight:600;margin-bottom:10px;">Recent Email Activity (Last 10)</div>
+            <div style="font-size:13px;font-weight:600;margin-bottom:10px;">Recent Email Activity (Last 25)</div>
             <div class="tbl-wrap">
               <table style="font-size:13px;">
-                <tr><th>Time</th><th>Type</th><th>To</th><th>Status</th></tr>
+                <tr><th>Time</th><th>Type</th><th>To</th><th>Ref</th><th>Status</th></tr>
                 ${recentEmails.map(e => `<tr>
-                  <td>${new Date(e.ts).toLocaleString()}</td>
+                  <td style="font-size:11px;">${new Date(e.ts).toLocaleString()}</td>
                   <td>${esc(e.type)}</td>
-                  <td>${esc(e.to)}</td>
-                  <td><span class="badge ${e.status === 'sent' ? 'badge-green' : 'badge-red'}">${esc(e.status)}</span></td>
+                  <td style="font-size:12px;">${esc(e.to)}</td>
+                  <td style="font-size:11px;color:var(--muted);">${esc(e.invoiceNumber||'—')}</td>
+                  <td><span class="badge ${e.status === 'sent' ? 'badge-green' : 'badge-red'}">${esc(e.status)}</span>${e.error ? `<div style="font-size:10px;color:var(--red);margin-top:2px;">${esc(e.error)}</div>` : ''}</td>
                 </tr>`).join('')}
               </table>
             </div>
