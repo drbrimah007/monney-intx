@@ -974,7 +974,7 @@
     let _freshnessPaused = false; // pause during saves to avoid race
     function _startFreshnessPolling() {
       if (!_IS_SERVER || _freshnessTimer) return;
-      _freshnessTimer = setInterval(_checkFreshness, 15000);
+      _freshnessTimer = setInterval(_checkFreshness, 30000);
     }
     function _stopFreshnessPolling() {
       if (_freshnessTimer) { clearInterval(_freshnessTimer); _freshnessTimer = null; }
@@ -996,9 +996,9 @@
           _lastServerUpdatedAt = updatedAt;
           await load({ force: true });
           refreshCurPage();
-          // Reload shared records but do NOT re-run _syncSentShareStatuses
-          // (that would create duplicate notifications from status re-detection)
-          _loadSharedWithMe();
+          // Do NOT call _loadSharedWithMe here — it triggers saves which
+          // cause a feedback loop between devices. Shared records load on
+          // initial renderDash only.
         }
       } catch(_) { /* network error — skip this cycle */ }
     }
@@ -1741,29 +1741,9 @@
       // Clean up bulk bar + select mode when navigating away from entries
       if (page !== 'entries') { document.getElementById('_bulkBar')?.remove(); window._selectMode = false; window._selectedEntries = new Set(); }
       const role = curRole();
-      if (page === 'dash' && (role === 'admin' || role === 'standard' || role === 'contact')) {
-        _curPage = 'dash';
-        renderDash();
-        // Always pull fresh data from server when hitting the dashboard
-        // This ensures cross-device changes are always visible
-        if (_IS_SERVER && _loadCompleted) {
-          load({ force: true }).then(() => {
-            renderDash();
-            _loadSharedWithMe();
-          }).catch(() => {});
-        }
-      }
+      if (page === 'dash' && (role === 'admin' || role === 'standard' || role === 'contact')) { _curPage = 'dash'; renderDash(); }
       else if (page === 'contacts' && (role === 'admin' || role === 'standard')) { _curPage = 'contacts'; renderContacts(); }
-      else if (page === 'entries') {
-        _curPage = 'entries';
-        renderEntries();
-        if (_IS_SERVER && _loadCompleted) {
-          load({ force: true }).then(() => {
-            renderEntries();
-            _loadSharedWithMe();
-          }).catch(() => {});
-        }
-      }
+      else if (page === 'entries') { _curPage = 'entries'; renderEntries(); }
       else if (page === 'templates' && (role === 'admin' || role === 'standard')) { _curPage = 'templates'; renderTemplates(); }
       else if (page === 'templatedb' && (role === 'admin' || role === 'standard')) { _curPage = 'templatedb'; renderTemplateDB(); }
       else if (page === 'recurring' && (role === 'admin' || role === 'standard')) { _curPage = 'recurring'; renderRecurring(); }
@@ -12438,9 +12418,9 @@
         const pendingChanged = JSON.stringify(window._pendingSettlements) !== prevPending;
         if (changed || pendingChanged) {
           if (changed) {
-            // Use saveNow (immediate) not save (debounced) — prevents stale blob from
-            // overwriting status changes when freshness polling triggers a reload
-            saveNow().catch(() => save());
+            // Use debounced save only — saveNow here causes feedback loops between
+            // devices where status sync → save → other device detects change → reloads → repeats
+            save();
             renderNav();
           }
           if (_curPage === 'entries' || _curPage === 'dash' || _curPage === 'notifs') refreshCurPage();
@@ -12456,9 +12436,9 @@
       setInterval(_pollNotifs, 30_000);
       // Sync sent-share statuses immediately on load, then every 60 seconds
       _syncSentShareStatuses();
-      setInterval(_syncSentShareStatuses, 60_000);
-      // Auto-sync to server every 5 minutes so blob stays fresh for reconciliation
-      setInterval(() => { if (!_authFailed) saveNow().catch(() => {}); }, 300_000);
+      setInterval(_syncSentShareStatuses, 120_000);
+      // Auto-sync removed — freshness polling handles cross-device sync.
+      // Manual saves (saveNow) still push to server immediately.
       // Also re-check immediately when the user returns to the tab
       document.addEventListener('visibilitychange', () => {
         if (document.visibilityState === 'visible') {
