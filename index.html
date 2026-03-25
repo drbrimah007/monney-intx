@@ -5554,6 +5554,41 @@
               <button type="button" id="nwho_both" class="nwho-btn" style="padding:8px 18px;font-size:13px;background:var(--bg3);color:var(--text);border:none;border-left:1px solid var(--border);cursor:pointer;" onclick="_setNwho('both')">Both</button>
             </div>
           </div>
+          <div class="fg" style="margin-top:10px;">
+            <label style="display:block;margin-bottom:8px;">When</label>
+            <div style="display:inline-flex;border:1px solid var(--border);border-radius:8px;overflow:hidden;">
+              <button type="button" id="nwhen_now" class="nwhen-btn" style="padding:8px 18px;font-size:13px;background:var(--accent);color:#fff;border:none;cursor:pointer;font-weight:600;" onclick="_setNwhen('now')">Now</button>
+              <button type="button" id="nwhen_scheduled" class="nwhen-btn" style="padding:8px 18px;font-size:13px;background:var(--bg3);color:var(--text);border:none;border-left:1px solid var(--border);cursor:pointer;" onclick="_setNwhen('scheduled')">Scheduled</button>
+            </div>
+          </div>
+          <div id="notify_schedule_wrap" style="display:none;margin-top:10px;background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:12px;">
+            <div class="fg"><label>Send on</label>
+              <input type="date" id="notify_sched_date" style="width:100%;" value="${new Date(Date.now()+86400000).toISOString().slice(0,10)}" min="${new Date().toISOString().slice(0,10)}" />
+            </div>
+            <div class="fg"><label>Repeat</label>
+              <select id="notify_sched_repeat" style="width:100%;" onchange="document.getElementById('notify_repeat_days_wrap').style.display=this.value==='custom'?'block':'none';">
+                <option value="none">No repeat</option>
+                <option value="daily">Every day</option>
+                <option value="3">Every 3 days</option>
+                <option value="7">Every 7 days</option>
+                <option value="14">Every 14 days</option>
+                <option value="30">Every 30 days</option>
+                <option value="custom">Custom interval</option>
+              </select>
+            </div>
+            <div class="fg" id="notify_repeat_days_wrap" style="display:none;"><label>Repeat every (days)</label>
+              <input type="number" id="notify_repeat_days" min="1" max="365" value="5" style="width:100%;" />
+            </div>
+            <div class="fg"><label>Stop after</label>
+              <select id="notify_sched_stop" style="width:100%;">
+                <option value="1">1 reminder</option>
+                <option value="3" selected>3 reminders</option>
+                <option value="5">5 reminders</option>
+                <option value="10">10 reminders</option>
+                <option value="0">Until settled</option>
+              </select>
+            </div>
+          </div>
           <div id="notify_email_wrap" data-has-email="${c?.email ? '1' : '0'}" style="margin-top:10px;${c?.email ? 'display:none;' : ''}">
             <div style="background:#fff8e1;border:1px solid #ffe082;border-radius:8px;padding:10px 14px;">
               <div style="font-size:13px;color:#795548;margin-bottom:8px;">⚠️ <strong>${esc(c?.name||'This contact')}</strong> has no email on file.</div>
@@ -5629,6 +5664,18 @@
         const noEmail = wrap.dataset.hasEmail !== '1';
         wrap.style.display = noEmail && (val === 'them' || val === 'both') ? '' : 'none';
       }
+    }
+
+    function _setNwhen(val) {
+      window._notifyWhenVal = val;
+      document.querySelectorAll('.nwhen-btn').forEach(b => {
+        const active = b.id === 'nwhen_' + val;
+        b.style.background = active ? 'var(--accent)' : 'var(--bg3)';
+        b.style.color      = active ? '#fff' : 'var(--text)';
+        b.style.fontWeight = active ? '600' : '400';
+      });
+      const wrap = document.getElementById('notify_schedule_wrap');
+      if (wrap) wrap.style.display = val === 'scheduled' ? '' : 'none';
     }
 
     // Sends an explicit reminder for an existing entry (sender action only).
@@ -5871,12 +5918,22 @@
 
     // ── Private self-reminder for shared-with-me entries ─────────────────────
     // Sets a local "remind me" date/flag — does NOT email or notify the sender.
-    function _selfRemindMe(token) {
-      const dbEntry = db.entries.find(e => e.shareToken === token);
-      const r = (_cachedSharedRecords || []).find(x => x.token === token);
+    function _selfRemindMe(idOrToken) {
+      // Works with both entry IDs (sender's own entries) and share tokens (received entries)
+      const dbEntry = db.entries.find(e => e.id === idOrToken) || db.entries.find(e => e.shareToken === idOrToken);
+      const r = (_cachedSharedRecords || []).find(x => x.token === idOrToken);
       const e = r?.entry || {};
-      const senderName = e._resolvedFromName || e.fromName || dbEntry?.fromName || 'them';
-      const rawAmt = parseFloat(e.amount || dbEntry?.amount || 0);
+      // For own entries, show the contact name; for shared entries, show the sender name
+      let displayName;
+      if (dbEntry && !dbEntry.isShared) {
+        const c = db.contacts.find(x => x.id === dbEntry.cId);
+        displayName = c?.name || 'them';
+      } else {
+        displayName = e._resolvedFromName || e.fromName || dbEntry?.fromName || 'them';
+      }
+      const senderName = displayName;
+      const rawAmt = parseFloat(dbEntry?.amount || e.amount || 0);
+      const token = dbEntry?.shareToken || idOrToken;
       const d = document.createElement('div');
       d.innerHTML = `<div class="modal-bg" id="selfRemindBg" onclick="if(event.target===this)this.remove()">
         <div class="modal" style="max-width:420px;" onclick="event.stopPropagation()">
@@ -5906,11 +5963,12 @@
       document.body.appendChild(d.firstChild);
     }
 
-    function _saveSelfReminder(token) {
+    function _saveSelfReminder(idOrToken) {
       const dateVal = document.getElementById('selfRemindDate')?.value;
       const noteVal = document.getElementById('selfRemindNote')?.value.trim() || '';
       if (!dateVal) return alert('Please select a date');
-      const dbEntry = db.entries.find(e => e.shareToken === token);
+      const dbEntry = db.entries.find(e => e.id === idOrToken) || db.entries.find(e => e.shareToken === idOrToken);
+      const token = dbEntry?.shareToken || idOrToken;
       if (dbEntry) {
         dbEntry.selfReminder = { date: dateVal, note: noteVal, createdAt: Date.now() };
         save();
@@ -6105,6 +6163,7 @@
     function sendNotification(eid) {
       if (!_canSendEmail('notify_' + eid)) return;
       const who = window._notifyWhoVal || 'them';
+      const when = window._notifyWhenVal || 'now';
       const message = document.getElementById('notify_msg')?.value.trim() || '';
       if (!message) return alert('Message required');
       // If the user provided an inline email for a contact without one, save it now
@@ -6114,12 +6173,67 @@
           const en = db.entries.find(x => x.id === eid);
           if (en) {
             const ct = db.contacts.find(x => x.id === en.cId);
-            if (ct && !ct.email) { ct.email = inlineEmail; saveNow(); } // saveNow: persist email immediately
+            if (ct && !ct.email) { ct.email = inlineEmail; saveNow(); }
           }
         }
       }
       document.getElementById('notifyModalBg')?.remove();
-      _sendReminder(eid, message, who).then(() => refreshCurPage());
+
+      if (when === 'now') {
+        _sendReminder(eid, message, who).then(() => refreshCurPage());
+      } else {
+        // Scheduled reminder
+        const schedDate = document.getElementById('notify_sched_date')?.value;
+        const repeatVal = document.getElementById('notify_sched_repeat')?.value || 'none';
+        const customDays = parseInt(document.getElementById('notify_repeat_days')?.value) || 5;
+        const stopAfter = parseInt(document.getElementById('notify_sched_stop')?.value);
+        if (!schedDate) return alert('Please select a date.');
+
+        const repeatDays = repeatVal === 'none' ? 0
+          : repeatVal === 'daily' ? 1
+          : repeatVal === 'custom' ? customDays
+          : parseInt(repeatVal);
+
+        if (!db.scheduledReminders) db.scheduledReminders = [];
+        db.scheduledReminders.push({
+          id: uuid(), eid, who, message,
+          nextSendAt: new Date(schedDate + 'T09:00:00').getTime(),
+          repeatDays, maxSends: stopAfter || 999,
+          sentCount: 0, active: true, createdAt: Date.now()
+        });
+        saveNow();
+        toast(`⏰ Reminder scheduled for ${new Date(schedDate).toLocaleDateString()}${repeatDays > 0 ? ', repeating every ' + repeatDays + ' day' + (repeatDays>1?'s':'') : ''}`);
+        refreshCurPage();
+      }
+    }
+
+    // ── Process scheduled reminders (runs on each poll cycle) ─────────
+    async function _processScheduledReminders() {
+      if (!db.scheduledReminders || db.scheduledReminders.length === 0) return;
+      const now = Date.now();
+      let changed = false;
+      for (const sr of db.scheduledReminders) {
+        if (!sr.active) continue;
+        if (sr.nextSendAt > now) continue;
+        const e = db.entries.find(x => x.id === sr.eid);
+        if (e && (e.status === 'settled' || e.status === 'voided' || e.status === 'fulfilled' || e.status === 'cancelled')) {
+          sr.active = false; changed = true; continue;
+        }
+        if (sr.maxSends > 0 && sr.sentCount >= sr.maxSends) {
+          sr.active = false; changed = true; continue;
+        }
+        try {
+          await _sendReminder(sr.eid, sr.message, sr.who);
+          sr.sentCount++;
+          if (sr.repeatDays > 0 && (sr.maxSends === 0 || sr.sentCount < sr.maxSends)) {
+            sr.nextSendAt = now + sr.repeatDays * 86400000;
+          } else {
+            sr.active = false;
+          }
+          changed = true;
+        } catch(_) {}
+      }
+      if (changed) save();
     }
 
     // Unified notify toggle — prefix is 'ne' (entry form) or 'r' (recurring form)
@@ -12485,9 +12599,12 @@
       (db.notifs || []).forEach(n => { if ((n.createdAt || 0) > _lastNotifTs) _lastNotifTs = n.createdAt; });
       // Poll every 30 seconds
       setInterval(_pollNotifs, 15_000);
-      // Sync sent-share statuses immediately on load, then every 60 seconds
+      // Sync sent-share statuses immediately on load, then every 30 seconds
       _syncSentShareStatuses();
       setInterval(_syncSentShareStatuses, 30_000);
+      // Process scheduled reminders every 60 seconds
+      setInterval(_processScheduledReminders, 60_000);
+      _processScheduledReminders();
       // Auto-sync removed — freshness polling handles cross-device sync.
       // Manual saves (saveNow) still push to server immediately.
       // Also re-check immediately when the user returns to the tab
