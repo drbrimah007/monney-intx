@@ -7129,19 +7129,29 @@
           <div style="font-size:12px;margin-bottom:16px;">Add physical rooms, devices, accounts, or anything a trusted contact may need to find or access.</div>
           <button class="btn sm" onclick="openAssetLockerModal()">+ Add First Locker</button>
         </div>` : `<div style="display:flex;flex-direction:column;gap:10px;">
-          ${myLockers.map(l => `<div class="card" style="padding:14px 18px;">
+          ${myLockers.map(l => {
+            const hasTrustees = l.primaryTrustee || (l.otherTrustees&&l.otherTrustees.length>0);
+            const trusteeBlock = hasTrustees ? `
+              <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border);">
+                <div style="display:flex;align-items:baseline;gap:6px;flex-wrap:wrap;">
+                  ${l.primaryTrustee ? `<span style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);">Primary</span><span style="font-size:13px;font-weight:600;">${esc(l.primaryTrustee)}</span>` : ''}
+                </div>
+                ${l.otherTrustees&&l.otherTrustees.length>0 ? `<div style="margin-top:4px;display:flex;align-items:baseline;gap:6px;flex-wrap:wrap;"><span style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);">Others</span><span style="font-size:12px;color:var(--text);opacity:.75;">${l.otherTrustees.map(t=>esc(t)).join(', ')}</span></div>` : ''}
+              </div>` : '';
+            return `<div class="card" style="padding:14px 18px;">
             <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;flex-wrap:wrap;">
               <div style="flex:1;min-width:180px;">
-                <div style="font-size:15px;font-weight:700;margin-bottom:2px;">${esc(l.title)}</div>
-                ${l.assetKey?`<div style="font-size:11px;color:var(--muted);font-family:monospace;margin-bottom:8px;opacity:.7;">${esc(l.assetKey)}</div>`:''}
-                <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;">
+                <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:2px;">
+                  <span style="font-size:15px;font-weight:700;">${esc(l.title)}</span>
                   ${l.type?`<span class="badge badge-gray" style="font-size:11px;">${esc(l.type)}</span>`:''}
                 </div>
+                ${l.assetKey?`<div style="font-size:11px;color:var(--muted);font-family:monospace;margin-bottom:8px;opacity:.7;">${esc(l.assetKey)}</div>`:'<div style="margin-bottom:8px;"></div>'}
                 <div style="display:grid;grid-template-columns:60px 1fr;gap:4px 10px;font-size:13px;">
                   ${l.location?`<span style="color:var(--muted);font-size:11px;font-weight:600;text-transform:uppercase;padding-top:2px;">Location</span><span>${esc(l.location)}</span>`:''}
                   ${l.access?`<span style="color:var(--muted);font-size:11px;font-weight:600;text-transform:uppercase;padding-top:2px;">Access</span><span>${esc(l.access)}</span>`:''}
                 </div>
                 ${l.notes?`<div style="margin-top:8px;font-size:12px;color:var(--muted);font-style:italic;">${esc(l.notes)}</div>`:''}
+                ${trusteeBlock}
               </div>
               <div style="display:flex;gap:6px;flex-shrink:0;">
                 <button class="bs sm" onclick="openAssetLockerModal('${l.id}')">✏️</button>
@@ -7379,13 +7389,55 @@
           <div style="font-size:12px;color:var(--muted);margin-bottom:10px;">${ownContacts.length} contacts · ${ownEntries.length} entries</div>
           <div style="font-size:12px;${canModify?'background:rgba(74,222,128,.08);border:1px solid rgba(74,222,128,.2);color:var(--green);':'background:var(--bg3);color:var(--muted);'}border-radius:6px;padding:8px 12px;">
             ${canModify?'✅ Can mark records settled, send reminders'+(n.accessLevel==='full_control'?', and full account access':''):'👁 Read-only — cannot modify any records'}</div></div>`;
-      document.body.insertAdjacentHTML('beforeend', `<div class="modal-bg" onclick="this.remove()"><div class="modal" style="max-width:460px;" onclick="event.stopPropagation()">
+
+      // ── Asset Lockers: trustee names only, contents hidden by default ──
+      const myLockers = (db.assetLockers||[]).filter(l=>l.userId===u.id);
+      let lockerSection = '';
+      if (myLockers.length > 0) {
+        const lockerRows = myLockers.map((l,i) => {
+          const hasTrustees = l.primaryTrustee || (l.otherTrustees&&l.otherTrustees.length>0);
+          const trusteeNames = [l.primaryTrustee, ...(l.otherTrustees||[])].filter(Boolean).join(', ');
+          return `<div style="padding:10px 14px;background:var(--bg2);border:1px solid var(--border);border-radius:10px;">
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+              <div>
+                <div style="font-size:13px;font-weight:700;">${esc(l.title)} <span class="badge badge-gray" style="font-size:10px;">${esc(l.type||'')}</span></div>
+                ${hasTrustees ? `<div style="font-size:12px;color:var(--muted);margin-top:3px;">👤 ${esc(trusteeNames)}</div>` : `<div style="font-size:12px;color:var(--muted);margin-top:3px;opacity:.5;">No trustees assigned</div>`}
+              </div>
+              <button class="bs sm" style="font-size:11px;" onclick="_toggleLockerPreviewDetail(this,'lokprev_${i}')">View Details ▾</button>
+            </div>
+            <div id="lokprev_${i}" style="display:none;margin-top:10px;border-top:1px solid var(--border);padding-top:10px;">
+              <div style="display:grid;grid-template-columns:70px 1fr;gap:4px 10px;font-size:12px;">
+                ${l.location?`<span style="color:var(--muted);font-weight:600;text-transform:uppercase;font-size:10px;padding-top:1px;">Location</span><span>${esc(l.location)}</span>`:''}
+                ${l.access?`<span style="color:var(--muted);font-weight:600;text-transform:uppercase;font-size:10px;padding-top:1px;">Access</span><span>${esc(l.access)}</span>`:''}
+                ${l.assetKey?`<span style="color:var(--muted);font-weight:600;text-transform:uppercase;font-size:10px;padding-top:1px;">Key</span><span style="font-family:monospace;">${esc(l.assetKey)}</span>`:''}
+                ${l.notes?`<span style="color:var(--muted);font-weight:600;text-transform:uppercase;font-size:10px;padding-top:1px;">Notes</span><span>${esc(l.notes)}</span>`:''}
+              </div>
+            </div>
+          </div>`;
+        }).join('');
+        lockerSection = `<div style="margin-top:16px;">
+          <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin-bottom:8px;">🗄 Asset Lockers (${myLockers.length})</div>
+          <div style="font-size:12px;color:var(--muted);margin-bottom:10px;line-height:1.5;">Trustees are visible. Locker details are hidden until expanded — this is what an admin or trustee would see during a release.</div>
+          <div style="display:flex;flex-direction:column;gap:8px;">${lockerRows}</div>
+        </div>`;
+      }
+
+      document.body.insertAdjacentHTML('beforeend', `<div class="modal-bg" onclick="this.remove()"><div class="modal" style="max-width:480px;max-height:80vh;overflow-y:auto;" onclick="event.stopPropagation()">
         <div class="modal-title">Access Preview — ${esc(n.fullName)}</div>
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;flex-wrap:wrap;">${_nokStatusBadge(n)}${_nokAccessBadge(n.accessLevel||'view_only')}<span style="font-size:12px;color:var(--muted);">${esc(n.relationship)}</span></div>
         ${preview}
+        ${lockerSection}
         <div style="margin-top:10px;font-size:12px;color:var(--muted);font-style:italic;">Preview of what ${esc(n.fullName)} would see when access is activated.</div>
         <div style="margin-top:14px;text-align:right;"><button class="bs" onclick="this.closest('.modal-bg').remove()">Close</button></div>
       </div></div>`);
+    }
+
+    function _toggleLockerPreviewDetail(btn, id) {
+      const el = document.getElementById(id);
+      if (!el) return;
+      const open = el.style.display !== 'none';
+      el.style.display = open ? 'none' : 'block';
+      btn.textContent  = open ? 'View Details ▾' : 'Hide Details ▴';
     }
 
     // ── ASSET LOCKERS ──────────────────────────────────────────────────
@@ -7394,6 +7446,10 @@
     function openAssetLockerModal(lid) {
       const l = lid ? (db.assetLockers||[]).find(x=>x.id===lid) : null;
       const typeOpts = LOCKER_TYPES.map(t=>`<option value="${t}" ${(l?.type||'physical')===t?'selected':''}>${t.charAt(0).toUpperCase()+t.slice(1)}</option>`).join('');
+      const existingOthers = (l?.otherTrustees||[]);
+      const otherRows = existingOthers.length
+        ? existingOthers.map((name,i)=>`<div style="display:flex;gap:6px;margin-bottom:6px;" id="alTrusteeRow_${i}"><input class="al_other_trustee" value="${esc(name)}" placeholder="Full name" style="flex:1;"><button type="button" class="bs sm" style="flex-shrink:0;" onclick="this.closest('[id^=alTrusteeRow_]').remove()">✕</button></div>`).join('')
+        : '';
       document.body.insertAdjacentHTML('beforeend', `<div class="modal-bg" id="alModalBg" onclick="if(event.target===this)this.remove()">
         <div class="modal" style="max-width:500px;" onclick="event.stopPropagation()">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
@@ -7413,6 +7469,18 @@
             <input id="al_access" value="${esc(l?.access||'')}" placeholder="e.g. side door, badge required"></div>
           <div class="fg"><label>Notes <span style="font-weight:400;color:var(--muted);">(optional)</span></label>
             <textarea id="al_notes" rows="2" placeholder="Any extra context">${esc(l?.notes||'')}</textarea></div>
+
+          <hr style="border:none;border-top:1px solid var(--border);margin:14px 0 12px;">
+          <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:10px;">Trustees</div>
+          <div style="font-size:12px;color:var(--muted);margin-bottom:12px;line-height:1.5;">Who should be responsible for or notified about this locker.</div>
+          <div class="fg" style="margin-bottom:10px;">
+            <label>Primary Trustee <span style="font-weight:400;color:var(--muted);">(optional)</span></label>
+            <input id="al_primary_trustee" value="${esc(l?.primaryTrustee||'')}" placeholder="Full name of primary responsible person">
+          </div>
+          <div class="fg" style="margin-bottom:6px;"><label>Other Trustees <span style="font-weight:400;color:var(--muted);">(optional)</span></label></div>
+          <div id="alOtherTrusteesList">${otherRows}</div>
+          <button type="button" class="bs sm" style="margin-bottom:14px;" onclick="_alAddTrusteeRow()">+ Add Trustee</button>
+
           <div style="background:rgba(232,30,130,0.06);border:1px solid rgba(232,30,130,0.18);border-radius:8px;padding:9px 13px;font-size:12px;color:var(--muted);margin-bottom:14px;line-height:1.6;">
             🔒 Do not store full passwords or private keys here. Reference a secure vault instead (e.g. "see 1Password entry: X").
           </div>
@@ -7423,17 +7491,33 @@
         </div></div>`);
     }
 
+    function _alAddTrusteeRow() {
+      const list = document.getElementById('alOtherTrusteesList');
+      if (!list) return;
+      const idx = list.children.length;
+      const div = document.createElement('div');
+      div.style.cssText = 'display:flex;gap:6px;margin-bottom:6px;';
+      div.id = 'alTrusteeRow_' + idx;
+      div.innerHTML = `<input class="al_other_trustee" placeholder="Full name" style="flex:1;"><button type="button" class="bs sm" style="flex-shrink:0;" onclick="this.parentElement.remove()">✕</button>`;
+      list.appendChild(div);
+      div.querySelector('input')?.focus();
+    }
+
     function saveAssetLockerModal(lid) {
       const title    = document.getElementById('al_title')?.value.trim();
       const assetKey = document.getElementById('al_key')?.value.trim();
       if (!title)    { toast('Title is required'); return; }
       if (!db.assetLockers) db.assetLockers = [];
+      const otherTrustees = Array.from(document.querySelectorAll('.al_other_trustee'))
+        .map(i=>i.value.trim()).filter(Boolean);
       const data = {
         title, assetKey,
-        type:     document.getElementById('al_type')?.value||'physical',
-        location: document.getElementById('al_location')?.value.trim()||'',
-        access:   document.getElementById('al_access')?.value.trim()||'',
-        notes:    document.getElementById('al_notes')?.value.trim()||''
+        type:            document.getElementById('al_type')?.value||'physical',
+        location:        document.getElementById('al_location')?.value.trim()||'',
+        access:          document.getElementById('al_access')?.value.trim()||'',
+        notes:           document.getElementById('al_notes')?.value.trim()||'',
+        primaryTrustee:  document.getElementById('al_primary_trustee')?.value.trim()||'',
+        otherTrustees
       };
       if (lid) {
         const l = db.assetLockers.find(x=>x.id===lid);
