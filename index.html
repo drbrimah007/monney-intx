@@ -900,20 +900,24 @@
             const _fresh = await _freshRes.json();
             if (_fresh.data && Object.keys(_fresh.data).length > 0) {
               const srvData = _fresh.data;
-              // Merge server entries not present locally (by id)
+              // Merge server entries not present locally (by id), skip explicitly deleted
+              const _deletedSet = new Set(db.settings?._deletedEntryIds || []);
               if (Array.isArray(srvData.entries)) {
                 const localIds = new Set((db.entries||[]).map(e => e.id));
                 const localTokens = new Set((db.entries||[]).filter(e => e.shareToken).map(e => e.shareToken));
                 for (const se of srvData.entries) {
+                  if (_deletedSet.has(se.id) || (se.shareToken && _deletedSet.has('st:' + se.shareToken))) continue;
                   if (!localIds.has(se.id) && !(se.shareToken && localTokens.has(se.shareToken))) {
                     db.entries.push(se);
                   }
                 }
               }
-              // Merge server contacts not present locally (by id)
+              // Merge server contacts not present locally (by id), skip deleted
+              const _deletedCids = new Set(db.settings?._deletedContactIds || []);
               if (Array.isArray(srvData.contacts)) {
                 const localCids = new Set((db.contacts||[]).map(c => c.id));
                 for (const sc of srvData.contacts) {
+                  if (_deletedCids.has(sc.id)) continue;
                   if (!localCids.has(sc.id)) db.contacts.push(sc);
                 }
               }
@@ -2622,6 +2626,14 @@
 
     function delContact(cid) {
       if (!confirm('Delete this contact and all associated entries?')) return;
+      // Track deleted IDs so merge doesn't resurrect them
+      if (!db.settings._deletedContactIds) db.settings._deletedContactIds = [];
+      db.settings._deletedContactIds.push(cid);
+      if (!db.settings._deletedEntryIds) db.settings._deletedEntryIds = [];
+      db.entries.filter(e => e.cId === cid).forEach(e => {
+        db.settings._deletedEntryIds.push(e.id);
+        if (e.shareToken) db.settings._deletedEntryIds.push('st:' + e.shareToken);
+      });
       // Dismiss any shared-with-me entries linked to this contact on the server
       db.entries.filter(e => e.cId === cid && e.isShared && e.shareToken).forEach(e => {
         if (_IS_SERVER) {
@@ -5341,6 +5353,11 @@
     function delEntry(eid) {
       if (!confirm('Delete this entry?')) return;
       const e = db.entries.find(x => x.id === eid);
+      // Track deleted IDs so server-side merge doesn't resurrect them
+      if (!db.settings._deletedEntryIds) db.settings._deletedEntryIds = [];
+      db.settings._deletedEntryIds.push(eid);
+      // Also track by shareToken for shared entries
+      if (e?.shareToken) db.settings._deletedEntryIds.push('st:' + e.shareToken);
       // If this is a shared-with-me entry, tell the server to mark it dismissed
       // so the migration in _loadSharedWithMe won't immediately re-insert it
       if (e?.isShared && e?.shareToken) {
@@ -5357,7 +5374,7 @@
       db.entries = db.entries.filter(x => x.id !== eid);
       // If deleted entry was a settlement, resync the linked invoice
       if (linkedInv) { _syncInvoiceStatus(linkedInv); _pushShareStatus(linkedInv); }
-      save();
+      saveNow().catch(() => save()); // immediate push so merge doesn't resurrect
       logAudit('delete_entry', { eid });
       toast('Entry deleted');
       refreshCurPage();

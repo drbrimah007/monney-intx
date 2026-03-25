@@ -74,10 +74,16 @@ module.exports = async function handler(req, res) {
       const newContacts = Array.isArray(data.contacts) ? data.contacts : [];
 
       // Server-side merge: add any server entries/contacts missing from the incoming blob
+      // BUT skip items the user explicitly deleted (tracked in settings._deletedEntryIds / _deletedContactIds)
+      const deletedIds = new Set(
+        (data.settings?._deletedEntryIds || []).concat(data.settings?._deletedContactIds || [])
+      );
       const incomingEntryIds = new Set(newEntries.map(e => e.id));
       const incomingEntryTokens = new Set(newEntries.filter(e => e.shareToken).map(e => e.shareToken));
       let merged = 0;
       for (const se of srvEntries) {
+        // Skip if explicitly deleted by user
+        if (deletedIds.has(se.id) || (se.shareToken && deletedIds.has('st:' + se.shareToken))) continue;
         if (!incomingEntryIds.has(se.id) && !(se.shareToken && incomingEntryTokens.has(se.shareToken))) {
           data.entries.push(se);
           merged++;
@@ -85,6 +91,7 @@ module.exports = async function handler(req, res) {
       }
       const incomingContactIds = new Set(newContacts.map(c => c.id));
       for (const sc of srvContacts) {
+        if (deletedIds.has(sc.id)) continue;
         if (!incomingContactIds.has(sc.id)) {
           data.contacts.push(sc);
           merged++;
