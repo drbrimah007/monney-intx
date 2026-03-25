@@ -251,8 +251,8 @@ module.exports = async function handler(req, res) {
             msg:       `Balance mismatch of $${difference.toFixed(2)} between ${nameA} and ${nameB}`,
             channel:   'in-app',
             sent:      true,
-            who:       'system',
-            sentTo:    '',
+            who:       'System',
+            sentTo:    ['admin'],
             read:      false,
             createdAt: Date.now()
           });
