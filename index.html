@@ -7411,13 +7411,13 @@
       const g = (db.groups||[]).find(x => x.id === gid);
       if (!g) return;
       g.archived = !g.archived;
-      save(); toast(g.archived ? 'Group archived' : 'Group unarchived'); renderGroups();
+      saveNow(); toast(g.archived ? 'Group archived' : 'Group unarchived'); renderGroups();
     }
 
     function delGroup(gid) {
       if (!confirm('Delete this group? This cannot be undone.')) return;
       db.groups = (db.groups||[]).filter(x => x.id !== gid);
-      save(); toast('Group deleted'); renderGroups();
+      saveNow(); toast('Group deleted — syncing…'); renderGroups();
     }
 
     function addGroupRound(gid) {
@@ -7969,13 +7969,13 @@
       const inv = (db.investments||[]).find(x => x.id === iid);
       if (!inv) return;
       inv.archived = !inv.archived;
-      save(); toast(inv.archived ? 'Investment archived' : 'Investment unarchived'); renderInvestments();
+      saveNow(); toast(inv.archived ? 'Investment archived' : 'Investment unarchived'); renderInvestments();
     }
 
     function delInvestment(iid) {
       if (!confirm('Delete this investment? This cannot be undone.')) return;
       db.investments = (db.investments||[]).filter(x => x.id !== iid);
-      save(); toast('Investment deleted'); renderInvestments();
+      saveNow(); toast('Investment deleted — syncing…'); renderInvestments();
     }
 
     function addInvMember(iid) {
