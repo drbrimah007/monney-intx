@@ -2883,11 +2883,12 @@
                 <td style="padding:4px 10px;font-size:10px;font-weight:700;color:#888;text-transform:uppercase;text-align:right;">${esc(numLbl)}</td>
               </tr>`;
             }
-            // Data rows (skip empty)
+            // Data rows (skip empty) — qty × price → effective value; qty itself not shown
             (f.rows || []).filter(r => r.text || r.numeric).forEach((r, ri) => {
+              const _effAmt = (r.qty && r.numeric) ? r.qty * r.numeric : (r.numeric || 0);
               doc += `<tr style="background:${ri%2===0?'#fafafa':'#fff'};border-bottom:1px solid #eee;">
                 <td style="padding:10px;">${esc(r.text||'')}</td>
-                <td style="padding:10px;font-weight:600;text-align:right;">${r.numeric ? fmt(r.numeric, e.currency) : '—'}</td>
+                <td style="padding:10px;font-weight:600;text-align:right;">${_effAmt ? fmt(_effAmt, e.currency) : '—'}</td>
               </tr>`;
             });
           } else {
@@ -3978,18 +3979,19 @@
             // ── Paired field: structured text+number rows ─────────────────
             const savedRows = savedField?.rows || [];
             // Ensure at least one blank row to start
-            const rows = savedRows.length ? savedRows : [{text:'', numeric:''}];
+            const rows = savedRows.length ? savedRows : [{text:'', numeric:'', qty:null}];
             const txtLbl = f.label || f.textLabel || 'Item';
             const numLbl = f.numericLabel || 'Amount';
             html += `<div class="fg">
               <div style="border:1px solid var(--border);border-radius:8px;overflow:hidden;">
-                <div style="display:grid;grid-template-columns:1fr auto;background:var(--bg3);padding:6px 10px;font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid var(--border);">
-                  <span>${esc(txtLbl)}${f.ledgerEffect?` <span style="font-size:10px;color:var(--green);text-transform:none;">[ledger]</span>`:''}</span><span style="min-width:120px;text-align:right;">${esc(numLbl)}</span>
+                <div style="display:grid;grid-template-columns:1fr 56px auto;background:var(--bg3);padding:6px 10px;font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid var(--border);">
+                  <span>${esc(txtLbl)}${f.ledgerEffect?` <span style="font-size:10px;color:var(--green);text-transform:none;">[ledger]</span>`:''}</span><span style="text-align:center;">Qty</span><span style="min-width:110px;text-align:right;">${esc(numLbl)}</span>
                 </div>
                 <div id="${fid}_rows" data-fieldid="${f.id}">
                   ${rows.map((r,ri) => `<div class="paired-row" style="display:flex;gap:6px;padding:6px 10px;border-bottom:1px solid var(--border);" data-row="${ri}">
                     <input type="text" class="pr-text" placeholder="${esc(txtLbl)}" value="${esc(String(r.text||''))}" style="flex:2;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:7px 10px;font-size:14px;color:var(--text);" oninput="runTplCalcs()">
-                    <input type="number" class="pr-num" placeholder="0.00" value="${r.numeric||''}" step="0.01" min="0" style="flex:1;min-width:100px;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:7px 10px;font-size:14px;color:var(--text);" oninput="runTplCalcs()" onchange="runTplCalcs()">
+                    <input type="number" class="pr-qty" placeholder="—" value="${r.qty||''}" step="any" min="0" style="width:52px;flex-shrink:0;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:7px 6px;font-size:14px;color:var(--text);text-align:center;" oninput="runTplCalcs()" onchange="runTplCalcs()">
+                    <input type="number" class="pr-num" placeholder="0.00" value="${r.numeric||''}" step="0.01" min="0" style="flex:1;min-width:90px;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:7px 10px;font-size:14px;color:var(--text);" oninput="runTplCalcs()" onchange="runTplCalcs()">
                     <button type="button" class="gh sm" onclick="removePairedRow(this)" style="flex-shrink:0;padding:6px 8px;font-size:14px;">✕</button>
                   </div>`).join('')}
                 </div>
@@ -4099,7 +4101,8 @@
       row.dataset.row = ri;
       row.innerHTML = `
         <input type="text"   class="pr-text" placeholder="Description" style="flex:2;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:7px 10px;font-size:14px;color:var(--text);" oninput="runTplCalcs()">
-        <input type="number" class="pr-num"  placeholder="0.00" step="0.01" min="0" style="flex:1;min-width:100px;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:7px 10px;font-size:14px;color:var(--text);" oninput="runTplCalcs()" onchange="runTplCalcs()">
+        <input type="number" class="pr-qty"  placeholder="—" step="any" min="0" style="width:52px;flex-shrink:0;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:7px 6px;font-size:14px;color:var(--text);text-align:center;" oninput="runTplCalcs()" onchange="runTplCalcs()">
+        <input type="number" class="pr-num"  placeholder="0.00" step="0.01" min="0" style="flex:1;min-width:90px;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:7px 10px;font-size:14px;color:var(--text);" oninput="runTplCalcs()" onchange="runTplCalcs()">
         <button type="button" class="gh sm" onclick="removePairedRow(this)" style="flex-shrink:0;padding:6px 8px;font-size:14px;">✕</button>`;
       c.appendChild(row);
     }
@@ -4115,6 +4118,7 @@
       } else {
         // Clear the last row instead of removing it
         row.querySelector('.pr-text').value = '';
+        const _qtyInp = row.querySelector('.pr-qty'); if (_qtyInp) _qtyInp.value = '';
         row.querySelector('.pr-num').value  = '';
         runTplCalcs();
       }
@@ -4132,7 +4136,11 @@
         if (_isPairedField(f)) {
           const container = document.getElementById('tplf_' + f.id + '_rows');
           let total = 0;
-          if (container) container.querySelectorAll('.pr-num').forEach(inp => { total += parseFloat(inp.value)||0; });
+          if (container) container.querySelectorAll('.paired-row').forEach(row => {
+            const _qty = parseFloat(row.querySelector('.pr-qty')?.value) || null;
+            const _price = parseFloat(row.querySelector('.pr-num')?.value) || 0;
+            total += _qty ? _qty * _price : _price;
+          });
           vals[f.id] = total;
           return;
         }
@@ -4268,7 +4276,11 @@
           const container = document.getElementById('tplf_' + finalF.id + '_rows');
           if (container) {
             let total = 0;
-            container.querySelectorAll('.pr-num').forEach(inp => { total += parseFloat(inp.value)||0; });
+            container.querySelectorAll('.paired-row').forEach(row => {
+              const _qty = parseFloat(row.querySelector('.pr-qty')?.value) || null;
+              const _price = parseFloat(row.querySelector('.pr-num')?.value) || 0;
+              total += _qty ? _qty * _price : _price;
+            });
             return total;
           }
         } else {
@@ -4345,9 +4357,11 @@
             let numericTotal = 0;
             if (container) {
               container.querySelectorAll('.paired-row').forEach(row => {
-                const txt = row.querySelector('.pr-text')?.value.trim()||'';
-                const num = parseFloat(row.querySelector('.pr-num')?.value)||0;
-                if (txt || num) { rows.push({text:txt, numeric:num}); numericTotal += num; }
+                const txt   = row.querySelector('.pr-text')?.value.trim()||'';
+                const qty   = parseFloat(row.querySelector('.pr-qty')?.value) || null;
+                const num   = parseFloat(row.querySelector('.pr-num')?.value)||0;
+                const eff   = qty ? qty * num : num;
+                if (txt || num) { rows.push({text:txt, numeric:num, qty: qty||null}); numericTotal += eff; }
               });
             }
             tplData[f.id] = {
@@ -4495,9 +4509,11 @@
             let numericTotal = 0;
             if (container) {
               container.querySelectorAll('.paired-row').forEach(row => {
-                const txt = row.querySelector('.pr-text')?.value.trim()||'';
-                const num = parseFloat(row.querySelector('.pr-num')?.value)||0;
-                if (txt || num) { rows.push({text:txt, numeric:num}); numericTotal += num; }
+                const txt   = row.querySelector('.pr-text')?.value.trim()||'';
+                const qty   = parseFloat(row.querySelector('.pr-qty')?.value) || null;
+                const num   = parseFloat(row.querySelector('.pr-num')?.value)||0;
+                const eff   = qty ? qty * num : num;
+                if (txt || num) { rows.push({text:txt, numeric:num, qty: qty||null}); numericTotal += eff; }
               });
             }
             tplData[f.id] = {
