@@ -7868,6 +7868,7 @@
       const html = `<div class="modal-bg" onclick="this.remove()"><div class="modal" style="max-width:420px;" onclick="event.stopPropagation()">
         <div class="modal-title">Add Transaction</div>
         <div style="font-size:13px;color:var(--muted);margin-bottom:12px;">${esc(inv.name)}</div>
+        <div class="fg"><label>By (who made this transaction)</label><select id="itxby"><option value="">— Self / General —</option>${(inv.members||[]).map(m => '<option value="'+m.id+'">'+esc(m.name)+'</option>').join('')}</select></div>
         <div class="fg"><label>Type</label><select id="itxtype"><option value="deposit">Deposit</option><option value="withdrawal">Withdrawal</option><option value="dividend">Dividend</option><option value="return">Return</option></select></div>
         <div class="fg"><label>Amount *</label><input type="number" id="itxamt" min="0" step="0.01" placeholder="500"></div>
         <div class="fg"><label>Date</label><input type="date" id="itxdate" value="${new Date().toISOString().split('T')[0]}"></div>
@@ -7883,12 +7884,16 @@
       const amt = parseFloat(document.getElementById('itxamt').value) || 0;
       if (amt <= 0) { toast('Amount required'); return; }
       if (!inv.transactions) inv.transactions = [];
+      const byMemberId = document.getElementById('itxby').value || null;
+      const byMember = byMemberId ? (inv.members||[]).find(m => m.id === byMemberId) : null;
       inv.transactions.push({
         id: 'itx_' + Math.random().toString(36).substr(2, 9),
         type: document.getElementById('itxtype').value,
         amount: amt,
         date: document.getElementById('itxdate').value,
         note: document.getElementById('itxnote').value.trim(),
+        byMemberId: byMemberId,
+        byName: byMember ? byMember.name : '',
         createdAt: Date.now()
       });
       save();
@@ -7950,9 +7955,10 @@
         if (txs.length === 0) {
           tabContent += `<p style="color:var(--muted);font-size:13px;">No transactions yet.</p>`;
         } else {
-          tabContent += `<div class="tbl-wrap"><table><thead><tr><th>Type</th><th>Amount</th><th>Date</th><th class="hide-mobile">Note</th></tr></thead><tbody>`;
+          tabContent += `<div class="tbl-wrap"><table><thead><tr><th>By</th><th>Type</th><th>Amount</th><th>Date</th><th class="hide-mobile">Note</th></tr></thead><tbody>`;
           txs.forEach(t => {
             tabContent += `<tr>
+              <td style="font-weight:600;font-size:13px;">${esc(t.byName || 'Self')}</td>
               <td><span style="font-weight:700;color:${TX_COLORS[t.type]||'var(--muted)'};">${esc(TX_LABELS[t.type]||t.type)}</span></td>
               <td>${fmt(t.amount, inv.currency)}</td>
               <td>${t.date ? new Date(t.date).toLocaleDateString() : '—'}</td>
@@ -7968,9 +7974,22 @@
           tabContent += `<p style="color:var(--muted);font-size:13px;margin-bottom:12px;">No members yet.</p>`;
         } else {
           invMembers.forEach(m => {
+            const mDeposits = (inv.transactions||[]).filter(t => t.byMemberId === m.id && t.type === 'deposit').reduce((s,t)=>s+(parseFloat(t.amount)||0),0);
+            const mWithdrawals = (inv.transactions||[]).filter(t => t.byMemberId === m.id && t.type === 'withdrawal').reduce((s,t)=>s+(parseFloat(t.amount)||0),0);
+            const mDividends = (inv.transactions||[]).filter(t => t.byMemberId === m.id && (t.type === 'dividend' || t.type === 'return')).reduce((s,t)=>s+(parseFloat(t.amount)||0),0);
+            const mNet = mDeposits - mWithdrawals + mDividends;
             tabContent += `<div class="trow" style="padding:8px 0;">
               <div class="avatar">${(m.name||'?')[0].toUpperCase()}</div>
-              <div style="flex:1;"><div style="font-weight:600;">${esc(m.name)}</div><div style="font-size:11px;color:var(--muted);">Joined ${new Date(m.joinedAt).toLocaleDateString()}</div></div>
+              <div style="flex:1;">
+                <div style="font-weight:600;">${esc(m.name)}</div>
+                <div style="font-size:11px;color:var(--muted);">Joined ${new Date(m.joinedAt).toLocaleDateString()}</div>
+                <div style="font-size:12px;margin-top:4px;display:flex;gap:10px;flex-wrap:wrap;">
+                  <span>In: <strong style="color:var(--blue);">${fmt(mDeposits, inv.currency)}</strong></span>
+                  <span>Out: <strong style="color:var(--red);">${fmt(mWithdrawals, inv.currency)}</strong></span>
+                  ${mDividends > 0 ? '<span>Returns: <strong style="color:var(--green);">'+fmt(mDividends, inv.currency)+'</strong></span>' : ''}
+                  <span>Net: <strong style="color:${mNet>=0?'var(--green)':'var(--red)'};">${fmt(mNet, inv.currency)}</strong></span>
+                </div>
+              </div>
               <button class="gh sm" onclick="removeInvMember('${inv.id}','${m.id}')" title="Remove" style="color:var(--red);">✕</button>
             </div>`;
           });
