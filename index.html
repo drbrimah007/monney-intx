@@ -9046,7 +9046,7 @@
           const gl = currentVal - invested;
           const roi = invested > 0 ? ((currentVal - invested) / invested * 100).toFixed(1) : '0.0';
           const comments = (inv.noticeBoard||[]).length;
-          html += `<div class="card" style="margin-bottom:12px;${inv.archived?'opacity:.6;':''}">
+          html += `<div class="card" style="margin-bottom:12px;max-width:66%;${inv.archived?'opacity:.6;':''}">
             <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px;">
               <div style="flex:1;min-width:200px;">
                 <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
