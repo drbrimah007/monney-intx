@@ -7878,7 +7878,7 @@
       }
     }
 
-    function _doAddGroupMember(gid) {
+    async function _doAddGroupMember(gid) {
       const g = (db.groups||[]).find(x => x.id === gid);
       if (!g) return;
       const cid = document.getElementById('gaddmember').value;
@@ -7887,7 +7887,7 @@
       if (!g.members) g.members = [];
       g.members.push({ id: 'm_' + Math.random().toString(36).substr(2, 9), contactId: cid, name: contact.name, role: 'member', joinedAt: Date.now() });
       if (g.useRotation) { if (!g.rotationOrder) g.rotationOrder = []; g.rotationOrder.push(g.members[g.members.length-1].id); }
-      save();
+      await saveNow();
       _sendMemberInvite(contact, g.name, 'a Group Savings circle');
       document.querySelector('.modal-bg:last-of-type')?.remove();
       toast(contact.name + ' added & invited');
@@ -8393,7 +8393,7 @@
       document.body.insertAdjacentHTML('beforeend', html);
     }
 
-    function _doAddInvMember(iid) {
+    async function _doAddInvMember(iid) {
       const inv = (db.investments||[]).find(x => x.id === iid);
       if (!inv) return;
       const cid = document.getElementById('invaddmember').value;
@@ -8401,7 +8401,7 @@
       if (!contact) return;
       if (!inv.members) inv.members = [];
       inv.members.push({ id: 'm_' + Math.random().toString(36).substr(2, 9), contactId: cid, name: contact.name, role: 'member', joinedAt: Date.now() });
-      save();
+      await saveNow();
       _sendMemberInvite(contact, inv.name, 'an Investment');
       document.querySelector('.modal-bg:last-of-type')?.remove();
       toast(contact.name + ' added & invited');
