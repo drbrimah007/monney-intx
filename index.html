@@ -7498,6 +7498,149 @@
       document.body.insertAdjacentHTML('beforeend', html);
     }
 
+    // ── Permission helpers for groups/investments ──────────────────
+    // Roles: 'owner' (creator), 'admin' (can add members directly), 'member' (view, comment, exit)
+    function _getItemRole(item) {
+      const u = curUser();
+      if (item.userId === u.id) return 'owner';
+      if (item._shared) {
+        // Shared items — check member role
+        const mem = (item.members||[]).find(m => {
+          const contact = db.contacts.find(c => c.id === m.contactId);
+          return contact && (contact.linkedUserId === u.id || (contact.email||'').toLowerCase() === (u.email||'').toLowerCase());
+        });
+        return mem?.role || 'member';
+      }
+      const mem = (item.members||[]).find(m => m.contactId && db.contacts.find(c => c.id === m.contactId)?.linkedUserId === u.id);
+      return mem?.role || 'member';
+    }
+    function _isItemOwner(item) { return item.userId === curUser().id || _getItemRole(item) === 'owner'; }
+    function _canManageMembers(item) { const r = _getItemRole(item); return r === 'owner' || r === 'admin'; }
+
+    // Email invite — type an email to invite someone not yet a contact
+    function emailInviteToItem(itemId, itemCollection, itemType) {
+      const item = (db[itemCollection]||[]).find(x => x.id === itemId);
+      if (!item) return;
+      const isOwner = _isItemOwner(item);
+      const html = `<div class="modal-bg" onclick="this.remove()"><div class="modal" style="max-width:420px;" onclick="event.stopPropagation()">
+        <div class="modal-title">Invite by Email</div>
+        <div style="font-size:13px;color:var(--muted);margin-bottom:12px;">${isOwner ? 'They will be added immediately.' : 'The group owner will need to approve.'}</div>
+        <div class="fg"><label>Email Address *</label><input type="email" id="einvite_email" placeholder="name@example.com"></div>
+        <div class="fg"><label>Name (optional)</label><input type="text" id="einvite_name" placeholder="Their name"></div>
+        <div style="display:flex;gap:8px;margin-top:12px;">
+          <button class="btn sm" onclick="_doEmailInvite('${itemId}','${itemCollection}','${itemType}')">Send Invite</button>
+          <button class="bs sm" onclick="this.closest('.modal-bg').remove()">Cancel</button>
+        </div>
+      </div></div>`;
+      document.body.insertAdjacentHTML('beforeend', html);
+    }
+
+    async function _doEmailInvite(itemId, collection, itemType) {
+      const item = (db[collection]||[]).find(x => x.id === itemId);
+      if (!item) return;
+      const email = (document.getElementById('einvite_email').value||'').trim().toLowerCase();
+      const name = document.getElementById('einvite_name').value.trim() || email;
+      if (!email || !email.includes('@')) { toast('Enter a valid email'); return; }
+      // Check if already a member
+      const existing = (item.members||[]).find(m => {
+        const c = db.contacts.find(x => x.id === m.contactId);
+        return c && (c.email||'').toLowerCase() === email;
+      });
+      if (existing) { toast('Already a member'); return; }
+
+      const isOwner = _isItemOwner(item);
+      if (isOwner) {
+        // Owner: add directly — create contact if needed
+        let contact = db.contacts.find(c => (c.email||'').toLowerCase() === email && c.userId === curUser().id);
+        if (!contact) {
+          contact = { id: uuid(), userId: curUser().id, name, email, phone: '', address: '', notes: '', tags: [],
+            startToy: 0, startYot: 0, archived: false, photo: '', linkedUserId: null, createdAt: Date.now() };
+          db.contacts.push(contact);
+        }
+        if (!item.members) item.members = [];
+        item.members.push({ id: 'm_' + Math.random().toString(36).substr(2, 9), contactId: contact.id, name: contact.name, role: 'member', joinedAt: Date.now() });
+        if (item.useRotation && item.rotationOrder) item.rotationOrder.push(item.members[item.members.length-1].id);
+        await saveNow();
+        _sendMemberInvite(contact, item.name, itemType);
+        document.querySelector('.modal-bg:last-of-type')?.remove();
+        toast(name + ' invited');
+      } else {
+        // Non-owner: add to pendingInvites for owner approval
+        if (!item.pendingInvites) item.pendingInvites = [];
+        item.pendingInvites.push({
+          id: 'pi_' + Math.random().toString(36).substr(2, 9),
+          email, name,
+          requestedBy: curUser().displayName || curUser().email,
+          requestedAt: Date.now()
+        });
+        await saveNow();
+        document.querySelector('.modal-bg:last-of-type')?.remove();
+        toast('Invite request sent — waiting for owner approval');
+      }
+      if (collection === 'groups') renderGroups();
+      else renderInvestments();
+    }
+
+    // Owner approves/rejects pending invite
+    function approvePendingInvite(itemId, collection, pendingId, itemType) {
+      const item = (db[collection]||[]).find(x => x.id === itemId);
+      if (!item || !_isItemOwner(item)) return;
+      const pi = (item.pendingInvites||[]).find(p => p.id === pendingId);
+      if (!pi) return;
+      // Create contact if needed and add as member
+      let contact = db.contacts.find(c => (c.email||'').toLowerCase() === pi.email.toLowerCase() && c.userId === curUser().id);
+      if (!contact) {
+        contact = { id: uuid(), userId: curUser().id, name: pi.name, email: pi.email, phone: '', address: '', notes: '', tags: [],
+          startToy: 0, startYot: 0, archived: false, photo: '', linkedUserId: null, createdAt: Date.now() };
+        db.contacts.push(contact);
+      }
+      if (!item.members) item.members = [];
+      item.members.push({ id: 'm_' + Math.random().toString(36).substr(2, 9), contactId: contact.id, name: contact.name, role: 'member', joinedAt: Date.now() });
+      item.pendingInvites = (item.pendingInvites||[]).filter(p => p.id !== pendingId);
+      saveNow();
+      _sendMemberInvite(contact, item.name, itemType);
+      toast(pi.name + ' approved & invited');
+      if (collection === 'groups') openGroupDetail(itemId);
+      else openInvestmentDetail(itemId);
+    }
+
+    function rejectPendingInvite(itemId, collection, pendingId) {
+      const item = (db[collection]||[]).find(x => x.id === itemId);
+      if (!item || !_isItemOwner(item)) return;
+      item.pendingInvites = (item.pendingInvites||[]).filter(p => p.id !== pendingId);
+      saveNow(); toast('Invite rejected');
+      if (collection === 'groups') openGroupDetail(itemId);
+      else openInvestmentDetail(itemId);
+    }
+
+    // Change member role (owner only)
+    function changeMemberRole(itemId, collection, memberId, newRole) {
+      const item = (db[collection]||[]).find(x => x.id === itemId);
+      if (!item || !_isItemOwner(item)) return;
+      const mem = (item.members||[]).find(m => m.id === memberId);
+      if (!mem) return;
+      mem.role = newRole;
+      saveNow(); toast('Role updated to ' + newRole);
+      if (collection === 'groups') openGroupDetail(itemId);
+      else openInvestmentDetail(itemId);
+    }
+
+    // Member exits group/investment
+    function exitItem(itemId, collection) {
+      const item = (db[collection]||[]).find(x => x.id === itemId);
+      if (!item) return;
+      if (!confirm('Leave this ' + (collection === 'groups' ? 'group' : 'investment') + '?')) return;
+      const u = curUser();
+      // Find my member entry by matching contact
+      item.members = (item.members||[]).filter(m => {
+        const c = db.contacts.find(x => x.id === m.contactId);
+        return !(c && (c.linkedUserId === u.id || (c.email||'').toLowerCase() === (u.email||'').toLowerCase()));
+      });
+      saveNow(); toast('You left');
+      if (collection === 'groups') renderGroups();
+      else renderInvestments();
+    }
+
     // Send invite notification + email when adding member to group/investment
     async function _sendMemberInvite(contact, itemName, itemType) {
       const u = curUser();
@@ -7571,7 +7714,7 @@
       const contact = db.contacts.find(c => c.id === cid);
       if (!contact) return;
       if (!g.members) g.members = [];
-      g.members.push({ id: 'm_' + Math.random().toString(36).substr(2, 9), contactId: cid, name: contact.name, joinedAt: Date.now() });
+      g.members.push({ id: 'm_' + Math.random().toString(36).substr(2, 9), contactId: cid, name: contact.name, role: 'member', joinedAt: Date.now() });
       if (g.useRotation) { if (!g.rotationOrder) g.rotationOrder = []; g.rotationOrder.push(g.members[g.members.length-1].id); }
       save();
       _sendMemberInvite(contact, g.name, 'a Group Savings circle');
@@ -7705,22 +7848,49 @@
       const board = (g.noticeBoard || []).slice().reverse();
       const activeTab = window._grpTab || 'overview';
 
+      const _myRole = _getItemRole(g);
+      const _amOwner = _myRole === 'owner';
+      const _canManage = _amOwner || _myRole === 'admin';
+      const _pending = g.pendingInvites || [];
+
       let tabContent = '';
       if (activeTab === 'overview') {
         tabContent = `<div style="margin-bottom:16px;">
           <div style="font-size:13px;color:var(--muted);margin-bottom:4px;">Contribution: <strong>${fmt(g.amount, g.currency)}</strong> / ${esc(g.frequency||'month')}</div>
           ${g.description ? `<div style="font-size:13px;color:var(--muted);margin-bottom:8px;">${esc(g.description)}</div>` : ''}
           ${g.useRotation ? `<div style="font-size:12px;color:var(--accent);margin-bottom:8px;">Rotation enabled</div>` : ''}
+          <div style="font-size:12px;color:var(--muted);">Your role: <strong style="color:var(--accent);">${_myRole.charAt(0).toUpperCase()+_myRole.slice(1)}</strong></div>
         </div>
+        ${_amOwner && _pending.length > 0 ? `<div class="section-title" style="color:var(--yellow);">Pending Invites (${_pending.length})</div>
+          ${_pending.map(p => `<div class="trow" style="padding:8px 0;">
+            <div style="flex:1;"><div style="font-weight:600;">${esc(p.name)}</div><div style="font-size:11px;color:var(--muted);">${esc(p.email)} — requested by ${esc(p.requestedBy)}</div></div>
+            <button class="btn sm" style="font-size:11px;padding:4px 8px;" onclick="approvePendingInvite('${g.id}','groups','${p.id}','a Group Savings circle')">✓ Approve</button>
+            <button class="gh sm" onclick="rejectPendingInvite('${g.id}','groups','${p.id}')" style="color:var(--red);font-size:11px;">✕</button>
+          </div>`).join('')}` : ''}
         <div class="section-title">Members (${members.length})</div>
         <div style="margin-bottom:12px;">${members.length === 0 ? '<p style="color:var(--muted);font-size:13px;">No members yet.</p>' :
-          members.map(m => `<div class="trow" style="padding:8px 0;">
-            <div class="avatar">${(m.name||'?')[0].toUpperCase()}</div>
-            <div style="flex:1;"><div style="font-weight:600;">${esc(m.name)}</div><div style="font-size:11px;color:var(--muted);">Joined ${new Date(m.joinedAt).toLocaleDateString()}</div></div>
-            <button class="gh sm" onclick="removeGroupMember('${g.id}','${m.id}')" title="Remove" style="color:var(--red);">✕</button>
-          </div>`).join('')}
+          members.map(m => {
+            const mRole = m.role || 'member';
+            const roleBadge = mRole === 'admin' ? '<span class="badge badge-blue" style="font-size:10px;margin-left:4px;">Admin</span>' : mRole === 'owner' ? '<span class="badge badge-green" style="font-size:10px;margin-left:4px;">Owner</span>' : '';
+            return `<div class="trow" style="padding:8px 0;">
+              <div class="avatar">${(m.name||'?')[0].toUpperCase()}</div>
+              <div style="flex:1;">
+                <div style="font-weight:600;">${esc(m.name)}${roleBadge}</div>
+                <div style="font-size:11px;color:var(--muted);">Joined ${new Date(m.joinedAt).toLocaleDateString()}</div>
+              </div>
+              ${_amOwner ? `<select style="width:auto;font-size:11px;padding:3px 6px;" onchange="changeMemberRole('${g.id}','groups','${m.id}',this.value)">
+                <option value="member"${mRole==='member'?' selected':''}>Member</option>
+                <option value="admin"${mRole==='admin'?' selected':''}>Admin</option>
+              </select>` : ''}
+              ${_canManage ? `<button class="gh sm" onclick="removeGroupMember('${g.id}','${m.id}')" title="Remove" style="color:var(--red);">✕</button>` : ''}
+            </div>`;
+          }).join('')}
         </div>
-        <button class="bs sm" onclick="document.querySelector('.grp-detail-modal')?.remove();addGroupMember('${g.id}')">+ Add Member</button>`;
+        <div style="display:flex;gap:6px;flex-wrap:wrap;">
+          ${_canManage ? `<button class="bs sm" onclick="document.querySelector('.grp-detail-modal')?.remove();addGroupMember('${g.id}')">+ Add from Contacts</button>` : ''}
+          <button class="bs sm" onclick="document.querySelector('.grp-detail-modal')?.remove();emailInviteToItem('${g.id}','groups','a Group Savings circle')">✉ Invite by Email</button>
+          ${!_amOwner ? `<button class="bs sm" style="color:var(--red);border-color:var(--red);" onclick="document.querySelector('.grp-detail-modal')?.remove();exitItem('${g.id}','groups')">🚪 Leave Group</button>` : ''}
+        </div>`;
       } else if (activeTab === 'rounds') {
         tabContent = `<button class="btn sm" onclick="document.querySelector('.grp-detail-modal')?.remove();addGroupRound('${g.id}')" style="margin-bottom:16px;">+ New Round</button>`;
         if (rounds.length === 0) {
@@ -7965,7 +8135,7 @@
       document.querySelectorAll('.invmember-cb:checked').forEach(cb => {
         const contact = db.contacts.find(c => c.id === cb.value);
         if (contact) {
-          inv.members.push({ id: 'm_' + Math.random().toString(36).substr(2, 9), contactId: contact.id, name: contact.name, joinedAt: Date.now() });
+          inv.members.push({ id: 'm_' + Math.random().toString(36).substr(2, 9), contactId: contact.id, name: contact.name, role: 'member', joinedAt: Date.now() });
           _invitedContacts2.push(contact);
         }
       });
@@ -8059,7 +8229,7 @@
       const contact = db.contacts.find(c => c.id === cid);
       if (!contact) return;
       if (!inv.members) inv.members = [];
-      inv.members.push({ id: 'm_' + Math.random().toString(36).substr(2, 9), contactId: cid, name: contact.name, joinedAt: Date.now() });
+      inv.members.push({ id: 'm_' + Math.random().toString(36).substr(2, 9), contactId: cid, name: contact.name, role: 'member', joinedAt: Date.now() });
       save();
       _sendMemberInvite(contact, inv.name, 'an Investment');
       document.querySelector('.modal-bg:last-of-type')?.remove();
@@ -8155,6 +8325,10 @@
       const txs = (inv.transactions || []).slice().reverse();
       const board = (inv.noticeBoard || []).slice().reverse();
       const activeTab = window._invTab || 'overview';
+      const _invRole = _getItemRole(inv);
+      const _invOwner = _invRole === 'owner';
+      const _invCanManage = _invOwner || _invRole === 'admin';
+      const _invPending = inv.pendingInvites || [];
 
       const deposits = (inv.transactions||[]).filter(t => t.type === 'deposit').reduce((s, t) => s + (parseFloat(t.amount)||0), 0);
       const withdrawals = (inv.transactions||[]).filter(t => t.type === 'withdrawal').reduce((s, t) => s + (parseFloat(t.amount)||0), 0);
@@ -8204,11 +8378,25 @@
         }
       } else if (activeTab === 'members') {
         const invMembers = inv.members || [];
-        tabContent = `<div class="section-title">Members / Partners (${invMembers.length})</div>`;
+        // Pending invites (owner only)
+        if (_invOwner && _invPending.length > 0) {
+          tabContent += `<div class="section-title" style="color:var(--yellow);">Pending Invites (${_invPending.length})</div>`;
+          _invPending.forEach(p => {
+            tabContent += `<div class="trow" style="padding:8px 0;">
+              <div style="flex:1;"><div style="font-weight:600;">${esc(p.name)}</div><div style="font-size:11px;color:var(--muted);">${esc(p.email)} — by ${esc(p.requestedBy)}</div></div>
+              <button class="btn sm" style="font-size:11px;padding:4px 8px;" onclick="approvePendingInvite('${inv.id}','investments','${p.id}','an Investment')">✓</button>
+              <button class="gh sm" onclick="rejectPendingInvite('${inv.id}','investments','${p.id}')" style="color:var(--red);">✕</button>
+            </div>`;
+          });
+        }
+        tabContent += `<div class="section-title">Members / Partners (${invMembers.length})</div>`;
+        tabContent += `<div style="font-size:12px;color:var(--muted);margin-bottom:8px;">Your role: <strong style="color:var(--accent);">${_invRole.charAt(0).toUpperCase()+_invRole.slice(1)}</strong></div>`;
         if (invMembers.length === 0) {
           tabContent += `<p style="color:var(--muted);font-size:13px;margin-bottom:12px;">No members yet.</p>`;
         } else {
           invMembers.forEach(m => {
+            const mRole = m.role || 'member';
+            const roleBadge = mRole === 'admin' ? '<span class="badge badge-blue" style="font-size:10px;margin-left:4px;">Admin</span>' : '';
             const mDeposits = (inv.transactions||[]).filter(t => t.byMemberId === m.id && t.type === 'deposit').reduce((s,t)=>s+(parseFloat(t.amount)||0),0);
             const mWithdrawals = (inv.transactions||[]).filter(t => t.byMemberId === m.id && t.type === 'withdrawal').reduce((s,t)=>s+(parseFloat(t.amount)||0),0);
             const mDividends = (inv.transactions||[]).filter(t => t.byMemberId === m.id && (t.type === 'dividend' || t.type === 'return')).reduce((s,t)=>s+(parseFloat(t.amount)||0),0);
@@ -8216,7 +8404,7 @@
             tabContent += `<div class="trow" style="padding:8px 0;">
               <div class="avatar">${(m.name||'?')[0].toUpperCase()}</div>
               <div style="flex:1;">
-                <div style="font-weight:600;">${esc(m.name)}</div>
+                <div style="font-weight:600;">${esc(m.name)}${roleBadge}</div>
                 <div style="font-size:11px;color:var(--muted);">Joined ${new Date(m.joinedAt).toLocaleDateString()}</div>
                 <div style="font-size:12px;margin-top:4px;display:flex;gap:10px;flex-wrap:wrap;">
                   <span>In: <strong style="color:var(--blue);">${fmt(mDeposits, inv.currency)}</strong></span>
@@ -8225,11 +8413,19 @@
                   <span>Net: <strong style="color:${mNet>=0?'var(--green)':'var(--red)'};">${fmt(mNet, inv.currency)}</strong></span>
                 </div>
               </div>
-              <button class="gh sm" onclick="removeInvMember('${inv.id}','${m.id}')" title="Remove" style="color:var(--red);">✕</button>
+              ${_invOwner ? `<select style="width:auto;font-size:11px;padding:3px 6px;" onchange="changeMemberRole('${inv.id}','investments','${m.id}',this.value)">
+                <option value="member"${mRole==='member'?' selected':''}>Member</option>
+                <option value="admin"${mRole==='admin'?' selected':''}>Admin</option>
+              </select>` : ''}
+              ${_invCanManage ? `<button class="gh sm" onclick="removeInvMember('${inv.id}','${m.id}')" title="Remove" style="color:var(--red);">✕</button>` : ''}
             </div>`;
           });
         }
-        tabContent += `<button class="bs sm" style="margin-top:8px;" onclick="document.querySelector('.inv-detail-modal')?.remove();addInvMember('${inv.id}')">+ Add Member</button>`;
+        tabContent += `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;">
+          ${_invCanManage ? `<button class="bs sm" onclick="document.querySelector('.inv-detail-modal')?.remove();addInvMember('${inv.id}')">+ Add from Contacts</button>` : ''}
+          <button class="bs sm" onclick="document.querySelector('.inv-detail-modal')?.remove();emailInviteToItem('${inv.id}','investments','an Investment')">✉ Invite by Email</button>
+          ${!_invOwner ? `<button class="bs sm" style="color:var(--red);border-color:var(--red);" onclick="document.querySelector('.inv-detail-modal')?.remove();exitItem('${inv.id}','investments')">🚪 Leave</button>` : ''}
+        </div>`;
       } else if (activeTab === 'docs') {
         if (!inv.docs) inv.docs = [];
         tabContent = `<div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;">
