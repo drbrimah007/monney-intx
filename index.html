@@ -8082,7 +8082,7 @@
           ${!_amOwner ? `<button class="bs sm" style="color:var(--red);border-color:var(--red);" onclick="document.querySelector('.grp-detail-modal')?.remove();exitItem('${g.id}','groups')">🚪 Leave Group</button>` : ''}
         </div>`;
       } else if (activeTab === 'rounds') {
-        tabContent = `<button class="btn sm" onclick="document.querySelector('.grp-detail-modal')?.remove();addGroupRound('${g.id}')" style="margin-bottom:16px;">+ New Round</button>`;
+        tabContent = _canManage ? `<button class="btn sm" onclick="document.querySelector('.grp-detail-modal')?.remove();addGroupRound('${g.id}')" style="margin-bottom:16px;">+ New Round</button>` : '';
         if (rounds.length === 0) {
           tabContent += `<p style="color:var(--muted);font-size:13px;">No rounds yet. Start one to track contributions.</p>`;
         } else {
@@ -8239,22 +8239,27 @@
                   <div><div style="font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;">ROI</div><div style="font-size:18px;font-weight:800;color:${parseFloat(roi)>=0?'var(--green)':'var(--red)'};">${roi}%</div></div>
                 </div>
                 ${(inv.members||[]).length > 0 ? `<div style="margin-bottom:8px;"><span style="font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;">Partners:</span> ${(inv.members||[]).map(m => '<span class="badge badge-blue" style="margin:2px;">'+esc(m.name)+'</span>').join('')}</div>` : ''}
-                <div style="display:flex;gap:6px;flex-wrap:wrap;">
-                  <button class="bs sm" onclick="addInvestmentTx('${inv.id}')">💰 Transaction</button>
-                  <button class="bs sm" onclick="addInvMember('${inv.id}')">👤 Add Member</button>
-                  <button class="bs sm" onclick="window._invTab='board';openInvestmentDetail('${inv.id}')">💬 Notice Board${comments>0?' ('+comments+')':''}</button>
-                </div>
+                ${(() => { const _r = _getItemRole(inv); const _io = _r === 'owner'; const _ia = _r === 'admin'; const _im = _r === 'member';
+                  return `<div style="display:flex;gap:6px;flex-wrap:wrap;">
+                    ${(_im || _ia || _io) ? `<button class="bs sm" onclick="addInvestmentTx('${inv.id}')">💰 Transaction</button>` : ''}
+                    ${(_io || _ia) ? `<button class="bs sm" onclick="addInvMember('${inv.id}')">👤 Add Member</button>` : ''}
+                    ${(_im || _ia || _io) ? `<button class="bs sm" onclick="window._invTab='board';openInvestmentDetail('${inv.id}')">💬 Notice Board${comments>0?' ('+comments+')':''}</button>` : ''}
+                  </div>`;
+                })()}
               </div>
               <div class="action-menu"><button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button><div class="action-dropdown">
-                <button onclick="openInvestmentDetail('${inv.id}')">👁 View</button>
-                <button onclick="addInvMember('${inv.id}')">👤 Add Member</button>
-                <button onclick="emailInviteToItem('${inv.id}','investments','an Investment')">✉ Invite by Email</button>
-                <button onclick="openInviteLink('${inv.id}','investments')">🔗 Copy Invite Link</button>
-                <button onclick="window._invTab='board';openInvestmentDetail('${inv.id}')">💬 Notice Board</button>
-                <button onclick="editInvestment('${inv.id}')">✏️ Edit</button>
-                <button onclick="addInvestmentTx('${inv.id}')">💰 Transaction</button>
-                <button onclick="toggleArchiveInv('${inv.id}')">${inv.archived?'📤 Unarchive':'📥 Archive'}</button>
-                <button onclick="delInvestment('${inv.id}')" style="color:var(--red);">🗑 Delete</button>
+                ${(() => { const _r = _getItemRole(inv); const _io = _r === 'owner'; const _ia = _r === 'admin'; const _im = _r === 'member'; return ''
+                  + '<button onclick="openInvestmentDetail(\'' + inv.id + '\')">👁 View</button>'
+                  + ((_io || _ia) ? '<button onclick="addInvMember(\'' + inv.id + '\')">👤 Add Member</button>' : '')
+                  + ((_io || _ia || _im) ? '<button onclick="emailInviteToItem(\'' + inv.id + '\',\'investments\',\'an Investment\')">✉ Invite by Email</button>' : '')
+                  + ((_io || _ia || _im) ? '<button onclick="openInviteLink(\'' + inv.id + '\',\'investments\')">🔗 Copy Invite Link</button>' : '')
+                  + ((_io || _ia || _im) ? '<button onclick="window._invTab=\'board\';openInvestmentDetail(\'' + inv.id + '\')">💬 Notice Board</button>' : '')
+                  + ((_io || _ia) ? '<button onclick="editInvestment(\'' + inv.id + '\')">✏️ Edit</button>' : '')
+                  + ((_io || _ia || _im) ? '<button onclick="addInvestmentTx(\'' + inv.id + '\')">💰 Transaction</button>' : '')
+                  + ((_io || _ia) ? '<button onclick="toggleArchiveInv(\'' + inv.id + '\')">' + (inv.archived?'📤 Unarchive':'📥 Archive') + '</button>' : '')
+                  + (_io ? '<button onclick="delInvestment(\'' + inv.id + '\')" style="color:var(--red);">🗑 Delete</button>' : '')
+                  + ((!_io) ? '<button onclick="exitItem(\'' + inv.id + '\',\'investments\')" style="color:var(--red);">🚪 Leave</button>' : '');
+                })()}
               </div></div>
             </div>
           </div>`;
@@ -8601,9 +8606,10 @@
                   <span>Net: <strong style="color:${mNet>=0?'var(--green)':'var(--red)'};">${fmt(mNet, inv.currency)}</strong></span>
                 </div>
               </div>
-              ${_invOwner ? `<select style="width:auto;font-size:11px;padding:3px 6px;" onchange="changeMemberRole('${inv.id}','investments','${m.id}',this.value)">
+              ${(_invOwner || _invCanManage) ? `<select style="width:auto;font-size:11px;padding:3px 6px;" onchange="changeMemberRole('${inv.id}','investments','${m.id}',this.value)">
+                <option value="invitee"${mRole==='invitee'?' selected':''}>Invitee</option>
                 <option value="member"${mRole==='member'?' selected':''}>Member</option>
-                <option value="admin"${mRole==='admin'?' selected':''}>Admin</option>
+                ${_invOwner ? `<option value="admin"${mRole==='admin'?' selected':''}>Admin</option>` : ''}
               </select>` : ''}
               ${_invCanManage ? `<button class="gh sm" onclick="removeInvMember('${inv.id}','${m.id}')" title="Remove" style="color:var(--red);">✕</button>` : ''}
             </div>`;
