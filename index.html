@@ -7100,67 +7100,84 @@
       const myLockers = db.assetLockers.filter(l => l.userId === u.id);
       const lockersUnlocked = _lockerIsUnlocked();
 
-      html += `<div style="margin-top:32px;">
-        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:10px;">
-          <div>
-            <div style="font-size:17px;font-weight:800;letter-spacing:-.01em;">🗄 Asset Lockers</div>
-            <div style="font-size:12px;color:var(--muted);margin-top:2px;">Record what you own, where it is, and how to access it — for those who may need to know.</div>
-          </div>
-          <div style="display:flex;gap:8px;align-items:center;">
-            ${lockersUnlocked ? `<button class="bs sm" style="font-size:11px;color:var(--muted);" onclick="_lockLockers()">🔒 Lock</button><button class="btn sm" onclick="openAssetLockerModal()">+ Add Locker</button>` : `<button class="btn sm" onclick="requestLockerOtp()">${myLockers.length>0?'🔐 Unlock to View':'+ Add Locker'}</button>`}
-          </div>
-        </div>
+      // Precompute locker list HTML to avoid deep template literal nesting
+      let _lockerListHtml = '';
+      if (!lockersUnlocked) {
+        const _cnt = myLockers.length;
+        _lockerListHtml = '<div style="text-align:center;padding:32px 20px;background:var(--bg2);border:1px solid var(--border);border-radius:14px;">'
+          + '<div style="font-size:40px;margin-bottom:12px;">🔐</div>'
+          + '<div style="font-size:15px;font-weight:700;margin-bottom:6px;">Asset Lockers are Protected</div>'
+          + '<div style="font-size:13px;color:var(--muted);margin-bottom:6px;">' + (_cnt > 0 ? 'You have <strong>' + _cnt + '</strong> locker' + (_cnt > 1 ? 's' : '') + ' stored.' : 'No lockers yet.') + '</div>'
+          + '<div style="font-size:12px;color:var(--muted);margin-bottom:20px;max-width:340px;margin-left:auto;margin-right:auto;">To view or manage your lockers, you\'ll need to verify your identity with a one-time code sent to your email.</div>'
+          + '<button class="btn" onclick="requestLockerOtp()" style="min-width:160px;">📧 Send Access Code</button>'
+          + '</div>';
+      } else if (myLockers.length === 0) {
+        _lockerListHtml = '<div style="text-align:center;padding:28px 16px;background:var(--bg2);border:1px dashed var(--border);border-radius:12px;color:var(--muted);">'
+          + '<div style="font-size:28px;margin-bottom:8px;">🗄</div>'
+          + '<div style="font-size:14px;font-weight:600;margin-bottom:6px;">No asset lockers yet</div>'
+          + '<div style="font-size:12px;margin-bottom:16px;">Add physical rooms, devices, accounts, or anything a trusted contact may need to find or access.</div>'
+          + '<button class="btn sm" onclick="openAssetLockerModal()">+ Add First Locker</button>'
+          + '</div>';
+      } else {
+        _lockerListHtml = '<div style="display:flex;flex-direction:column;gap:10px;">';
+        myLockers.forEach(function(l) {
+          let trusteeBlock = '';
+          if (l.primaryTrustee || (l.otherTrustees && l.otherTrustees.length > 0)) {
+            trusteeBlock = '<div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border);">';
+            if (l.primaryTrustee) {
+              trusteeBlock += '<div style="display:flex;align-items:baseline;gap:6px;flex-wrap:wrap;">'
+                + '<span style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);">Primary</span>'
+                + '<span style="font-size:13px;font-weight:600;">' + esc(l.primaryTrustee) + '</span>'
+                + '</div>';
+            }
+            if (l.otherTrustees && l.otherTrustees.length > 0) {
+              trusteeBlock += '<div style="margin-top:4px;display:flex;align-items:baseline;gap:6px;flex-wrap:wrap;">'
+                + '<span style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);">Others</span>'
+                + '<span style="font-size:12px;color:var(--text);opacity:.75;">' + l.otherTrustees.map(function(t){return esc(t);}).join(', ') + '</span>'
+                + '</div>';
+            }
+            trusteeBlock += '</div>';
+          }
+          _lockerListHtml += '<div class="card" style="padding:14px 18px;">'
+            + '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;flex-wrap:wrap;">'
+            + '<div style="flex:1;min-width:180px;">'
+            + '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:2px;">'
+            + '<span style="font-size:15px;font-weight:700;">' + esc(l.title) + '</span>'
+            + (l.type ? '<span class="badge badge-gray" style="font-size:11px;">' + esc(l.type) + '</span>' : '')
+            + '</div>'
+            + (l.assetKey ? '<div style="font-size:11px;color:var(--muted);font-family:monospace;margin-bottom:8px;opacity:.7;">' + esc(l.assetKey) + '</div>' : '<div style="margin-bottom:8px;"></div>')
+            + '<div style="display:grid;grid-template-columns:60px 1fr;gap:4px 10px;font-size:13px;">'
+            + (l.location ? '<span style="color:var(--muted);font-size:11px;font-weight:600;text-transform:uppercase;padding-top:2px;">Location</span><span>' + esc(l.location) + '</span>' : '')
+            + (l.access  ? '<span style="color:var(--muted);font-size:11px;font-weight:600;text-transform:uppercase;padding-top:2px;">Access</span><span>' + esc(l.access) + '</span>' : '')
+            + '</div>'
+            + (l.notes ? '<div style="margin-top:8px;font-size:12px;color:var(--muted);font-style:italic;">' + esc(l.notes) + '</div>' : '')
+            + trusteeBlock
+            + '</div>'
+            + '<div style="display:flex;gap:6px;flex-shrink:0;">'
+            + '<button class="bs sm" onclick="openAssetLockerModal(\'' + l.id + '\')">✏️</button>'
+            + '<button class="bs sm" style="color:var(--red);" onclick="delAssetLocker(\'' + l.id + '\')">🗑</button>'
+            + '</div>'
+            + '</div></div>';
+        });
+        _lockerListHtml += '</div>';
+      }
+      const _lockerBtns = lockersUnlocked
+        ? '<button class="bs sm" style="font-size:11px;color:var(--muted);" onclick="_lockLockers()">🔒 Lock</button><button class="btn sm" onclick="openAssetLockerModal()">+ Add Locker</button>'
+        : '<button class="btn sm" onclick="requestLockerOtp()">' + (myLockers.length > 0 ? '🔐 Unlock to View' : '+ Add Locker') + '</button>';
 
-        <div style="background:rgba(232,30,130,0.06);border:1px solid rgba(232,30,130,0.18);border-radius:10px;padding:10px 14px;font-size:12px;color:var(--muted);line-height:1.65;margin-bottom:14px;">
-          🔒 <strong>Security note:</strong> Only store what a trusted person needs to locate and access an asset — not full passwords or private keys. For sensitive credentials, reference a secure vault (e.g. "credentials in 1Password, entry: Main Server") rather than pasting them here.
-        </div>
-
-        ${!lockersUnlocked ? `
-          <div style="text-align:center;padding:32px 20px;background:var(--bg2);border:1px solid var(--border);border-radius:14px;">
-            <div style="font-size:40px;margin-bottom:12px;">🔐</div>
-            <div style="font-size:15px;font-weight:700;margin-bottom:6px;">Asset Lockers are Protected</div>
-            <div style="font-size:13px;color:var(--muted);margin-bottom:6px;">${myLockers.length > 0 ? `You have <strong>${myLockers.length}</strong> locker${myLockers.length>1?'s':''} stored.` : 'No lockers yet.'}</div>
-            <div style="font-size:12px;color:var(--muted);margin-bottom:20px;max-width:340px;margin-left:auto;margin-right:auto;">To view or manage your lockers, you'll need to verify your identity with a one-time code sent to your email.</div>
-            <button class="btn" onclick="requestLockerOtp()" style="min-width:160px;">📧 Send Access Code</button>
-          </div>
-        ` : myLockers.length === 0 ? `<div style="text-align:center;padding:28px 16px;background:var(--bg2);border:1px dashed var(--border);border-radius:12px;color:var(--muted);">
-          <div style="font-size:28px;margin-bottom:8px;">🗄</div>
-          <div style="font-size:14px;font-weight:600;margin-bottom:6px;">No asset lockers yet</div>
-          <div style="font-size:12px;margin-bottom:16px;">Add physical rooms, devices, accounts, or anything a trusted contact may need to find or access.</div>
-          <button class="btn sm" onclick="openAssetLockerModal()">+ Add First Locker</button>
-        </div>` : `<div style="display:flex;flex-direction:column;gap:10px;">
-          ${myLockers.map(l => {
-            const hasTrustees = l.primaryTrustee || (l.otherTrustees&&l.otherTrustees.length>0);
-            const trusteeBlock = hasTrustees ? `
-              <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border);">
-                <div style="display:flex;align-items:baseline;gap:6px;flex-wrap:wrap;">
-                  ${l.primaryTrustee ? `<span style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);">Primary</span><span style="font-size:13px;font-weight:600;">${esc(l.primaryTrustee)}</span>` : ''}
-                </div>
-                ${l.otherTrustees&&l.otherTrustees.length>0 ? `<div style="margin-top:4px;display:flex;align-items:baseline;gap:6px;flex-wrap:wrap;"><span style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);">Others</span><span style="font-size:12px;color:var(--text);opacity:.75;">${l.otherTrustees.map(t=>esc(t)).join(', ')}</span></div>` : ''}
-              </div>` : '';
-            return `<div class="card" style="padding:14px 18px;">
-            <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;flex-wrap:wrap;">
-              <div style="flex:1;min-width:180px;">
-                <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:2px;">
-                  <span style="font-size:15px;font-weight:700;">${esc(l.title)}</span>
-                  ${l.type?`<span class="badge badge-gray" style="font-size:11px;">${esc(l.type)}</span>`:''}
-                </div>
-                ${l.assetKey?`<div style="font-size:11px;color:var(--muted);font-family:monospace;margin-bottom:8px;opacity:.7;">${esc(l.assetKey)}</div>`:'<div style="margin-bottom:8px;"></div>'}
-                <div style="display:grid;grid-template-columns:60px 1fr;gap:4px 10px;font-size:13px;">
-                  ${l.location?`<span style="color:var(--muted);font-size:11px;font-weight:600;text-transform:uppercase;padding-top:2px;">Location</span><span>${esc(l.location)}</span>`:''}
-                  ${l.access?`<span style="color:var(--muted);font-size:11px;font-weight:600;text-transform:uppercase;padding-top:2px;">Access</span><span>${esc(l.access)}</span>`:''}
-                </div>
-                ${l.notes?`<div style="margin-top:8px;font-size:12px;color:var(--muted);font-style:italic;">${esc(l.notes)}</div>`:''}
-                ${trusteeBlock}
-              </div>
-              <div style="display:flex;gap:6px;flex-shrink:0;">
-                <button class="bs sm" onclick="openAssetLockerModal('${l.id}')">✏️</button>
-                <button class="bs sm" style="color:var(--red);" onclick="delAssetLocker('${l.id}')">🗑</button>
-              </div>
-            </div>
-          </div>`).join('')}
-        </div>`}
-      </div>`;
+      html += '<div style="margin-top:32px;">'
+        + '<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:10px;">'
+        + '<div>'
+        + '<div style="font-size:17px;font-weight:800;letter-spacing:-.01em;">🗄 Asset Lockers</div>'
+        + '<div style="font-size:12px;color:var(--muted);margin-top:2px;">Record what you own, where it is, and how to access it — for those who may need to know.</div>'
+        + '</div>'
+        + '<div style="display:flex;gap:8px;align-items:center;">' + _lockerBtns + '</div>'
+        + '</div>'
+        + '<div style="background:rgba(232,30,130,0.06);border:1px solid rgba(232,30,130,0.18);border-radius:10px;padding:10px 14px;font-size:12px;color:var(--muted);line-height:1.65;margin-bottom:14px;">'
+        + '🔒 <strong>Security note:</strong> Only store what a trusted person needs to locate and access an asset — not full passwords or private keys. For sensitive credentials, reference a secure vault (e.g. "credentials in 1Password, entry: Main Server") rather than pasting them here.'
+        + '</div>'
+        + _lockerListHtml
+        + '</div>';
 
       html += `<div style="margin-top:20px;padding:12px 16px;border-radius:10px;background:rgba(251,191,36,.06);border:1px solid rgba(251,191,36,.2);font-size:11px;color:var(--muted);line-height:1.7;">⚠️ <strong>Legal Notice:</strong> This system releases <strong>information only</strong>. It is not a bank, payment processor, legal will, or estate tool. It does not transfer money, assign legal ownership of debts, or create legally binding obligations.</div>`;
 
