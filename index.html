@@ -325,6 +325,10 @@
     <nav id="nav"></nav>
     <div id="main">
       <div id="content"></div>
+      <div style="text-align:center;padding:28px 16px 36px;opacity:0.28;font-size:11px;line-height:2;letter-spacing:0.01em;color:var(--text);">
+        <div><em>"Write it down for clarity."</em> <span style="opacity:0.75;">— Qur'an 2:282</span></div>
+        <div><em>"Write it plain."</em> <span style="opacity:0.75;">— Habakkuk 2:2</span></div>
+      </div>
     </div>
     <!-- Mobile bottom tab bar -->
     <div id="mobile-tab-bar">
@@ -371,6 +375,7 @@
       settings: {
         appName: 'Money IntX',
         logoData: '',
+        currency: 'USD',
         company: { name: '', address: '', email: '', phone: '', website: '', aboutText: '', contactText: '' },
         publicShow: {
           logo: true, companyName: true, address: false,
@@ -596,7 +601,42 @@
     }
 
     function uuid() { return 'x' + Math.random().toString(36).substr(2, 9); }
-    function fmt(n) { return '$' + parseFloat(n || 0).toFixed(2); }
+    const CURRENCIES = {
+      USD: { symbol: '$', name: 'US Dollar', locale: 'en-US' },
+      EUR: { symbol: '€', name: 'Euro', locale: 'de-DE' },
+      GBP: { symbol: '£', name: 'British Pound', locale: 'en-GB' },
+      NGN: { symbol: '₦', name: 'Nigerian Naira', locale: 'en-NG' },
+      CAD: { symbol: 'CA$', name: 'Canadian Dollar', locale: 'en-CA' },
+      AUD: { symbol: 'A$', name: 'Australian Dollar', locale: 'en-AU' },
+      JPY: { symbol: '¥', name: 'Japanese Yen', locale: 'ja-JP' },
+      CNY: { symbol: '¥', name: 'Chinese Yuan', locale: 'zh-CN' },
+      INR: { symbol: '₹', name: 'Indian Rupee', locale: 'hi-IN' },
+      ZAR: { symbol: 'R', name: 'South African Rand', locale: 'en-ZA' },
+      GHS: { symbol: 'GH₵', name: 'Ghanaian Cedi', locale: 'en-GH' },
+      KES: { symbol: 'KSh', name: 'Kenyan Shilling', locale: 'en-KE' },
+      AED: { symbol: 'د.إ', name: 'UAE Dirham', locale: 'ar-AE' },
+      SAR: { symbol: '﷼', name: 'Saudi Riyal', locale: 'ar-SA' },
+      BRL: { symbol: 'R$', name: 'Brazilian Real', locale: 'pt-BR' },
+      MXN: { symbol: 'MX$', name: 'Mexican Peso', locale: 'es-MX' },
+      CHF: { symbol: 'CHF', name: 'Swiss Franc', locale: 'de-CH' },
+      SEK: { symbol: 'kr', name: 'Swedish Krona', locale: 'sv-SE' },
+      SGD: { symbol: 'S$', name: 'Singapore Dollar', locale: 'en-SG' },
+      HKD: { symbol: 'HK$', name: 'Hong Kong Dollar', locale: 'en-HK' }
+    };
+    function fmt(n, currencyCode) {
+      const code = currencyCode || db.settings?.currency || 'USD';
+      const val = parseFloat(n || 0);
+      const noDecimals = ['JPY', 'KRW', 'VND'].includes(code);
+      try {
+        return new Intl.NumberFormat(CURRENCIES[code]?.locale || 'en-US', {
+          style: 'currency', currency: code,
+          minimumFractionDigits: noDecimals ? 0 : 2,
+          maximumFractionDigits: noDecimals ? 0 : 2
+        }).format(val);
+      } catch (_) {
+        return (CURRENCIES[code]?.symbol || '$') + val.toFixed(noDecimals ? 0 : 2);
+      }
+    }
     function safeStatus(s) { return ENTRY_STATUS[s] ? s : 'posted'; }
 
     // ── Server detection ──────────────────────────────────────────────────
@@ -3402,7 +3442,8 @@
         date: Date.now(), status: 'payment', archived: false, shared: false,
         responses: [], templateId: null, templateData: {},
         invoiceNumber: null, entryNum: db.settings.entryCounter, createdAt: Date.now(),
-        linkedInvoiceId: eid
+        linkedInvoiceId: eid,
+        currency: e.currency || db.settings.currency || 'USD'
       });
 
       // Recompute invoice status from all linked settlements
@@ -3419,7 +3460,8 @@
           date: Date.now(), status: 'posted', archived: false, shared: false,
           responses: [], templateId: null, templateData: {},
           invoiceNumber: null, entryNum: db.settings.entryCounter, createdAt: Date.now(),
-          isOverpayment: true, linkedInvoiceId: eid
+          isOverpayment: true, linkedInvoiceId: eid,
+          currency: e.currency || db.settings.currency || 'USD'
         });
       }
 
@@ -4334,7 +4376,8 @@
       db.entries.push({ id:newEid, userId:curUser().id, cId:cid, txType, amount,
         note, date, status:safeStatus(status), archived:false, shared:false, responses:[],
         templateId:_entryTpl?.id||null, templateData:tplData,
-        templateSnapshot, invoiceNumber, entryNum, createdAt:Date.now() });
+        templateSnapshot, invoiceNumber, entryNum, createdAt:Date.now(),
+        currency: db.settings.currency || 'USD' });
       logAudit('add_entry',{cid,txType,amount,tpl:_entryTpl?.name||null,invoiceNumber});
       await saveNow(); // immediate sync for cross-device consistency
 
@@ -4355,6 +4398,7 @@
             fromEmail: u.email || '',
             txType, amount, date, note, invoiceNumber,
             status: safeStatus(status),
+            currency: db.settings.currency || 'USD',
             appName: db.settings?.appName || 'Money IntX',
             siteUrl, tagline: db.settings?.tagline || 'Making Money Matters Memorable'
           })
@@ -4535,7 +4579,8 @@
         shared: false,
         responses: [],
         reminderCount: 0,
-        lastReminderAt: null
+        lastReminderAt: null,
+        currency: orig.currency || db.settings.currency || 'USD'
       };
       db.entries.push(newEntry);
       save();
@@ -4929,7 +4974,8 @@
             fromName: u.displayName || u.email || appName,
             fromEmail: u.email || '', txType: e.txType, amount: e.amount,
             date: e.date, note: e.note || '', invoiceNumber: e.invoiceNumber || null,
-            status: e.status || 'posted', appName, siteUrl, tagline
+            status: e.status || 'posted', currency: e.currency || db.settings.currency || 'USD',
+            appName, siteUrl, tagline
           })
         });
         const data = await res.json();
@@ -5057,6 +5103,7 @@
               status: e.status || 'posted',
               settledAmt: _invSt?.settled || 0,
               remaining:  _invSt?.remaining ?? e.amount,
+              currency: e.currency || db.settings.currency || 'USD',
               appName: db.settings?.appName || 'Money IntX',
               siteUrl: _siteUrl,
               tagline: db.settings?.tagline || 'Making Money Matters Memorable'
@@ -5091,6 +5138,7 @@
               paidAmt: _emailPaid,
               entryStatus: e.status || null,
               txType: e.txType || null,
+              currency: e.currency || db.settings.currency || 'USD',
               viewUrl: _viewUrl,
               siteUrl: _siteUrl,
               appName: db.settings?.appName || 'Money IntX',
@@ -8576,6 +8624,7 @@
         fromName:     entry.fromName || dispName,
         fromEmail:    entry.fromEmail || '',
         fromSiteUrl:  siteUrl,
+        currency:     entry.currency || 'USD',
         // noLedger NOT set — confirmed shared records are ledger-active by default
         // (user chose "Confirm & Track" — they want this in their balance)
         sharedAt:     r.sharedAt || null,
