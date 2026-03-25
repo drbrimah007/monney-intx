@@ -351,7 +351,7 @@ module.exports = async function handler(req, res) {
       const payload = requireAuth(req, res);
       if (!payload) return;
       const { entryId, contactName, contactEmail, fromName, fromEmail, txType, amount, date,
-              note, invoiceNumber, status, appName, siteUrl, tagline } = req.body;
+              note, invoiceNumber, status, currency, appName, siteUrl, tagline } = req.body;
       if (!entryId) return res.status(400).json({ ok: false, error: 'entryId required' });
       try {
         await ensureTable();
@@ -427,6 +427,7 @@ module.exports = async function handler(req, res) {
             txType, amount, date, note: note || '',
             invoiceNumber: invoiceNumber || null,
             status: status || 'posted',
+            currency: currency || 'USD',
             appName: appName || 'Money IntX',
             siteUrl: siteUrl || 'https://moneyinteractions.com',
             tagline: tagline || 'Making Money Matters Memorable',
@@ -450,6 +451,7 @@ module.exports = async function handler(req, res) {
           txType, amount, date, note: note || '',
           invoiceNumber: invoiceNumber || null,
           status: status || 'posted',
+          currency: currency || 'USD',
           appName: appName || 'Money IntX',
           siteUrl: siteUrl || 'https://moneyinteractions.com',
           tagline: tagline || 'Making Money Matters Memorable',
