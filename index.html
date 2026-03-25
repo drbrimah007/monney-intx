@@ -12447,17 +12447,17 @@
       // Seed _lastNotifTs from existing notifs so first poll only fetches new ones
       (db.notifs || []).forEach(n => { if ((n.createdAt || 0) > _lastNotifTs) _lastNotifTs = n.createdAt; });
       // Poll every 30 seconds
-      setInterval(_pollNotifs, 30_000);
+      setInterval(_pollNotifs, 15_000);
       // Sync sent-share statuses immediately on load, then every 60 seconds
       _syncSentShareStatuses();
-      setInterval(_syncSentShareStatuses, 120_000);
+      setInterval(_syncSentShareStatuses, 30_000);
       // Auto-sync removed — freshness polling handles cross-device sync.
       // Manual saves (saveNow) still push to server immediately.
       // Also re-check immediately when the user returns to the tab
       document.addEventListener('visibilitychange', () => {
         if (document.visibilityState === 'visible') {
           const now = Date.now();
-          if (now - _lastPollAt > 10_000) { _lastPollAt = now; _pollNotifs(); _syncSentShareStatuses(); }
+          if (now - _lastPollAt > 5_000) { _lastPollAt = now; _pollNotifs(); _syncSentShareStatuses(); }
         }
       });
     }
