@@ -6884,6 +6884,9 @@
         if (t === 'settlement_rejected')  return `<span class="badge" style="background:rgba(239,68,68,.12);color:#dc2626;font-size:11px;">❌ Payment Rejected</span>`;
         if (t === 'notification')  return `<span class="badge badge-blue" style="font-size:11px;">📬 Notification</span>`;
         if (t === 'reconciliation_mismatch') return `<span class="badge" style="background:rgba(239,68,68,.12);color:#dc2626;font-size:11px;">⚠ Balance Mismatch</span>`;
+        if (t === 'invite') return `<span class="badge" style="background:rgba(108,99,255,.12);color:var(--accent);font-size:11px;">🤝 Invitation</span>`;
+        if (t === 'invite_sent') return `<span class="badge" style="background:rgba(108,99,255,.12);color:var(--accent);font-size:11px;">📨 Invite Sent</span>`;
+        if (t === 'join_request') return `<span class="badge" style="background:rgba(245,158,11,.12);color:#d97706;font-size:11px;">🙋 Join Request</span>`;
         return `<span class="badge badge-blue" style="font-size:11px;">📤 Sent</span>`;
       };
 
@@ -6910,10 +6913,13 @@
           const dateStr = n.createdAt ? new Date(n.createdAt).toLocaleDateString() : '—';
           const isClickable = (n.type === 'settlement_pending' || n.type === 'settlement_confirmed' || n.type === 'settlement_rejected') && n.shareToken;
           const rowClick = isClickable ? `onclick="_reviewSettlement('${esc(n.shareToken)}')" style="cursor:pointer;"` : '';
-          html += `<tr ${rowClick}>
-            <td>${c ? cLink(c.id, c.name) : '<span style="color:var(--muted)">—</span>'}</td>
-            <td style="font-size:13px;font-weight:600;white-space:nowrap;">${esc(amtStr)}</td>
-            <td class="hide-mobile" style="max-width:200px;"><span style="display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;" title="${esc(n.msg)}">${esc(n.msg)}</span>${isClickable ? ` <span style="color:var(--accent);font-size:11px;font-weight:600;">${n.type === 'settlement_pending' ? 'Click to review' : 'View details'}</span>` : ''}</td>
+          const isInvite = n.type === 'invite' || n.type === 'invite_sent' || n.type === 'join_request';
+          const inviteClick = isInvite ? `onclick="nav('groups')" style="cursor:pointer;"` : '';
+          const contactDisplay = c ? cLink(c.id, c.name) : (isInvite && n.who ? `<strong style="color:var(--accent);">${esc(n.who)}</strong>` : '<span style="color:var(--muted)">—</span>');
+          html += `<tr ${rowClick || inviteClick}>
+            <td>${contactDisplay}</td>
+            <td style="font-size:13px;font-weight:600;white-space:nowrap;">${isInvite ? '' : esc(amtStr)}</td>
+            <td class="hide-mobile" style="max-width:200px;"><span style="display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;" title="${esc(n.msg)}">${esc(n.msg)}</span>${isClickable ? ` <span style="color:var(--accent);font-size:11px;font-weight:600;">${n.type === 'settlement_pending' ? 'Click to review' : 'View details'}</span>` : ''}${isInvite ? ` <span style="color:var(--accent);font-size:11px;font-weight:600;">→ View Groups</span>` : ''}</td>
             <td class="hide-mobile" style="font-size:12px;">${esc(sentTo)}</td>
             <td class="hide-mobile" style="font-size:12px;color:var(--muted);">${dateStr}</td>
             <td>${eventBadge(n.type)}</td>
