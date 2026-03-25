@@ -7249,7 +7249,8 @@
       const showArchived = window._arch_groups || false;
       const filtered = showArchived ? myGroups : myGroups.filter(g => !g.archived);
 
-      let html = `<div class="page-header"><h2>Group Savings</h2><button class="btn sm" onclick="openNewGroup()">+ New Group</button></div>`;
+      let html = `<div class="page-header"><h2>Group Savings</h2><button class="btn sm" onclick="openNewGroup()">+ New Group</button></div>
+      <p style="color:var(--muted);font-size:12px;margin-bottom:14px;">Group contributions are tracked separately and do not affect your contact ledger balances.</p>`;
       html += `<div style="margin-bottom:12px;"><label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;"><input type="checkbox" ${showArchived?'checked':''} onchange="window._arch_groups=this.checked;renderGroups()"> Show Archived</label></div>`;
 
       if (filtered.length === 0) {
@@ -7618,38 +7619,62 @@
         <div class="stat-card"><div class="stat-lbl">Total Returns</div><div class="stat-val" style="color:var(--green)">${fmt(totalReturns)}</div></div>
         <div class="stat-card"><div class="stat-lbl">Net Gain/Loss</div><div class="stat-val" style="color:${netGL>=0?'var(--green)':'var(--red)'}">${fmt(netGL)}</div></div>
       </div>`;
-      html += `<div style="margin-bottom:12px;"><label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;"><input type="checkbox" ${showArchived?'checked':''} onchange="window._arch_investments=this.checked;renderInvestments()"> Show Archived</label></div>`;
+      // Filter controls
+      const typeFilter = window._inv_type_filter || 'all';
+      html += `<div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;flex-wrap:wrap;">
+        <select style="max-width:180px;" onchange="window._inv_type_filter=this.value;renderInvestments()">
+          <option value="all"${typeFilter==='all'?' selected':''}>All Types</option>
+          ${Object.entries(INV_TYPES).map(([k,v])=>`<option value="${k}"${typeFilter===k?' selected':''}>${v}</option>`).join('')}
+        </select>
+        <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;"><input type="checkbox" ${showArchived?'checked':''} onchange="window._arch_investments=this.checked;renderInvestments()"> Archived</label>
+      </div>`;
 
-      if (filtered.length === 0) {
+      const displayed = typeFilter === 'all' ? filtered : filtered.filter(inv => inv.type === typeFilter);
+
+      if (displayed.length === 0) {
         html += `<div class="card"><p style="color:var(--muted);font-size:14px;padding:12px 0;">No investments yet. Track your first one.</p></div>`;
       } else {
-        html += `<div class="card"><div class="tbl-wrap"><table><thead><tr><th>Name</th><th class="hide-mobile">Type</th><th>Invested</th><th>Value</th><th class="hide-mobile">Gain/Loss</th><th>Status</th><th style="width:60px;"></th></tr></thead><tbody>`;
-        filtered.forEach(inv => {
+        displayed.forEach(inv => {
           const deposits = (inv.transactions||[]).filter(t => t.type === 'deposit').reduce((s, t) => s + (parseFloat(t.amount)||0), 0);
           const withdrawals = (inv.transactions||[]).filter(t => t.type === 'withdrawal').reduce((s, t) => s + (parseFloat(t.amount)||0), 0);
           const dividends = (inv.transactions||[]).filter(t => t.type === 'dividend' || t.type === 'return').reduce((s, t) => s + (parseFloat(t.amount)||0), 0);
           const invested = (parseFloat(inv.initialAmount)||0) + deposits;
           const currentVal = invested - withdrawals + dividends;
           const gl = currentVal - invested;
+          const roi = invested > 0 ? ((currentVal - invested) / invested * 100).toFixed(1) : '0.0';
           const comments = (inv.noticeBoard||[]).length;
-          html += `<tr${inv.archived?' class="archived"':''}>
-            <td><strong style="cursor:pointer;color:var(--accent);" onclick="openInvestmentDetail('${inv.id}')">${esc(inv.name)}</strong>${comments>0?` <span class="badge badge-yellow" style="font-size:10px;">${comments}</span>`:''}</td>
-            <td class="hide-mobile"><span class="badge badge-gray">${esc(INV_TYPES[inv.type]||inv.type)}</span></td>
-            <td>${fmt(invested, inv.currency)}</td>
-            <td><strong>${fmt(currentVal, inv.currency)}</strong></td>
-            <td class="hide-mobile"><span style="color:${gl>=0?'var(--green)':'var(--red)'};">${gl>=0?'+':''}${fmt(gl, inv.currency)}</span></td>
-            <td><span class="badge ${INV_STATUS[inv.status]||'badge-gray'}">${esc((inv.status||'active').charAt(0).toUpperCase()+(inv.status||'active').slice(1))}</span></td>
-            <td><div class="action-menu"><button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button><div class="action-dropdown">
-              <button onclick="openInvestmentDetail('${inv.id}')">👁 View</button>
-              <button onclick="window._invTab='board';openInvestmentDetail('${inv.id}')">💬 Notice Board</button>
-              <button onclick="editInvestment('${inv.id}')">✏️ Edit</button>
-              <button onclick="addInvestmentTx('${inv.id}')">💰 Transaction</button>
-              <button onclick="toggleArchiveInv('${inv.id}')">${inv.archived?'📤 Unarchive':'📥 Archive'}</button>
-              <button onclick="delInvestment('${inv.id}')" style="color:var(--red);">🗑 Delete</button>
-            </div></div></td>
-          </tr>`;
+          html += `<div class="card" style="margin-bottom:12px;${inv.archived?'opacity:.6;':''}">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px;">
+              <div style="flex:1;min-width:200px;">
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
+                  <h3 style="margin:0;cursor:pointer;color:var(--accent);" onclick="openInvestmentDetail('${inv.id}')">${esc(inv.name)}</h3>
+                  <span class="badge badge-gray">${esc(INV_TYPES[inv.type]||inv.type)}</span>
+                  <span class="badge ${INV_STATUS[inv.status]||'badge-gray'}">${esc((inv.status||'active').charAt(0).toUpperCase()+(inv.status||'active').slice(1))}</span>
+                </div>
+                ${inv.description ? `<div style="font-size:13px;color:var(--muted);margin-bottom:8px;">${esc(inv.description)}</div>` : ''}
+                <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:8px;">
+                  <div><div style="font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;">Invested</div><div style="font-size:18px;font-weight:800;">${fmt(invested, inv.currency)}</div></div>
+                  <div><div style="font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;">Current Value</div><div style="font-size:18px;font-weight:800;">${fmt(currentVal, inv.currency)}</div></div>
+                  <div><div style="font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;">Gain/Loss</div><div style="font-size:18px;font-weight:800;color:${gl>=0?'var(--green)':'var(--red)'};">${gl>=0?'+':''}${fmt(gl, inv.currency)}</div></div>
+                  ${inv.expectedReturn ? `<div><div style="font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;">Expected Return</div><div style="font-size:18px;font-weight:800;">${inv.expectedReturn}%</div></div>` : ''}
+                  <div><div style="font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;">ROI</div><div style="font-size:18px;font-weight:800;color:${parseFloat(roi)>=0?'var(--green)':'var(--red)'};">${roi}%</div></div>
+                </div>
+                <div style="display:flex;gap:6px;flex-wrap:wrap;">
+                  <button class="bs sm" onclick="addInvestmentTx('${inv.id}')">💰 Transaction</button>
+                  <button class="bs sm" onclick="window._invTab='board';openInvestmentDetail('${inv.id}')">💬 Notice Board${comments>0?' ('+comments+')':''}</button>
+                </div>
+              </div>
+              <div class="action-menu"><button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button><div class="action-dropdown">
+                <button onclick="openInvestmentDetail('${inv.id}')">👁 View</button>
+                <button onclick="window._invTab='board';openInvestmentDetail('${inv.id}')">💬 Notice Board</button>
+                <button onclick="editInvestment('${inv.id}')">✏️ Edit</button>
+                <button onclick="addInvestmentTx('${inv.id}')">💰 Transaction</button>
+                <button onclick="toggleArchiveInv('${inv.id}')">${inv.archived?'📤 Unarchive':'📥 Archive'}</button>
+                <button onclick="delInvestment('${inv.id}')" style="color:var(--red);">🗑 Delete</button>
+              </div></div>
+            </div>
+          </div>`;
         });
-        html += `</tbody></table></div></div>`;
       }
       document.getElementById('content').innerHTML = html;
     }
