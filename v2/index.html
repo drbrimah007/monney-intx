@@ -170,6 +170,7 @@ tr:hover { background: var(--bg2); }
       <a data-page="shared" onclick="openSharedWithMe()" style="padding-left:36px;font-size:13px;"><span>🔗</span> Shared With Me</a>
       <a data-page="templates" onclick="app.navigate('templates')"><span>📄</span> Templates</a>
       <a data-page="groups" onclick="app.navigate('groups')"><span>👥</span> Groups</a>
+      <a data-page="investments" onclick="app.navigate('investments')"><span>📈</span> Investments</a>
       <a data-page="notifications" onclick="app.navigate('notifications')"><span>🔔</span> Notifications <span id="notif-badge" class="nav-badge" style="display:none;">0</span></a>
       <a data-page="settings" onclick="app.navigate('settings')"><span>⚙️</span> Settings</a>
     </nav>
@@ -205,6 +206,7 @@ import { listNotifications, getUnreadCount, markAllRead, subscribeToNotification
 import { createShareToken, getShareByToken, listSentShares, listReceivedShares, confirmShare, dismissShare, expireShare, getShareUrl } from './js/sharing.js';
 import { createScheduledReminder, listActiveReminders, cancelReminder, processDueReminders } from './js/reminders.js';
 import { listGroups, getGroup, createGroup, deleteGroup, archiveGroup, addGroupMember, removeGroupMember, createRound, markContributionPaid, completeRound, getNoticeBoard, postNotice, calcGroupStats } from './js/groups.js';
+import { listInvestments, getInvestment, createInvestment, deleteInvestment, addInvestmentMember, addInvestmentTransaction, calcInvestmentStats, INV_TYPES, INV_STATUSES } from './js/investments.js';
 import { toast, esc, navigate, statusBadge, TX_LABELS, TX_COLORS, fmtDate, fmtRelative, openModal, closeModal } from './js/ui.js';
 
 let currentUser = null;
@@ -304,6 +306,7 @@ function navTo(page) {
     case 'contacts': renderContacts(content); break;
     case 'entries': renderEntries(content); break;
     case 'groups': renderGroups(content); break;
+    case 'investments': renderInvestments(content); break;
     case 'notifications': renderNotifications(content); break;
     case 'settings': renderSettings(content); break;
     default: renderDash(content);
@@ -1035,6 +1038,174 @@ async function renderNotifications(el) {
   }
   el.innerHTML = html;
 }
+
+// ── Investments ───────────────────────────────────────────────────
+async function renderInvestments(el) {
+  el.innerHTML = '<div class="page-header"><h2>Investments</h2></div><p style="color:var(--muted);">Loading...</p>';
+  const investments = await listInvestments(currentUser.id);
+  let totalInvested = 0, totalReturns = 0;
+
+  let html = `<div class="page-header"><h2>Investments</h2>
+    <button class="btn btn-primary btn-sm" onclick="openNewInvestmentModal()">+ New Investment</button>
+  </div>`;
+
+  if (investments.length === 0) {
+    html += `<div class="card" style="text-align:center;padding:40px;"><p style="color:var(--muted);">No investments yet. Track your first one.</p></div>`;
+  } else {
+    // Summary stats
+    investments.forEach(inv => {
+      const stats = calcInvestmentStats(inv);
+      totalInvested += stats.invested;
+      totalReturns += stats.returns;
+    });
+    html += `<div class="grid3" style="margin-bottom:16px;">
+      <div class="stat-card"><div class="stat-lbl">Total Invested</div><div class="stat-val">${fmtMoney(totalInvested)}</div></div>
+      <div class="stat-card"><div class="stat-lbl">Total Returns</div><div class="stat-val" style="color:var(--green)">${fmtMoney(totalReturns)}</div></div>
+      <div class="stat-card"><div class="stat-lbl">Net</div><div class="stat-val" style="color:${totalReturns - totalInvested >= 0 ? 'var(--green)' : 'var(--red)'}">${fmtMoney(totalReturns - totalInvested)}</div></div>
+    </div>`;
+
+    investments.forEach(inv => {
+      const stats = calcInvestmentStats(inv);
+      const isOwner = inv.user_id === currentUser.id;
+      html += `<div class="card" style="margin-bottom:12px;">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;">
+          <div>
+            <div style="display:flex;align-items:center;gap:8px;">
+              <h3 style="font-size:17px;margin:0;cursor:pointer;" onclick="openInvestmentDetail('${inv.id}')">${esc(inv.name)}</h3>
+              <span class="badge badge-gray">${esc(INV_TYPES[inv.type] || inv.type)}</span>
+              <span class="badge badge-${inv.status === 'active' ? 'green' : inv.status === 'matured' ? 'blue' : 'gray'}">${esc(INV_STATUSES[inv.status] || inv.status)}</span>
+            </div>
+            ${inv.description ? `<p style="font-size:13px;color:var(--muted);margin-top:4px;">${esc(inv.description)}</p>` : ''}
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(90px,1fr));gap:10px;margin-top:10px;">
+              <div><div style="font-size:11px;color:var(--muted);text-transform:uppercase;">Invested</div><div style="font-size:16px;font-weight:800;">${fmtMoney(stats.invested, inv.currency)}</div></div>
+              <div><div style="font-size:11px;color:var(--muted);text-transform:uppercase;">Current</div><div style="font-size:16px;font-weight:800;">${fmtMoney(stats.currentVal, inv.currency)}</div></div>
+              <div><div style="font-size:11px;color:var(--muted);text-transform:uppercase;">G/L</div><div style="font-size:16px;font-weight:800;color:${stats.gl >= 0 ? 'var(--green)' : 'var(--red)'};">${stats.gl >= 0 ? '+' : ''}${fmtMoney(stats.gl, inv.currency)}</div></div>
+              <div><div style="font-size:11px;color:var(--muted);text-transform:uppercase;">ROI</div><div style="font-size:16px;font-weight:800;color:${parseFloat(stats.roi) >= 0 ? 'var(--green)' : 'var(--red)'};">${stats.roi}%</div></div>
+            </div>
+            ${stats.memberCount > 1 ? `<div style="margin-top:8px;font-size:12px;color:var(--muted);">${stats.memberCount} partners</div>` : ''}
+          </div>
+          <div class="action-menu">
+            <button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button>
+            <div class="action-dropdown">
+              <button onclick="openInvestmentDetail('${inv.id}')">View</button>
+              ${isOwner ? `<button onclick="openAddInvTxModal('${inv.id}')">Add Transaction</button>` : ''}
+              ${isOwner ? `<button onclick="confirmDeleteInvestment('${inv.id}')" style="color:var(--red);">Delete</button>` : ''}
+            </div>
+          </div>
+        </div>
+      </div>`;
+    });
+  }
+  el.innerHTML = html;
+}
+
+window.openNewInvestmentModal = function() {
+  openModal(`
+    <h3 style="margin-bottom:16px;">New Investment</h3>
+    <div class="form-group"><label>Name *</label><input type="text" id="ni-name" placeholder="Investment name"></div>
+    <div class="form-group"><label>Description</label><textarea id="ni-desc" rows="2"></textarea></div>
+    <div class="form-row">
+      <div class="form-group"><label>Type</label><select id="ni-type">${Object.entries(INV_TYPES).map(([k,v]) => `<option value="${k}">${v}</option>`).join('')}</select></div>
+      <div class="form-group"><label>Initial Amount</label><input type="number" id="ni-amount" min="0" step="0.01" placeholder="0.00"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Venture Type</label><select id="ni-venture"><option value="personal">Personal</option><option value="shared">Shared</option></select></div>
+      <div class="form-group"><label>Expected Return %</label><input type="number" id="ni-return" step="0.1" placeholder="10.0"></div>
+    </div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;">
+      <button class="btn btn-secondary btn-sm" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-primary btn-sm" onclick="doCreateInvestment()">Create</button>
+    </div>
+  `, { maxWidth: '460px' });
+};
+
+window.doCreateInvestment = async function() {
+  const name = document.getElementById('ni-name').value.trim();
+  if (!name) return toast('Name required.', 'error');
+  await createInvestment(currentUser.id, {
+    name, description: document.getElementById('ni-desc').value.trim(),
+    type: document.getElementById('ni-type').value,
+    ventureType: document.getElementById('ni-venture').value,
+    initialAmount: parseFloat(document.getElementById('ni-amount').value) || 0,
+    expectedReturn: parseFloat(document.getElementById('ni-return').value) || null
+  });
+  closeModal(); toast('Investment created!', 'success'); navTo('investments');
+};
+
+window.openInvestmentDetail = async function(id) {
+  const inv = await getInvestment(id);
+  if (!inv) return toast('Not found.', 'error');
+  const stats = calcInvestmentStats(inv);
+  const txs = (inv.transactions || []).sort((a, b) => new Date(b.created_at) - new Date(a.created_at)).slice(0, 10);
+  const isOwner = inv.user_id === currentUser.id;
+
+  openModal(`
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px;">
+      <div>
+        <h3 style="margin:0;">${esc(inv.name)}</h3>
+        <div style="display:flex;gap:6px;margin-top:4px;">
+          <span class="badge badge-gray">${esc(INV_TYPES[inv.type])}</span>
+          <span class="badge badge-${inv.status === 'active' ? 'green' : 'gray'}">${esc(INV_STATUSES[inv.status])}</span>
+        </div>
+      </div>
+      <button class="btn btn-secondary btn-sm" onclick="closeModal()">Close</button>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:16px;">
+      <div class="stat-card"><div class="stat-lbl">Invested</div><div class="stat-val" style="font-size:18px;">${fmtMoney(stats.invested, inv.currency)}</div></div>
+      <div class="stat-card"><div class="stat-lbl">Current Value</div><div class="stat-val" style="font-size:18px;">${fmtMoney(stats.currentVal, inv.currency)}</div></div>
+      <div class="stat-card"><div class="stat-lbl">Gain/Loss</div><div class="stat-val" style="font-size:18px;color:${stats.gl >= 0 ? 'var(--green)' : 'var(--red)'};">${stats.gl >= 0 ? '+' : ''}${fmtMoney(stats.gl, inv.currency)}</div></div>
+      <div class="stat-card"><div class="stat-lbl">ROI</div><div class="stat-val" style="font-size:18px;color:${parseFloat(stats.roi) >= 0 ? 'var(--green)' : 'var(--red)'};">${stats.roi}%</div></div>
+    </div>
+    ${inv.description ? `<p style="color:var(--muted);font-size:14px;margin-bottom:16px;">${esc(inv.description)}</p>` : ''}
+    <div style="margin-bottom:16px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+        <h4 style="font-size:14px;font-weight:700;">Transactions</h4>
+        ${isOwner ? `<button class="btn btn-primary btn-sm" onclick="closeModal();openAddInvTxModal('${inv.id}')">+ Add</button>` : ''}
+      </div>
+      ${txs.length === 0 ? '<p style="color:var(--muted);font-size:13px;">No transactions yet.</p>' :
+        txs.map(t => `<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);font-size:13px;">
+          <div><span style="font-weight:600;text-transform:capitalize;">${t.type.replace('_',' ')}</span>${t.note ? ` <span style="color:var(--muted);">— ${esc(t.note)}</span>` : ''}</div>
+          <div style="font-weight:700;color:${['deposit','capital_contribution','revenue','dividend','return'].includes(t.type) ? 'var(--green)' : 'var(--red)'};">${fmtMoney(t.amount, inv.currency)}</div>
+        </div>`).join('')}
+    </div>
+  `, { maxWidth: '560px' });
+};
+
+window.openAddInvTxModal = function(invId) {
+  openModal(`
+    <h3 style="margin-bottom:16px;">Add Transaction</h3>
+    <div class="form-group"><label>Type</label><select id="itx-type">
+      <option value="deposit">Deposit</option><option value="withdrawal">Withdrawal</option>
+      <option value="dividend">Dividend</option><option value="return">Return</option>
+      <option value="capital_contribution">Capital Contribution</option>
+      <option value="expense">Expense</option><option value="revenue">Revenue</option>
+      <option value="profit_distribution">Profit Distribution</option>
+    </select></div>
+    <div class="form-group"><label>Amount</label><input type="number" id="itx-amount" min="0" step="0.01"></div>
+    <div class="form-group"><label>Note</label><input type="text" id="itx-note" placeholder="Optional"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;">
+      <button class="btn btn-secondary btn-sm" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-primary btn-sm" onclick="doAddInvTx('${invId}')">Add</button>
+    </div>
+  `);
+};
+
+window.doAddInvTx = async function(invId) {
+  const amount = parseFloat(document.getElementById('itx-amount').value);
+  if (!amount || amount <= 0) return toast('Enter amount.', 'error');
+  await addInvestmentTransaction(invId, {
+    type: document.getElementById('itx-type').value,
+    amount, note: document.getElementById('itx-note').value.trim(),
+    recordedBy: currentUser.id
+  });
+  closeModal(); toast('Transaction added.', 'success'); navTo('investments');
+};
+
+window.confirmDeleteInvestment = async function(id) {
+  if (!confirm('Delete this investment?')) return;
+  await deleteInvestment(id);
+  toast('Deleted.', 'success'); navTo('investments');
+};
 
 // ── Groups ────────────────────────────────────────────────────────
 async function renderGroups(el) {
