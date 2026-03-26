@@ -2017,8 +2017,10 @@
       // Admin accounts can be recipients of shared records too — excluding them meant
       // confirmed entries were never migrated into their db.entries.
       // Skip if _dashSharedLoading is set (we're already inside a _loadSharedWithMe → renderDash cycle)
+      // Shared records are loaded once on login via initApp, not on every renderDash.
+      // _loadSharedWithMe was re-inserting deleted entries on every page render.
+      // Groups/investments still need refresh for shared items.
       if (_IS_SERVER && !window._dashSharedLoading && !_freshnessPaused) {
-        _loadSharedWithMe();
         _loadSharedGroupsAndInvestments();
       }
     }
@@ -3933,11 +3935,8 @@
         </div>`;
         document.body.appendChild(_bulkEl.firstElementChild);
       }
-      // Load/refresh shared-with-me data (updates both tab counts and the section below)
-      // Skip if we were called FROM _loadSharedWithMe to prevent infinite loop
-      if (isStd && !window._sharedLoadInProgress) {
-        _loadSharedWithMe();
-      }
+      // Shared records loaded once on login — not on every renderEntries call.
+      // Calling _loadSharedWithMe here was re-inserting deleted entries.
       // Attach debounced search handler
       const searchInput = document.getElementById('entries_search_input');
       if (searchInput) {
