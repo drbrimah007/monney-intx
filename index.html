@@ -1637,7 +1637,8 @@
               for (const mr of sharedRecords) {
                 if (mr.confirmed && !mr.recipientClosed && !(mr.entry?.dismissed)) {
                   const _existingE = db.entries.find(e => e.shareToken === mr.token);
-                  if (!_existingE || _existingE.noLedger || !_existingE.cId) {
+                  // Only fix existing broken entries — do not auto-create new ones
+                  if (_existingE && (_existingE.noLedger || !_existingE.cId)) {
                     _insertSharedEntry(mr);
                   }
                 }
@@ -2156,26 +2157,22 @@
         _cachedSharedRecords = records; // cache for UI rendering — confirmed records are in db.entries (isShared:true)
 
         // ── Migration: Unified Record Layer ──────────────────────────────────
-        // For any already-confirmed shared records not yet in db.entries, insert them now.
-        // This is idempotent (_insertSharedEntry checks for existing shareToken).
+        // Only SYNC existing entries — do NOT auto-create new entries from share tokens.
+        // New entries are created only when user clicks "Confirm & Track".
+        // Auto-creation was causing zombie entries that couldn't be deleted.
         if (!_impersonatingDataUserId) {
           let migrated = false;
           for (const mr of records) {
-            // Auto-confirm SELLER-initiated settlement receipts regardless of dismissed status.
-            // These are not optional — they're settlement proof that must affect the ledger.
             const _isSellerReceipt = mr.entry && !mr.entry.settledByRecipient && (
               mr.entry.linkedInvoiceId ||
               mr.entry.txType === 'they_paid_you' || mr.entry.txType === 'you_paid_them'
             );
             if (!mr.confirmed && _isSellerReceipt) { mr.confirmed = true; }
-            // Settlement receipts bypass dismissed check — all others require it
             if (mr.confirmed && !mr.recipientClosed && (_isSellerReceipt || !(mr.entry?.dismissed))) {
               const _existingE = db.entries.find(e => e.shareToken === mr.token);
-              // Run _insertSharedEntry if:
-              //   (a) entry doesn't exist yet — initial migration
-              //   (b) entry exists but still has noLedger:true — needs cleanup from old code
-              //   (c) entry exists but cId is null — auto-contact creation missed it
-              if (!_existingE || _existingE.noLedger || !_existingE.cId) {
+              // Only update EXISTING entries — do not create new ones
+              if (_existingE && (_existingE.noLedger || !_existingE.cId)) {
+                // Fix existing entries that are broken (no cId or noLedger stuck)
                 _insertSharedEntry(mr);
                 migrated = true;
               } else if (_existingE && mr.entry) {
