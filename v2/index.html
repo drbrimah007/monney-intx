@@ -167,6 +167,7 @@ tr:hover { background: var(--bg2); }
       <a data-page="dash" class="active" onclick="app.navigate('dash')"><span>📊</span> Dashboard</a>
       <a data-page="contacts" onclick="app.navigate('contacts')"><span>👤</span> Contacts</a>
       <a data-page="entries" onclick="app.navigate('entries')"><span>📋</span> Entries</a>
+      <a data-page="shared" onclick="openSharedWithMe()" style="padding-left:36px;font-size:13px;"><span>🔗</span> Shared With Me</a>
       <a data-page="templates" onclick="app.navigate('templates')"><span>📄</span> Templates</a>
       <a data-page="notifications" onclick="app.navigate('notifications')"><span>🔔</span> Notifications <span id="notif-badge" class="nav-badge" style="display:none;">0</span></a>
       <a data-page="settings" onclick="app.navigate('settings')"><span>⚙️</span> Settings</a>
@@ -200,7 +201,9 @@ import { listContacts, createContact, deleteContact } from './js/contacts.js';
 import { listEntries, recentEntries, createEntry, deleteEntry, updateEntry, getEntry, getDashboardTotals, getLedgerSummary, fmtMoney, toCents, toDollars, voidEntry, archiveEntry, unarchiveEntry } from './js/entries.js';
 import { listSettlements, createSettlement, reviewSettlement, deleteSettlement } from './js/settlements.js';
 import { listNotifications, getUnreadCount, markAllRead, subscribeToNotifications } from './js/notifications.js';
-import { toast, esc, navigate, statusBadge, TX_LABELS, TX_COLORS, fmtDate, openModal, closeModal } from './js/ui.js';
+import { createShareToken, getShareByToken, listSentShares, listReceivedShares, confirmShare, dismissShare, expireShare, getShareUrl } from './js/sharing.js';
+import { createScheduledReminder, listActiveReminders, cancelReminder, processDueReminders } from './js/reminders.js';
+import { toast, esc, navigate, statusBadge, TX_LABELS, TX_COLORS, fmtDate, fmtRelative, openModal, closeModal } from './js/ui.js';
 
 let currentUser = null;
 let currentProfile = null;
@@ -270,6 +273,9 @@ async function enterApp(user) {
 
   updateNotifBadge();
   navTo('dash');
+  // Process scheduled reminders every 60s
+  setInterval(() => processDueReminders(user.id), 60000);
+  processDueReminders(user.id);
 }
 
 // ── Notification badge ────────────────────────────────────────────
@@ -463,6 +469,7 @@ async function renderEntries(el) {
               <button onclick="openEntryDetail('${e.id}')">View</button>
               <button onclick="openEditEntryModal('${e.id}')">Edit</button>
               <hr style="border:none;border-top:1px solid var(--border);margin:4px 0;">
+              <button onclick="openShareModal('${e.id}')">Share</button>
               ${canSettle ? `<button onclick="openSettleModal('${e.id}')" style="color:var(--green);font-weight:600;">Settle</button>` : ''}
               ${!isTerminal ? `<button onclick="openSendReminderModal('${e.id}')">Send Reminder</button>` : ''}
               <hr style="border:none;border-top:1px solid var(--border);margin:4px 0;">
@@ -731,6 +738,228 @@ window.handleArchiveEntry = async function(id, action) {
   if (action === 'archive') await archiveEntry(id);
   else await unarchiveEntry(id);
   toast(action === 'archive' ? 'Entry archived.' : 'Entry unarchived.', 'success');
+  navTo('entries');
+};
+
+// ── Share Entry Modal ─────────────────────────────────────────────
+window.openShareModal = async function(id) {
+  const entry = await getEntry(id);
+  if (!entry) return;
+  const cName = entry.contact?.name || 'Contact';
+  const cEmail = entry.contact?.email || '';
+
+  openModal(`
+    <h3 style="margin-bottom:16px;">Share Record</h3>
+    <div style="background:var(--bg3);border-radius:10px;padding:12px;margin-bottom:14px;">
+      <div style="font-size:12px;color:var(--muted);">Record</div>
+      <div style="font-weight:700;">${esc(cName)} — ${fmtMoney(entry.amount, entry.currency)}</div>
+    </div>
+    <div class="form-group"><label>Recipient Email</label><input type="email" id="share-email" value="${esc(cEmail)}" placeholder="recipient@example.com"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;">
+      <button class="btn btn-secondary btn-sm" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-primary btn-sm" onclick="doShareEntry('${id}')">Share</button>
+    </div>
+  `, { maxWidth: '420px' });
+};
+
+window.doShareEntry = async function(entryId) {
+  const email = document.getElementById('share-email').value.trim();
+  if (!email) return toast('Email required.', 'error');
+  const entry = await getEntry(entryId);
+  const snapshot = {
+    amount: entry.amount, currency: entry.currency, tx_type: entry.tx_type,
+    date: entry.date, note: entry.note, invoice_number: entry.invoice_number,
+    status: entry.status, from_name: currentProfile?.display_name || '',
+    from_email: currentUser.email
+  };
+  const token = await createShareToken(currentUser.id, entryId, {
+    recipientEmail: email, entrySnapshot: snapshot
+  });
+  if (!token) return toast('Failed to create share.', 'error');
+  const url = getShareUrl(token.token);
+  // Try to link to existing user
+  const { data: recipientUser } = await supabase.from('users').select('id').eq('email', email).single();
+  if (recipientUser) {
+    await supabase.from('share_tokens').update({ recipient_id: recipientUser.id, status: 'sent' }).eq('id', token.id);
+    // Notify recipient
+    await supabase.from('notifications').insert({
+      user_id: recipientUser.id,
+      type: 'shared_record',
+      message: `${currentProfile?.display_name || 'Someone'} shared a record with you: ${fmtMoney(entry.amount, entry.currency)}`,
+      entry_id: entryId,
+      contact_name: currentProfile?.display_name || '',
+      amount: entry.amount, currency: entry.currency
+    });
+  }
+  closeModal();
+  // Show share link
+  openModal(`
+    <h3 style="margin-bottom:16px;">Record Shared</h3>
+    <p style="color:var(--muted);font-size:14px;margin-bottom:12px;">Share this link with the recipient:</p>
+    <div style="background:var(--bg3);border-radius:10px;padding:12px;font-size:13px;word-break:break-all;margin-bottom:14px;">${esc(url)}</div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;">
+      <button class="btn btn-secondary btn-sm" onclick="navigator.clipboard.writeText('${esc(url)}');toast('Link copied!','success');">Copy Link</button>
+      <button class="btn btn-primary btn-sm" onclick="closeModal()">Done</button>
+    </div>
+  `, { maxWidth: '420px' });
+  toast('Record shared!', 'success');
+};
+
+// ── Shared With Me page ───────────────────────────────────────────
+window.openSharedWithMe = async function() {
+  const content = document.getElementById('content');
+  content.innerHTML = '<div class="page-header"><h2>Shared With Me</h2></div><p style="color:var(--muted);">Loading...</p>';
+  const shares = await listReceivedShares(currentUser.id);
+
+  let html = `<div class="page-header"><h2>Shared With Me</h2>
+    <button class="btn btn-secondary btn-sm" onclick="navTo('entries')">Back to Entries</button>
+  </div>`;
+  if (shares.length === 0) {
+    html += `<div class="card" style="text-align:center;padding:40px;"><p style="color:var(--muted);">No shared records yet.</p></div>`;
+  } else {
+    html += `<div class="card"><div class="tbl-wrap"><table><thead><tr><th>From</th><th>Amount</th><th>Type</th><th>Date</th><th>Status</th><th>Action</th></tr></thead><tbody>`;
+    shares.forEach(s => {
+      const snap = s.entry_snapshot || {};
+      const fromName = snap.from_name || 'Unknown';
+      const amt = snap.amount || s.entry?.amount || 0;
+      const cur = snap.currency || 'USD';
+      const txLabel = TX_LABELS[snap.tx_type] || snap.tx_type || '—';
+      const isConfirmed = s.status === 'confirmed';
+      html += `<tr>
+        <td style="font-weight:600;">${esc(fromName)}</td>
+        <td style="font-weight:700;">${fmtMoney(amt, cur)}</td>
+        <td>${esc(txLabel)}</td>
+        <td style="color:var(--muted);">${fmtDate(snap.date)}</td>
+        <td>${statusBadge(s.status)}</td>
+        <td>
+          ${!isConfirmed && s.status !== 'dismissed' ? `
+            <button class="btn btn-primary btn-sm" onclick="doConfirmShare('${s.id}')">Confirm</button>
+            <button class="btn btn-secondary btn-sm" onclick="doDismissShare('${s.id}')" style="margin-left:4px;">Dismiss</button>
+          ` : isConfirmed ? '<span class="badge badge-green">Tracked</span>' : '<span class="badge badge-gray">Dismissed</span>'}
+        </td>
+      </tr>`;
+    });
+    html += `</tbody></table></div></div>`;
+  }
+  content.innerHTML = html;
+};
+
+window.doConfirmShare = async function(tokenId) {
+  const entry = await confirmShare(tokenId, currentUser.id);
+  if (entry) {
+    toast('Record confirmed and tracked!', 'success');
+    openSharedWithMe();
+  } else {
+    toast('Failed to confirm.', 'error');
+  }
+};
+
+window.doDismissShare = async function(tokenId) {
+  await dismissShare(tokenId);
+  toast('Record dismissed.', 'success');
+  openSharedWithMe();
+};
+
+// ── Enhanced Send Reminder with scheduling ────────────────────────
+window.openSendReminderModal = async function(id) {
+  const entry = await getEntry(id);
+  if (!entry) return;
+  const cName = entry.contact?.name || 'Contact';
+  const remaining = entry.amount - entry.settled_amount;
+
+  openModal(`
+    <h3 style="margin-bottom:16px;">Send Reminder</h3>
+    <div style="background:var(--bg3);border-radius:10px;padding:12px;margin-bottom:14px;">
+      <div style="font-size:12px;color:var(--muted);">Record</div>
+      <div style="font-weight:700;">${esc(cName)} — ${fmtMoney(remaining, entry.currency)}</div>
+    </div>
+    <div class="form-group"><label>Message</label><textarea id="rem-msg" rows="3">For your attention.</textarea></div>
+    <div class="form-group">
+      <label>When</label>
+      <div style="display:flex;gap:0;border:1px solid var(--border);border-radius:10px;overflow:hidden;">
+        <button type="button" class="when-btn" data-when="now" onclick="setReminderWhen('now')" style="flex:1;padding:8px;font-size:13px;font-weight:600;background:var(--accent);color:#fff;border:none;cursor:pointer;">Now</button>
+        <button type="button" class="when-btn" data-when="scheduled" onclick="setReminderWhen('scheduled')" style="flex:1;padding:8px;font-size:13px;font-weight:500;background:var(--bg);color:var(--text);border:none;border-left:1px solid var(--border);cursor:pointer;">Scheduled</button>
+      </div>
+    </div>
+    <div id="schedule-fields" style="display:none;">
+      <div class="form-group"><label>Send on</label><input type="date" id="rem-date" value="${new Date(Date.now()+86400000).toISOString().slice(0,10)}" min="${new Date().toISOString().slice(0,10)}"></div>
+      <div class="form-group"><label>Repeat</label><select id="rem-repeat">
+        <option value="0">No repeat</option>
+        <option value="1">Every day</option>
+        <option value="3">Every 3 days</option>
+        <option value="7" selected>Every 7 days</option>
+        <option value="14">Every 14 days</option>
+        <option value="30">Every 30 days</option>
+      </select></div>
+      <div class="form-group"><label>Stop after</label><select id="rem-max">
+        <option value="1">1 reminder</option>
+        <option value="3" selected>3 reminders</option>
+        <option value="5">5 reminders</option>
+        <option value="10">10 reminders</option>
+        <option value="0">Until settled</option>
+      </select></div>
+    </div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;">
+      <button class="btn btn-secondary btn-sm" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-primary btn-sm" onclick="doSendReminder('${id}')">Send</button>
+    </div>
+  `, { maxWidth: '420px' });
+  window._reminderWhen = 'now';
+};
+
+window.setReminderWhen = function(val) {
+  window._reminderWhen = val;
+  document.querySelectorAll('.when-btn').forEach(b => {
+    const active = b.dataset.when === val;
+    b.style.background = active ? 'var(--accent)' : 'var(--bg)';
+    b.style.color = active ? '#fff' : 'var(--text)';
+    b.style.fontWeight = active ? '600' : '500';
+  });
+  document.getElementById('schedule-fields').style.display = val === 'scheduled' ? '' : 'none';
+};
+
+window.doSendReminder = async function(entryId) {
+  const message = document.getElementById('rem-msg').value.trim();
+  if (!message) return toast('Message required.', 'error');
+
+  if (window._reminderWhen === 'now') {
+    // Send immediately
+    const entry = await getEntry(entryId);
+    const cName = entry?.contact?.name || 'Someone';
+    const linkedUserId = entry?.contact?.linked_user_id;
+    if (linkedUserId) {
+      await supabase.from('notifications').insert({
+        user_id: linkedUserId, type: 'reminder',
+        message: `Reminder from ${currentProfile?.display_name || 'Someone'}: ${message}`,
+        entry_id: entryId, contact_name: currentProfile?.display_name || '',
+        amount: entry.amount, currency: entry.currency
+      });
+    }
+    await supabase.from('notifications').insert({
+      user_id: currentUser.id, type: 'reminder',
+      message: `Reminder sent to ${cName}: ${message}`,
+      entry_id: entryId, contact_name: cName,
+      amount: entry?.amount, currency: entry?.currency
+    });
+    await updateEntry(entryId, {
+      reminder_count: (entry?.reminder_count || 0) + 1,
+      last_reminder_at: new Date().toISOString()
+    });
+    closeModal();
+    toast('Reminder sent.', 'success');
+  } else {
+    // Schedule
+    const schedDate = document.getElementById('rem-date').value;
+    const repeatDays = parseInt(document.getElementById('rem-repeat').value) || 0;
+    const maxSends = parseInt(document.getElementById('rem-max').value) || 999;
+    if (!schedDate) return toast('Pick a date.', 'error');
+    await createScheduledReminder(currentUser.id, entryId, {
+      nextSendAt: new Date(schedDate + 'T09:00:00').toISOString(),
+      repeatDays, maxSends, notifyWho: 'them', message
+    });
+    closeModal();
+    toast(`Reminder scheduled for ${new Date(schedDate).toLocaleDateString()}${repeatDays > 0 ? ', repeating every ' + repeatDays + ' days' : ''}`, 'success');
+  }
   navTo('entries');
 };
 
