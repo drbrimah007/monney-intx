@@ -174,6 +174,7 @@ tr:hover { background: var(--bg2); }
       <a data-page="templates" onclick="app.navigate('templates')"><span>📄</span> Templates</a>
       <a data-page="recurring" onclick="app.navigate('recurring')"><span>🔁</span> Recurring</a>
       <a data-page="notifications" onclick="app.navigate('notifications')"><span>🔔</span> Notifications <span id="notif-badge" class="nav-badge" style="display:none;">0</span></a>
+      <a data-page="admin" onclick="app.navigate('admin')" id="admin-link" style="display:none;"><span>🛡️</span> Admin</a>
       <a data-page="settings" onclick="app.navigate('settings')"><span>⚙️</span> Settings</a>
     </nav>
     <div class="sidebar-user">
@@ -210,6 +211,7 @@ import { createScheduledReminder, listActiveReminders, cancelReminder, processDu
 import { listGroups, getGroup, createGroup, deleteGroup, archiveGroup, addGroupMember, removeGroupMember, createRound, markContributionPaid, completeRound, getNoticeBoard, postNotice, calcGroupStats } from './js/groups.js';
 import { listInvestments, getInvestment, createInvestment, deleteInvestment, addInvestmentMember, addInvestmentTransaction, calcInvestmentStats, INV_TYPES, INV_STATUSES } from './js/investments.js';
 import { listTemplates, listPublicTemplates, createTemplate, updateTemplate, deleteTemplate, copyPublicTemplate, togglePublic, archiveTemplate } from './js/templates.js';
+import { listAllUsers, updateUserRole, updateUserStatus, getAuditLog, logAudit, getPlatformStats } from './js/admin.js';
 import { listRecurring, createRecurring, deleteRecurring, toggleRecurring, processDueRecurring, FREQUENCIES } from './js/recurring.js';
 import { toast, esc, navigate, statusBadge, TX_LABELS, TX_COLORS, fmtDate, fmtRelative, openModal, closeModal } from './js/ui.js';
 
@@ -271,6 +273,9 @@ async function enterApp(user) {
   document.getElementById('shell').classList.add('active');
   document.getElementById('sidebar-user-name').textContent = currentProfile?.display_name || user.email;
   document.getElementById('sidebar-user-email').textContent = user.email;
+  // Show admin link for admin users
+  const adminLink = document.getElementById('admin-link');
+  if (adminLink) adminLink.style.display = currentProfile?.role === 'platform_admin' ? '' : 'none';
 
   // Start realtime notifications
   notifChannel = subscribeToNotifications(user.id, (notif) => {
@@ -315,6 +320,7 @@ function navTo(page) {
     case 'templates': renderTemplatesPage(content); break;
     case 'recurring': renderRecurringPage(content); break;
     case 'notifications': renderNotifications(content); break;
+    case 'admin': renderAdmin(content); break;
     case 'settings': renderSettings(content); break;
     default: renderDash(content);
   }
@@ -1435,6 +1441,88 @@ window.confirmDeleteGroup = async function(id) {
   await deleteGroup(id);
   toast('Group deleted.', 'success');
   navTo('groups');
+};
+
+// ── Admin ─────────────────────────────────────────────────────────
+async function renderAdmin(el) {
+  if (currentProfile?.role !== 'platform_admin') {
+    el.innerHTML = '<div class="card" style="text-align:center;padding:40px;"><p style="color:var(--red);">Admin access required.</p></div>';
+    return;
+  }
+  el.innerHTML = '<div class="page-header"><h2>Admin</h2></div><p style="color:var(--muted);">Loading...</p>';
+  const [stats, users, audit] = await Promise.all([
+    getPlatformStats(),
+    listAllUsers(),
+    getAuditLog({ limit: 20 })
+  ]);
+
+  let html = `<div class="page-header"><h2>Admin Dashboard</h2></div>`;
+
+  // Platform stats
+  html += `<div class="grid3" style="margin-bottom:16px;">
+    <div class="stat-card"><div class="stat-lbl">Users</div><div class="stat-val">${stats.userCount}</div></div>
+    <div class="stat-card"><div class="stat-lbl">Entries</div><div class="stat-val">${stats.entryCount}</div></div>
+    <div class="stat-card"><div class="stat-lbl">Contacts</div><div class="stat-val">${stats.contactCount}</div></div>
+  </div>
+  <div class="grid3" style="margin-bottom:16px;">
+    <div class="stat-card"><div class="stat-lbl">Groups</div><div class="stat-val">${stats.groupCount}</div></div>
+    <div class="stat-card"><div class="stat-lbl">Investments</div><div class="stat-val">${stats.investmentCount}</div></div>
+    <div class="stat-card"><div class="stat-lbl">Platform</div><div class="stat-val" style="font-size:14px;">Money IntX v2</div></div>
+  </div>`;
+
+  // Users table
+  html += `<div class="card" style="margin-bottom:16px;">
+    <h3 style="font-size:16px;font-weight:700;margin-bottom:12px;">Users</h3>
+    <div class="tbl-wrap"><table><thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Status</th><th>Joined</th><th></th></tr></thead><tbody>`;
+  users.forEach(u => {
+    html += `<tr>
+      <td style="font-weight:600;">${esc(u.display_name || '—')}</td>
+      <td style="font-size:13px;color:var(--muted);">${esc(u.email)}</td>
+      <td><select onchange="changeUserRole('${u.id}',this.value)" class="text-sm" style="padding:2px 6px;border:1px solid var(--border);border-radius:6px;">
+        ${['platform_admin','standard','contact'].map(r => `<option value="${r}" ${u.role === r ? 'selected' : ''}>${r}</option>`).join('')}
+      </select></td>
+      <td><span class="badge ${u.status === 'active' ? 'badge-green' : u.status === 'suspended' ? 'badge-red' : 'badge-gray'}">${u.status}</span></td>
+      <td style="font-size:13px;color:var(--muted);">${fmtDate(u.created_at)}</td>
+      <td>
+        ${u.status === 'active'
+          ? `<button class="btn btn-secondary btn-sm" onclick="suspendUser('${u.id}')" style="font-size:11px;color:var(--amber);">Suspend</button>`
+          : `<button class="btn btn-secondary btn-sm" onclick="activateUser('${u.id}')" style="font-size:11px;color:var(--green);">Activate</button>`}
+      </td>
+    </tr>`;
+  });
+  html += `</tbody></table></div></div>`;
+
+  // Audit log
+  html += `<div class="card">
+    <h3 style="font-size:16px;font-weight:700;margin-bottom:12px;">Recent Activity</h3>
+    <div class="tbl-wrap"><table><thead><tr><th>User</th><th>Action</th><th>Entity</th><th>Time</th></tr></thead><tbody>`;
+  audit.forEach(a => {
+    html += `<tr>
+      <td style="font-size:13px;">${esc(a.user?.display_name || '—')}</td>
+      <td style="font-size:13px;font-weight:600;">${esc(a.action)}</td>
+      <td style="font-size:13px;color:var(--muted);">${esc(a.entity_type || '—')}</td>
+      <td style="font-size:12px;color:var(--muted);">${fmtRelative(a.created_at)}</td>
+    </tr>`;
+  });
+  html += `</tbody></table></div></div>`;
+  el.innerHTML = html;
+}
+
+window.changeUserRole = async function(userId, role) {
+  await updateUserRole(userId, role);
+  await logAudit(currentUser.id, 'change_role', { entityType: 'user', entityId: userId, details: { role } });
+  toast('Role updated.', 'success');
+};
+window.suspendUser = async function(userId) {
+  if (!confirm('Suspend this user?')) return;
+  await updateUserStatus(userId, 'suspended');
+  await logAudit(currentUser.id, 'suspend_user', { entityType: 'user', entityId: userId });
+  toast('User suspended.', 'success'); navTo('admin');
+};
+window.activateUser = async function(userId) {
+  await updateUserStatus(userId, 'active');
+  await logAudit(currentUser.id, 'activate_user', { entityType: 'user', entityId: userId });
+  toast('User activated.', 'success'); navTo('admin');
 };
 
 // ── Templates ─────────────────────────────────────────────────────
