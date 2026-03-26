@@ -171,6 +171,8 @@ tr:hover { background: var(--bg2); }
       <a data-page="templates" onclick="app.navigate('templates')"><span>📄</span> Templates</a>
       <a data-page="groups" onclick="app.navigate('groups')"><span>👥</span> Groups</a>
       <a data-page="investments" onclick="app.navigate('investments')"><span>📈</span> Investments</a>
+      <a data-page="templates" onclick="app.navigate('templates')"><span>📄</span> Templates</a>
+      <a data-page="recurring" onclick="app.navigate('recurring')"><span>🔁</span> Recurring</a>
       <a data-page="notifications" onclick="app.navigate('notifications')"><span>🔔</span> Notifications <span id="notif-badge" class="nav-badge" style="display:none;">0</span></a>
       <a data-page="settings" onclick="app.navigate('settings')"><span>⚙️</span> Settings</a>
     </nav>
@@ -207,6 +209,8 @@ import { createShareToken, getShareByToken, listSentShares, listReceivedShares, 
 import { createScheduledReminder, listActiveReminders, cancelReminder, processDueReminders } from './js/reminders.js';
 import { listGroups, getGroup, createGroup, deleteGroup, archiveGroup, addGroupMember, removeGroupMember, createRound, markContributionPaid, completeRound, getNoticeBoard, postNotice, calcGroupStats } from './js/groups.js';
 import { listInvestments, getInvestment, createInvestment, deleteInvestment, addInvestmentMember, addInvestmentTransaction, calcInvestmentStats, INV_TYPES, INV_STATUSES } from './js/investments.js';
+import { listTemplates, listPublicTemplates, createTemplate, updateTemplate, deleteTemplate, copyPublicTemplate, togglePublic, archiveTemplate } from './js/templates.js';
+import { listRecurring, createRecurring, deleteRecurring, toggleRecurring, processDueRecurring, FREQUENCIES } from './js/recurring.js';
 import { toast, esc, navigate, statusBadge, TX_LABELS, TX_COLORS, fmtDate, fmtRelative, openModal, closeModal } from './js/ui.js';
 
 let currentUser = null;
@@ -277,9 +281,10 @@ async function enterApp(user) {
 
   updateNotifBadge();
   navTo('dash');
-  // Process scheduled reminders every 60s
-  setInterval(() => processDueReminders(user.id), 60000);
+  // Process scheduled reminders + recurring rules every 60s
+  setInterval(() => { processDueReminders(user.id); processDueRecurring(user.id); }, 60000);
   processDueReminders(user.id);
+  processDueRecurring(user.id);
 }
 
 // ── Notification badge ────────────────────────────────────────────
@@ -307,6 +312,8 @@ function navTo(page) {
     case 'entries': renderEntries(content); break;
     case 'groups': renderGroups(content); break;
     case 'investments': renderInvestments(content); break;
+    case 'templates': renderTemplatesPage(content); break;
+    case 'recurring': renderRecurringPage(content); break;
     case 'notifications': renderNotifications(content); break;
     case 'settings': renderSettings(content); break;
     default: renderDash(content);
@@ -1428,6 +1435,188 @@ window.confirmDeleteGroup = async function(id) {
   await deleteGroup(id);
   toast('Group deleted.', 'success');
   navTo('groups');
+};
+
+// ── Templates ─────────────────────────────────────────────────────
+async function renderTemplatesPage(el) {
+  el.innerHTML = '<div class="page-header"><h2>Templates</h2></div><p style="color:var(--muted);">Loading...</p>';
+  const templates = await listTemplates(currentUser.id);
+  let html = `<div class="page-header"><h2>Templates</h2>
+    <div style="display:flex;gap:8px;">
+      <button class="btn btn-primary btn-sm" onclick="openNewTemplateModal()">+ New Template</button>
+      <button class="btn btn-secondary btn-sm" onclick="openPublicTemplateDB()">Public DB</button>
+    </div>
+  </div>`;
+  if (templates.length === 0) {
+    html += `<div class="card" style="text-align:center;padding:40px;"><p style="color:var(--muted);">No templates yet.</p></div>`;
+  } else {
+    templates.forEach(t => {
+      const fCount = (t.fields || []).length;
+      html += `<div class="card" style="margin-bottom:12px;">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+          <div>
+            <h3 style="font-size:16px;font-weight:700;">${esc(t.name)} ${t.is_public ? '<span class="badge badge-blue" style="font-size:10px;">Public</span>' : ''}</h3>
+            ${t.description ? `<p style="font-size:13px;color:var(--muted);margin-top:2px;">${esc(t.description)}</p>` : ''}
+            <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;">
+              <span class="badge badge-blue">${fCount} field${fCount !== 1 ? 's' : ''}</span>
+              ${t.tx_type ? `<span class="badge badge-gray">${esc(TX_LABELS[t.tx_type] || t.tx_type)}</span>` : ''}
+            </div>
+          </div>
+          <div class="action-menu">
+            <button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button>
+            <div class="action-dropdown">
+              <button onclick="toggleTemplatePublic('${t.id}',${!t.is_public})">${t.is_public ? 'Make Private' : 'Make Public'}</button>
+              <button onclick="confirmDeleteTemplate('${t.id}')" style="color:var(--red);">Delete</button>
+            </div>
+          </div>
+        </div>
+      </div>`;
+    });
+  }
+  el.innerHTML = html;
+}
+
+window.openNewTemplateModal = function() {
+  openModal(`
+    <h3 style="margin-bottom:16px;">New Template</h3>
+    <div class="form-group"><label>Name *</label><input type="text" id="nt-name" placeholder="Invoice Template"></div>
+    <div class="form-group"><label>Description</label><textarea id="nt-desc" rows="2"></textarea></div>
+    <div class="form-group"><label>Default Type</label><select id="nt-type">
+      <option value="">None</option>
+      ${Object.entries(TX_LABELS).map(([k,v]) => `<option value="${k}">${v}</option>`).join('')}
+    </select></div>
+    <div class="form-group"><label>Invoice Prefix</label><input type="text" id="nt-prefix" value="INV-"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;">
+      <button class="btn btn-secondary btn-sm" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-primary btn-sm" onclick="doCreateTemplate()">Create</button>
+    </div>
+  `);
+};
+
+window.doCreateTemplate = async function() {
+  const name = document.getElementById('nt-name').value.trim();
+  if (!name) return toast('Name required.', 'error');
+  await createTemplate(currentUser.id, {
+    name, description: document.getElementById('nt-desc').value.trim(),
+    txType: document.getElementById('nt-type').value || null,
+    invoicePrefix: document.getElementById('nt-prefix').value.trim()
+  });
+  closeModal(); toast('Template created!', 'success'); navTo('templates');
+};
+
+window.openPublicTemplateDB = async function() {
+  const el = document.getElementById('content');
+  el.innerHTML = '<p style="color:var(--muted);">Loading public templates...</p>';
+  const templates = await listPublicTemplates();
+  let html = `<div class="page-header"><h2>Public Template DB</h2>
+    <button class="btn btn-secondary btn-sm" onclick="navTo('templates')">Back</button>
+  </div>`;
+  if (templates.length === 0) {
+    html += `<div class="card" style="text-align:center;padding:40px;"><p style="color:var(--muted);">No public templates yet.</p></div>`;
+  } else {
+    templates.forEach(t => {
+      html += `<div class="card" style="margin-bottom:12px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+          <div>
+            <h3 style="font-size:16px;font-weight:700;">${esc(t.name)}</h3>
+            <p style="font-size:13px;color:var(--muted);">${esc(t.description || '')} ${t.creator?.display_name ? '— by ' + esc(t.creator.display_name) : ''}</p>
+          </div>
+          <button class="btn btn-primary btn-sm" onclick="doCopyTemplate('${t.id}')">Copy</button>
+        </div>
+      </div>`;
+    });
+  }
+  el.innerHTML = html;
+};
+
+window.doCopyTemplate = async function(id) {
+  await copyPublicTemplate(currentUser.id, id);
+  toast('Template copied!', 'success'); navTo('templates');
+};
+window.toggleTemplatePublic = async function(id, pub) {
+  await togglePublic(id, pub);
+  toast(pub ? 'Template is now public.' : 'Template is now private.', 'success'); navTo('templates');
+};
+window.confirmDeleteTemplate = async function(id) {
+  if (!confirm('Delete this template?')) return;
+  await deleteTemplate(id); toast('Deleted.', 'success'); navTo('templates');
+};
+
+// ── Recurring ─────────────────────────────────────────────────────
+async function renderRecurringPage(el) {
+  el.innerHTML = '<div class="page-header"><h2>Recurring</h2></div><p style="color:var(--muted);">Loading...</p>';
+  const rules = await listRecurring(currentUser.id);
+  let html = `<div class="page-header"><h2>Recurring Rules</h2>
+    <button class="btn btn-primary btn-sm" onclick="openNewRecurringModal()">+ New Rule</button>
+  </div>`;
+  if (rules.length === 0) {
+    html += `<div class="card" style="text-align:center;padding:40px;"><p style="color:var(--muted);">No recurring rules yet.</p></div>`;
+  } else {
+    html += `<div class="card"><div class="tbl-wrap"><table><thead><tr><th>Contact</th><th>Type</th><th>Amount</th><th>Frequency</th><th>Next Run</th><th>Status</th><th></th></tr></thead><tbody>`;
+    rules.forEach(r => {
+      html += `<tr>
+        <td style="font-weight:600;">${esc(r.contact?.name || '—')}</td>
+        <td>${esc(TX_LABELS[r.tx_type] || r.tx_type)}</td>
+        <td style="font-weight:700;">${fmtMoney(r.amount)}</td>
+        <td>${esc(FREQUENCIES[r.frequency] || r.frequency)}</td>
+        <td style="color:var(--muted);font-size:13px;">${fmtDate(r.next_run_at)}</td>
+        <td><span class="badge ${r.active ? 'badge-green' : 'badge-gray'}">${r.active ? 'Active' : 'Paused'}</span></td>
+        <td>
+          <div class="action-menu">
+            <button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button>
+            <div class="action-dropdown">
+              <button onclick="doToggleRecurring('${r.id}',${!r.active})">${r.active ? 'Pause' : 'Resume'}</button>
+              <button onclick="confirmDeleteRecurring('${r.id}')" style="color:var(--red);">Delete</button>
+            </div>
+          </div>
+        </td>
+      </tr>`;
+    });
+    html += `</tbody></table></div></div>`;
+  }
+  el.innerHTML = html;
+}
+
+window.openNewRecurringModal = async function() {
+  const contacts = await listContacts(currentUser.id);
+  const contactOpts = contacts.map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join('');
+  openModal(`
+    <h3 style="margin-bottom:16px;">New Recurring Rule</h3>
+    <div class="form-group"><label>Contact *</label><select id="nr-contact">${contactOpts || '<option value="">No contacts</option>'}</select></div>
+    <div class="form-group"><label>Type *</label><select id="nr-type">${Object.entries(TX_LABELS).map(([k,v]) => `<option value="${k}">${v}</option>`).join('')}</select></div>
+    <div class="form-row">
+      <div class="form-group"><label>Amount *</label><input type="number" id="nr-amount" min="0" step="0.01"></div>
+      <div class="form-group"><label>Frequency</label><select id="nr-freq">${Object.entries(FREQUENCIES).map(([k,v]) => `<option value="${k}" ${k==='monthly'?'selected':''}>${v}</option>`).join('')}</select></div>
+    </div>
+    <div class="form-group"><label>Start Date</label><input type="date" id="nr-start" value="${new Date(Date.now()+86400000).toISOString().slice(0,10)}"></div>
+    <div class="form-group"><label>Note</label><input type="text" id="nr-note" placeholder="Optional"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;">
+      <button class="btn btn-secondary btn-sm" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-primary btn-sm" onclick="doCreateRecurring()">Create</button>
+    </div>
+  `, { maxWidth: '440px' });
+};
+
+window.doCreateRecurring = async function() {
+  const contactId = document.getElementById('nr-contact').value;
+  const amount = parseFloat(document.getElementById('nr-amount').value);
+  if (!contactId || !amount) return toast('Contact and amount required.', 'error');
+  await createRecurring(currentUser.id, {
+    contactId, txType: document.getElementById('nr-type').value,
+    amount, frequency: document.getElementById('nr-freq').value,
+    nextRunAt: new Date(document.getElementById('nr-start').value + 'T09:00:00').toISOString(),
+    note: document.getElementById('nr-note').value.trim()
+  });
+  closeModal(); toast('Recurring rule created!', 'success'); navTo('recurring');
+};
+
+window.doToggleRecurring = async function(id, active) {
+  await toggleRecurring(id, active);
+  toast(active ? 'Resumed.' : 'Paused.', 'success'); navTo('recurring');
+};
+window.confirmDeleteRecurring = async function(id) {
+  if (!confirm('Delete this rule?')) return;
+  await deleteRecurring(id); toast('Deleted.', 'success'); navTo('recurring');
 };
 
 // ── Settings ──────────────────────────────────────────────────────
