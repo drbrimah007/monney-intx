@@ -389,23 +389,44 @@ async function renderDash(el) {
 // ── Contacts ──────────────────────────────────────────────────────
 async function renderContacts(el) {
   el.innerHTML = '<div class="page-header"><h2>Contacts</h2></div><p style="color:var(--muted);">Loading...</p>';
-  const contacts = await listContacts(currentUser.id);
+  const [contacts, ledger] = await Promise.all([
+    listContacts(currentUser.id),
+    getLedgerSummary(currentUser.id)
+  ]);
+  const ledgerMap = {};
+  (ledger || []).forEach(l => { ledgerMap[l.contact_id] = l; });
 
   let html = `<div class="page-header"><h2>Contacts</h2>
     <button class="btn btn-primary btn-sm" onclick="openNewContactModal()">+ Add Contact</button>
   </div>`;
+
+  // Search
+  html += `<div style="margin-bottom:12px;"><input type="search" id="contacts-search" placeholder="Search contacts..." oninput="filterContactRows(this.value)" style="max-width:340px;"></div>`;
+
   if (contacts.length === 0) {
     html += `<div class="card" style="text-align:center;padding:40px;"><p style="color:var(--muted);">No contacts yet. Add your first one.</p></div>`;
   } else {
-    html += `<div class="card"><div class="tbl-wrap"><table><thead><tr><th>Name</th><th>Email</th><th>Phone</th><th>Created</th><th></th></tr></thead><tbody>`;
+    html += `<div class="card"><div class="tbl-wrap"><table><thead><tr><th>Name</th><th>They Owe Me</th><th>I Owe Them</th><th>Net</th><th>Email</th><th></th></tr></thead><tbody>`;
     contacts.forEach(c => {
-      html += `<tr>
+      const l = ledgerMap[c.id] || { they_owe_me: 0, i_owe_them: 0 };
+      const toy = l.they_owe_me || 0;
+      const yot = l.i_owe_them || 0;
+      const net = toy - yot;
+      html += `<tr class="contact-row" data-search="${esc(c.name + ' ' + (c.email || '')).toLowerCase()}" style="cursor:pointer;" onclick="openContactDetail('${c.id}')">
         <td style="font-weight:600;">${esc(c.name)}</td>
+        <td style="color:var(--green);font-weight:600;">${toy > 0 ? fmtMoney(toy) : '—'}</td>
+        <td style="color:var(--red);font-weight:600;">${yot > 0 ? fmtMoney(yot) : '—'}</td>
+        <td style="font-weight:700;color:${net >= 0 ? 'var(--green)' : 'var(--red)'};">${net !== 0 ? fmtMoney(net) : '—'}</td>
         <td style="color:var(--muted);font-size:13px;">${esc(c.email || '—')}</td>
-        <td style="color:var(--muted);font-size:13px;">${esc(c.phone || '—')}</td>
-        <td style="color:var(--muted);font-size:13px;">${fmtDate(c.created_at)}</td>
         <td>
-          <button class="btn btn-secondary btn-sm" onclick="confirmDeleteContact('${c.id}','${esc(c.name)}')">Delete</button>
+          <div class="action-menu" onclick="event.stopPropagation();">
+            <button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button>
+            <div class="action-dropdown">
+              <button onclick="openContactDetail('${c.id}')">View</button>
+              <button onclick="openEditContactModal('${c.id}')">Edit</button>
+              <button onclick="confirmDeleteContact('${c.id}','${esc(c.name)}')" style="color:var(--red);">Delete</button>
+            </div>
+          </div>
         </td>
       </tr>`;
     });
@@ -413,6 +434,92 @@ async function renderContacts(el) {
   }
   el.innerHTML = html;
 }
+
+window.filterContactRows = function(q) {
+  const query = q.toLowerCase();
+  document.querySelectorAll('.contact-row').forEach(row => {
+    row.style.display = row.dataset.search.includes(query) ? '' : 'none';
+  });
+};
+
+// ── Contact Detail ────────────────────────────────────────────────
+window.openContactDetail = async function(id) {
+  const contact = await supabase.from('contacts').select('*').eq('id', id).single();
+  if (!contact.data) return;
+  const c = contact.data;
+  const entries = await listEntries(currentUser.id, { contactId: id, limit: 20 });
+  const ledger = (await getLedgerSummary(currentUser.id)).find(l => l.contact_id === id) || {};
+  const toy = ledger.they_owe_me || 0;
+  const yot = ledger.i_owe_them || 0;
+  const net = toy - yot;
+
+  openModal(`
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px;">
+      <div>
+        <h3 style="margin:0;">${esc(c.name)}</h3>
+        <p style="font-size:13px;color:var(--muted);margin-top:4px;">${esc(c.email || '')} ${c.phone ? '· ' + esc(c.phone) : ''}</p>
+      </div>
+      <button class="btn btn-secondary btn-sm" onclick="closeModal()">Close</button>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:16px;">
+      <div class="stat-card"><div class="stat-lbl">They Owe Me</div><div class="stat-val" style="font-size:18px;color:var(--green);">${fmtMoney(toy)}</div></div>
+      <div class="stat-card"><div class="stat-lbl">I Owe Them</div><div class="stat-val" style="font-size:18px;color:var(--red);">${fmtMoney(yot)}</div></div>
+      <div class="stat-card"><div class="stat-lbl">Net</div><div class="stat-val" style="font-size:18px;color:${net >= 0 ? 'var(--green)' : 'var(--red)'};">${fmtMoney(net)}</div></div>
+    </div>
+
+    ${c.notes ? `<div style="background:var(--bg3);border-radius:10px;padding:10px 14px;margin-bottom:16px;font-size:13px;">${esc(c.notes)}</div>` : ''}
+    ${c.tags?.length ? `<div style="margin-bottom:16px;display:flex;gap:4px;flex-wrap:wrap;">${c.tags.map(t => `<span class="badge badge-blue">${esc(t)}</span>`).join('')}</div>` : ''}
+
+    <h4 style="font-size:14px;font-weight:700;margin-bottom:8px;">Recent Entries</h4>
+    ${entries.length === 0 ? '<p style="color:var(--muted);font-size:13px;">No entries with this contact.</p>' :
+      `<div class="tbl-wrap"><table><thead><tr><th>Amount</th><th>Type</th><th>Date</th><th>Status</th></tr></thead><tbody>
+      ${entries.map(e => `<tr style="cursor:pointer;" onclick="closeModal();openEntryDetail('${e.id}')">
+        <td style="font-weight:700;">${fmtMoney(e.amount, e.currency)}</td>
+        <td><span style="font-weight:600;color:${TX_COLORS[e.tx_type] || 'var(--text)'};">${esc(TX_LABELS[e.tx_type] || e.tx_type)}</span></td>
+        <td style="color:var(--muted);">${fmtDate(e.date)}</td>
+        <td>${statusBadge(e.status)}</td>
+      </tr>`).join('')}
+      </tbody></table></div>`}
+
+    <div style="display:flex;gap:8px;margin-top:16px;padding-top:14px;border-top:1px solid var(--border);">
+      <button class="btn btn-secondary btn-sm" onclick="openEditContactModal('${c.id}')">Edit Contact</button>
+      <button class="btn btn-secondary btn-sm" onclick="confirmDeleteContact('${c.id}','${esc(c.name)}');closeModal();" style="color:var(--red);">Delete</button>
+    </div>
+  `, { maxWidth: '600px' });
+};
+
+// ── Edit Contact Modal ────────────────────────────────────────────
+window.openEditContactModal = async function(id) {
+  const { data: c } = await supabase.from('contacts').select('*').eq('id', id).single();
+  if (!c) return;
+  closeModal();
+  openModal(`
+    <h3 style="margin-bottom:16px;">Edit Contact</h3>
+    <div class="form-group"><label>Name *</label><input type="text" id="ec-name" value="${esc(c.name)}"></div>
+    <div class="form-group"><label>Email</label><input type="email" id="ec-email" value="${esc(c.email || '')}"></div>
+    <div class="form-group"><label>Phone</label><input type="tel" id="ec-phone" value="${esc(c.phone || '')}"></div>
+    <div class="form-group"><label>Address</label><input type="text" id="ec-address" value="${esc(c.address || '')}"></div>
+    <div class="form-group"><label>Notes</label><textarea id="ec-notes" rows="2">${esc(c.notes || '')}</textarea></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;">
+      <button class="btn btn-secondary btn-sm" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-primary btn-sm" onclick="saveEditContact('${id}')">Save</button>
+    </div>
+  `);
+};
+
+window.saveEditContact = async function(id) {
+  const { error } = await supabase.from('contacts').update({
+    name: document.getElementById('ec-name').value.trim(),
+    email: document.getElementById('ec-email').value.trim(),
+    phone: document.getElementById('ec-phone').value.trim(),
+    address: document.getElementById('ec-address').value.trim(),
+    notes: document.getElementById('ec-notes').value.trim(),
+    updated_at: new Date().toISOString()
+  }).eq('id', id);
+  if (error) return toast(error.message, 'error');
+  closeModal(); toast('Contact updated.', 'success'); navTo('contacts');
+};
 
 window.openNewContactModal = function() {
   openModal(`
