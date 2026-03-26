@@ -1968,11 +1968,15 @@ let _authChecked = false;
 async function checkAuth() {
   if (_authChecked) return;
   _authChecked = true;
-  const { data: { session } } = await supabase.auth.getSession();
-  if (session?.user) {
-    enterApp(session.user);
-  } else {
-    // No session — show login page
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (session?.user) {
+      enterApp(session.user);
+    } else {
+      document.getElementById('landing').style.display = '';
+    }
+  } catch(e) {
+    console.error('[checkAuth]', e);
     document.getElementById('landing').style.display = '';
   }
 }
