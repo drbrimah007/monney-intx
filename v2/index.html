@@ -197,7 +197,8 @@ tr:hover { background: var(--bg2); }
 import { supabase, getCurrentUser, getProfile } from './js/supabase.js';
 import { signUp, logIn, logOut, onAuthChange } from './js/auth.js';
 import { listContacts, createContact, deleteContact } from './js/contacts.js';
-import { listEntries, recentEntries, createEntry, deleteEntry, getDashboardTotals, fmtMoney, toCents, toDollars } from './js/entries.js';
+import { listEntries, recentEntries, createEntry, deleteEntry, updateEntry, getEntry, getDashboardTotals, getLedgerSummary, fmtMoney, toCents, toDollars, voidEntry, archiveEntry, unarchiveEntry } from './js/entries.js';
+import { listSettlements, createSettlement, reviewSettlement, deleteSettlement } from './js/settlements.js';
 import { listNotifications, getUnreadCount, markAllRead, subscribeToNotifications } from './js/notifications.js';
 import { toast, esc, navigate, statusBadge, TX_LABELS, TX_COLORS, fmtDate, openModal, closeModal } from './js/ui.js';
 
@@ -337,12 +338,18 @@ async function renderDash(el) {
       const cName = e.contact?.name || '—';
       const txLabel = TX_LABELS[e.tx_type] || e.tx_type;
       const txColor = TX_COLORS[e.tx_type] || 'var(--text)';
-      html += `<tr>
+      const settled = e.settled_amount > 0;
+      const remaining = e.amount - e.settled_amount;
+      const amtHtml = settled
+        ? `${fmtMoney(e.amount, e.currency)}<div style="font-size:11px;color:var(--green);">Settled ${fmtMoney(e.settled_amount, e.currency)}</div>`
+        : fmtMoney(e.amount, e.currency);
+      const reminderHtml = e.reminder_count > 0 ? `<span class="badge badge-red" style="margin-left:4px;">🚩${e.reminder_count}</span>` : '';
+      html += `<tr style="cursor:pointer;" onclick="openEntryDetail('${e.id}')">
         <td style="font-weight:600;">${esc(cName)}</td>
-        <td style="font-weight:700;">${fmtMoney(e.amount, e.currency)}</td>
+        <td style="font-weight:700;">${amtHtml}</td>
         <td><span style="font-weight:600;color:${txColor};">${esc(txLabel)}</span></td>
         <td style="color:var(--muted);">${fmtDate(e.date)}</td>
-        <td>${statusBadge(e.status)}</td>
+        <td>${statusBadge(e.status)}${reminderHtml}</td>
       </tr>`;
     });
     html += `</tbody></table></div>`;
@@ -420,22 +427,50 @@ async function renderEntries(el) {
   let html = `<div class="page-header"><h2>Entries</h2>
     <button class="btn btn-primary btn-sm" onclick="openNewEntryModal()">+ Add Entry</button>
   </div>`;
+
+  // Search
+  html += `<div style="margin-bottom:12px;display:flex;gap:8px;flex-wrap:wrap;">
+    <input type="search" id="entries-search" placeholder="Search entries..." oninput="filterEntryRows(this.value)" style="flex:1;min-width:180px;max-width:340px;">
+  </div>`;
+
   if (entries.length === 0) {
     html += `<div class="card" style="text-align:center;padding:40px;"><p style="color:var(--muted);">No entries yet. Record your first transaction.</p></div>`;
   } else {
-    html += `<div class="card"><div class="tbl-wrap"><table><thead><tr><th>Contact</th><th>Amount</th><th>Type</th><th>Date</th><th>Status</th><th></th></tr></thead><tbody>`;
+    html += `<div class="card"><div class="tbl-wrap"><table><thead><tr><th>Contact</th><th>Amount</th><th>Type</th><th>Date</th><th>Status</th><th style="width:50px;">Action</th></tr></thead><tbody>`;
     entries.forEach(e => {
       const cName = e.contact?.name || '—';
       const txLabel = TX_LABELS[e.tx_type] || e.tx_type;
       const txColor = TX_COLORS[e.tx_type] || 'var(--text)';
-      html += `<tr>
-        <td style="font-weight:600;">${esc(cName)}</td>
-        <td style="font-weight:700;">${fmtMoney(e.amount, e.currency)}</td>
+      const settled = e.settled_amount > 0;
+      const remaining = e.amount - e.settled_amount;
+      const amtHtml = settled
+        ? `${fmtMoney(e.amount, e.currency)}<div style="font-size:11px;color:var(--muted);">Settled ${fmtMoney(e.settled_amount, e.currency)}</div><div style="font-size:11px;font-weight:700;color:${remaining <= 0 ? 'var(--green)' : 'var(--amber)'};">Bal ${fmtMoney(remaining, e.currency)}</div>`
+        : fmtMoney(e.amount, e.currency);
+      const isTerminal = ['settled','voided','cancelled','fulfilled'].includes(e.status);
+      const canSettle = ['they_owe_you','you_owe_them','invoice','bill'].includes(e.tx_type) && !isTerminal;
+      const reminderHtml = e.reminder_count > 0 ? `<span class="badge badge-red" style="margin-left:4px;cursor:pointer;" onclick="openEntryDetail('${e.id}')">🚩${e.reminder_count}</span>` : '';
+
+      html += `<tr class="entry-row" data-search="${esc(cName + ' ' + txLabel + ' ' + e.invoice_number + ' ' + e.status).toLowerCase()}">
+        <td><a style="font-weight:600;cursor:pointer;" onclick="openEntryDetail('${e.id}')">${esc(cName)}</a></td>
+        <td style="font-weight:700;">${amtHtml}</td>
         <td><span style="font-weight:600;color:${txColor};">${esc(txLabel)}</span></td>
         <td style="color:var(--muted);">${fmtDate(e.date)}</td>
-        <td>${statusBadge(e.status)}</td>
+        <td>${statusBadge(e.status)}${reminderHtml}</td>
         <td>
-          <button class="btn btn-secondary btn-sm" onclick="confirmDeleteEntry('${e.id}')">Delete</button>
+          <div class="action-menu">
+            <button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button>
+            <div class="action-dropdown">
+              <button onclick="openEntryDetail('${e.id}')">View</button>
+              <button onclick="openEditEntryModal('${e.id}')">Edit</button>
+              <hr style="border:none;border-top:1px solid var(--border);margin:4px 0;">
+              ${canSettle ? `<button onclick="openSettleModal('${e.id}')" style="color:var(--green);font-weight:600;">Settle</button>` : ''}
+              ${!isTerminal ? `<button onclick="openSendReminderModal('${e.id}')">Send Reminder</button>` : ''}
+              <hr style="border:none;border-top:1px solid var(--border);margin:4px 0;">
+              <button onclick="handleArchiveEntry('${e.id}','${e.archived_at ? 'unarchive' : 'archive'}')">${e.archived_at ? 'Unarchive' : 'Archive'}</button>
+              ${!isTerminal ? `<button onclick="handleVoidEntry('${e.id}')" style="color:var(--amber);">Void</button>` : ''}
+              <button onclick="confirmDeleteEntry('${e.id}')" style="color:var(--red);">Delete</button>
+            </div>
+          </div>
         </td>
       </tr>`;
     });
@@ -443,6 +478,261 @@ async function renderEntries(el) {
   }
   el.innerHTML = html;
 }
+
+// ── Search filter ─────────────────────────────────────────────────
+window.filterEntryRows = function(q) {
+  const query = q.toLowerCase();
+  document.querySelectorAll('.entry-row').forEach(row => {
+    row.style.display = row.dataset.search.includes(query) ? '' : 'none';
+  });
+};
+
+// ── Entry Detail ──────────────────────────────────────────────────
+window.openEntryDetail = async function(id) {
+  const entry = await getEntry(id);
+  if (!entry) return toast('Entry not found.', 'error');
+  const cName = entry.contact?.name || '—';
+  const txLabel = TX_LABELS[entry.tx_type] || entry.tx_type;
+  const txColor = TX_COLORS[entry.tx_type] || 'var(--text)';
+  const settlements = entry.settlements || [];
+  const remaining = entry.amount - entry.settled_amount;
+  const isTerminal = ['settled','voided','cancelled','fulfilled'].includes(entry.status);
+  const canSettle = ['they_owe_you','you_owe_them','invoice','bill'].includes(entry.tx_type) && !isTerminal;
+
+  let settleHtml = '';
+  if (settlements.length > 0) {
+    settleHtml = `<div style="margin-top:16px;"><h4 style="font-size:14px;margin-bottom:8px;">Settlements</h4>`;
+    settlements.forEach(s => {
+      settleHtml += `<div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border);font-size:13px;">
+        <div>
+          <strong>${fmtMoney(s.amount, entry.currency)}</strong>
+          ${s.method ? `<span style="color:var(--muted);margin-left:8px;">${esc(s.method)}</span>` : ''}
+          ${s.note ? `<div style="color:var(--muted);font-size:12px;">${esc(s.note)}</div>` : ''}
+        </div>
+        <div style="color:var(--muted);font-size:12px;">${fmtDate(s.created_at)}</div>
+      </div>`;
+    });
+    settleHtml += `</div>`;
+  }
+
+  openModal(`
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px;">
+      <h3 style="margin:0;">Entry Detail</h3>
+      <button class="btn btn-secondary btn-sm" onclick="closeModal()">✕</button>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;">
+      <div style="background:var(--bg3);border-radius:10px;padding:12px;">
+        <div style="font-size:11px;color:var(--muted);text-transform:uppercase;">Contact</div>
+        <div style="font-weight:700;margin-top:4px;">${esc(cName)}</div>
+      </div>
+      <div style="background:var(--bg3);border-radius:10px;padding:12px;">
+        <div style="font-size:11px;color:var(--muted);text-transform:uppercase;">Type</div>
+        <div style="font-weight:700;color:${txColor};margin-top:4px;">${esc(txLabel)}</div>
+      </div>
+      <div style="background:var(--bg3);border-radius:10px;padding:12px;">
+        <div style="font-size:11px;color:var(--muted);text-transform:uppercase;">Amount</div>
+        <div style="font-weight:800;font-size:20px;margin-top:4px;">${fmtMoney(entry.amount, entry.currency)}</div>
+      </div>
+      <div style="background:var(--bg3);border-radius:10px;padding:12px;">
+        <div style="font-size:11px;color:var(--muted);text-transform:uppercase;">Status</div>
+        <div style="margin-top:4px;">${statusBadge(entry.status)}</div>
+      </div>
+      <div style="background:var(--bg3);border-radius:10px;padding:12px;">
+        <div style="font-size:11px;color:var(--muted);text-transform:uppercase;">Date</div>
+        <div style="font-weight:600;margin-top:4px;">${fmtDate(entry.date)}</div>
+      </div>
+      ${entry.invoice_number ? `<div style="background:var(--bg3);border-radius:10px;padding:12px;">
+        <div style="font-size:11px;color:var(--muted);text-transform:uppercase;">Invoice #</div>
+        <div style="font-weight:600;margin-top:4px;">${esc(entry.invoice_number)}</div>
+      </div>` : ''}
+    </div>
+    ${entry.settled_amount > 0 ? `
+      <div style="border:1px solid var(--border);border-radius:10px;overflow:hidden;margin-bottom:16px;">
+        <div style="display:flex;justify-content:space-between;padding:10px 14px;background:var(--bg3);border-bottom:1px solid var(--border);">
+          <span style="font-size:12px;color:var(--muted);text-transform:uppercase;">Settled</span>
+          <span style="font-weight:700;color:var(--green);">${fmtMoney(entry.settled_amount, entry.currency)}</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;padding:10px 14px;">
+          <span style="font-size:12px;color:var(--muted);text-transform:uppercase;">Balance</span>
+          <span style="font-weight:800;color:${remaining <= 0 ? 'var(--green)' : 'var(--amber)'};">${fmtMoney(remaining, entry.currency)}</span>
+        </div>
+      </div>
+    ` : ''}
+    ${entry.note ? `<div style="background:var(--bg3);border-radius:10px;padding:12px;margin-bottom:16px;font-size:14px;">${esc(entry.note)}</div>` : ''}
+    ${settleHtml}
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:16px;padding-top:14px;border-top:1px solid var(--border);">
+      <button class="btn btn-secondary btn-sm" onclick="openEditEntryModal('${entry.id}')">Edit</button>
+      ${canSettle ? `<button class="btn btn-primary btn-sm" onclick="closeModal();openSettleModal('${entry.id}')">Settle</button>` : ''}
+      ${!isTerminal ? `<button class="btn btn-secondary btn-sm" onclick="closeModal();openSendReminderModal('${entry.id}')">Send Reminder</button>` : ''}
+      <button class="btn btn-secondary btn-sm" onclick="confirmDeleteEntry('${entry.id}');closeModal();" style="color:var(--red);">Delete</button>
+    </div>
+  `, { maxWidth: '560px' });
+};
+
+// ── Edit Entry Modal ──────────────────────────────────────────────
+window.openEditEntryModal = async function(id) {
+  const entry = await getEntry(id);
+  if (!entry) return toast('Entry not found.', 'error');
+  const contacts = await listContacts(currentUser.id);
+  const contactOpts = contacts.map(c => `<option value="${c.id}" ${c.id === entry.contact_id ? 'selected' : ''}>${esc(c.name)}</option>`).join('');
+
+  closeModal();
+  openModal(`
+    <h3 style="margin-bottom:16px;">Edit Entry</h3>
+    <div class="form-group"><label>Contact</label><select id="ee-contact">${contactOpts}</select></div>
+    <div class="form-group"><label>Type</label><select id="ee-type">
+      ${Object.entries(TX_LABELS).map(([k,v]) => `<option value="${k}" ${k === entry.tx_type ? 'selected' : ''}>${v}</option>`).join('')}
+    </select></div>
+    <div class="form-row">
+      <div class="form-group"><label>Amount</label><input type="number" id="ee-amount" min="0" step="0.01" value="${toDollars(entry.amount)}"></div>
+      <div class="form-group"><label>Date</label><input type="date" id="ee-date" value="${entry.date}"></div>
+    </div>
+    <div class="form-group"><label>Status</label><select id="ee-status">
+      ${['draft','posted','sent','viewed','accepted','partially_settled','settled','fulfilled','overdue','disputed','voided','cancelled'].map(s =>
+        `<option value="${s}" ${s === entry.status ? 'selected' : ''}>${s.charAt(0).toUpperCase() + s.slice(1).replace('_',' ')}</option>`
+      ).join('')}
+    </select></div>
+    <div class="form-group"><label>Note</label><textarea id="ee-note" rows="2">${esc(entry.note || '')}</textarea></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;">
+      <button class="btn btn-secondary btn-sm" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-primary btn-sm" onclick="saveEditEntry('${id}')">Save</button>
+    </div>
+  `, { maxWidth: '480px' });
+};
+
+window.saveEditEntry = async function(id) {
+  await updateEntry(id, {
+    contact_id: document.getElementById('ee-contact').value,
+    tx_type: document.getElementById('ee-type').value,
+    amount: parseFloat(document.getElementById('ee-amount').value),
+    date: document.getElementById('ee-date').value,
+    status: document.getElementById('ee-status').value,
+    note: document.getElementById('ee-note').value.trim()
+  });
+  closeModal();
+  toast('Entry updated.', 'success');
+  navTo('entries');
+};
+
+// ── Settle Modal ──────────────────────────────────────────────────
+window.openSettleModal = async function(id) {
+  const entry = await getEntry(id);
+  if (!entry) return;
+  const remaining = (entry.amount - entry.settled_amount) / 100;
+
+  openModal(`
+    <h3 style="margin-bottom:16px;">Record Settlement</h3>
+    <div style="background:var(--bg3);border-radius:10px;padding:12px;margin-bottom:14px;">
+      <div style="font-size:12px;color:var(--muted);">Balance remaining</div>
+      <div style="font-size:20px;font-weight:800;">${fmtMoney(entry.amount - entry.settled_amount, entry.currency)}</div>
+    </div>
+    <div class="form-group"><label>Amount to settle *</label><input type="number" id="settle-amount" min="0.01" step="0.01" max="${remaining}" value="${remaining}"></div>
+    <div class="form-group"><label>Method</label><select id="settle-method">
+      <option value="">Select method</option>
+      <option value="cash">Cash</option>
+      <option value="bank">Bank Transfer</option>
+      <option value="card">Card</option>
+      <option value="mobile">Mobile Money</option>
+      <option value="crypto">Crypto</option>
+      <option value="other">Other</option>
+    </select></div>
+    <div class="form-group"><label>Note</label><textarea id="settle-note" rows="2" placeholder="Optional note..."></textarea></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;">
+      <button class="btn btn-secondary btn-sm" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-primary btn-sm" onclick="saveSettlement('${id}')">Record Settlement</button>
+    </div>
+  `, { maxWidth: '420px' });
+};
+
+window.saveSettlement = async function(entryId) {
+  const amount = parseFloat(document.getElementById('settle-amount').value);
+  if (!amount || amount <= 0) return toast('Enter a valid amount.', 'error');
+  await createSettlement(entryId, {
+    amount,
+    method: document.getElementById('settle-method').value,
+    note: document.getElementById('settle-note').value.trim(),
+    recordedBy: currentUser.id
+  });
+  closeModal();
+  toast('Settlement recorded.', 'success');
+  navTo('entries');
+};
+
+// ── Send Reminder Modal ───────────────────────────────────────────
+window.openSendReminderModal = async function(id) {
+  const entry = await getEntry(id);
+  if (!entry) return;
+  const cName = entry.contact?.name || 'Contact';
+  const remaining = entry.amount - entry.settled_amount;
+
+  openModal(`
+    <h3 style="margin-bottom:16px;">Send Reminder</h3>
+    <div style="background:var(--bg3);border-radius:10px;padding:12px;margin-bottom:14px;">
+      <div style="font-size:12px;color:var(--muted);">Record</div>
+      <div style="font-weight:700;">${esc(cName)} — ${fmtMoney(remaining, entry.currency)}</div>
+    </div>
+    <div class="form-group"><label>Message</label><textarea id="rem-msg" rows="3">For your attention.</textarea></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;">
+      <button class="btn btn-secondary btn-sm" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-primary btn-sm" onclick="sendReminder('${id}')">Send Now</button>
+    </div>
+  `, { maxWidth: '420px' });
+};
+
+window.sendReminder = async function(entryId) {
+  const message = document.getElementById('rem-msg').value.trim();
+  if (!message) return toast('Message required.', 'error');
+  const entry = await getEntry(entryId);
+  const cName = entry?.contact?.name || 'Someone';
+  // Create notification for contact (if linked)
+  if (entry?.contact?.id) {
+    const contact = await supabase.from('contacts').select('linked_user_id').eq('id', entry.contact_id).single();
+    if (contact.data?.linked_user_id) {
+      await supabase.from('notifications').insert({
+        user_id: contact.data.linked_user_id,
+        type: 'reminder',
+        message: `Reminder from ${currentProfile?.display_name || 'Someone'}: ${message}`,
+        entry_id: entryId,
+        contact_name: currentProfile?.display_name || '',
+        amount: entry.amount,
+        currency: entry.currency
+      });
+    }
+  }
+  // Increment reminder count
+  await updateEntry(entryId, {
+    reminder_count: (entry?.reminder_count || 0) + 1,
+    last_reminder_at: new Date().toISOString()
+  });
+  // Self notification
+  await supabase.from('notifications').insert({
+    user_id: currentUser.id,
+    type: 'reminder',
+    message: `Reminder sent to ${cName}: ${message}`,
+    entry_id: entryId,
+    contact_name: cName,
+    amount: entry?.amount,
+    currency: entry?.currency
+  });
+  closeModal();
+  toast('Reminder sent.', 'success');
+  navTo('entries');
+};
+
+// ── Void / Archive handlers ───────────────────────────────────────
+window.handleVoidEntry = async function(id) {
+  if (!confirm('Void this entry? This cannot be undone.')) return;
+  await voidEntry(id);
+  toast('Entry voided.', 'success');
+  navTo('entries');
+};
+
+window.handleArchiveEntry = async function(id, action) {
+  if (action === 'archive') await archiveEntry(id);
+  else await unarchiveEntry(id);
+  toast(action === 'archive' ? 'Entry archived.' : 'Entry unarchived.', 'success');
+  navTo('entries');
+};
 
 window.openNewEntryModal = async function() {
   const contacts = await listContacts(currentUser.id);
