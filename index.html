@@ -817,6 +817,17 @@
             if (db.settings && db.settings.impersonating) {
               db.settings.impersonating = null;
             }
+            // Strip any entries/contacts that were explicitly deleted
+            const _loadDelIds = new Set(db.settings?._deletedEntryIds || []);
+            if (_loadDelIds.size > 0) {
+              db.entries = (db.entries||[]).filter(e =>
+                !_loadDelIds.has(e.id) && !(e.shareToken && _loadDelIds.has('st:' + e.shareToken))
+              );
+            }
+            const _loadDelCids = new Set(db.settings?._deletedContactIds || []);
+            if (_loadDelCids.size > 0) {
+              db.contacts = (db.contacts||[]).filter(c => !_loadDelCids.has(c.id));
+            }
             // Mirror to localStorage as offline cache
             localStorage.setItem('mxi_v2', JSON.stringify(db));
             _loadCompleted = true;
@@ -944,6 +955,18 @@
         } catch(_mergeErr) {
           // Merge failed — proceed with local data (better than not saving at all)
           console.warn('[sync] merge-before-write failed:', _mergeErr.message);
+        }
+
+        // FINAL PASS: forcibly remove any deleted entries/contacts that got re-added by merge
+        const _finalDeleted = new Set(db.settings?._deletedEntryIds || []);
+        if (_finalDeleted.size > 0) {
+          db.entries = (db.entries||[]).filter(e =>
+            !_finalDeleted.has(e.id) && !(e.shareToken && _finalDeleted.has('st:' + e.shareToken))
+          );
+        }
+        const _finalDelContacts = new Set(db.settings?._deletedContactIds || []);
+        if (_finalDelContacts.size > 0) {
+          db.contacts = (db.contacts||[]).filter(c => !_finalDelContacts.has(c.id));
         }
 
         // Strip shared items before syncing — they belong to other users' blobs
