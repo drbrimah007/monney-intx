@@ -128,7 +128,7 @@ tr:hover { background: var(--bg2); }
 <body>
 
 <!-- Landing / Auth -->
-<div id="landing" class="landing">
+<div id="landing" class="landing" style="display:none;">
   <div class="landing-card">
     <div style="text-align:center;margin-bottom:20px;">
       <div style="font-size:36px;margin-bottom:8px;">💰</div>
@@ -1963,17 +1963,32 @@ document.addEventListener('click', (e) => {
 });
 
 // ── Session restore on page load ──────────────────────────────────
+// Single auth check — no duplicate enterApp calls
+let _authChecked = false;
+async function checkAuth() {
+  if (_authChecked) return;
+  _authChecked = true;
+  const { data: { session } } = await supabase.auth.getSession();
+  if (session?.user) {
+    enterApp(session.user);
+  } else {
+    // No session — show login page
+    document.getElementById('landing').style.display = '';
+  }
+}
+
+// Listen for future auth changes (login/logout from other tabs)
 onAuthChange(async (event, session) => {
-  if (event === 'SIGNED_IN' && session?.user && !currentUser) {
+  if (event === 'SIGNED_OUT') {
+    currentUser = null; currentProfile = null;
+    document.getElementById('shell').classList.remove('active');
+    document.getElementById('landing').style.display = '';
+  } else if (event === 'SIGNED_IN' && session?.user && !currentUser) {
     enterApp(session.user);
   }
 });
 
-// Check existing session
-const { data: { session } } = await supabase.auth.getSession();
-if (session?.user) {
-  enterApp(session.user);
-}
+checkAuth();
 </script>
 </body>
 </html>
