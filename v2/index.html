@@ -169,6 +169,7 @@ tr:hover { background: var(--bg2); }
       <a data-page="entries" onclick="app.navigate('entries')"><span>📋</span> Entries</a>
       <a data-page="shared" onclick="openSharedWithMe()" style="padding-left:36px;font-size:13px;"><span>🔗</span> Shared With Me</a>
       <a data-page="templates" onclick="app.navigate('templates')"><span>📄</span> Templates</a>
+      <a data-page="groups" onclick="app.navigate('groups')"><span>👥</span> Groups</a>
       <a data-page="notifications" onclick="app.navigate('notifications')"><span>🔔</span> Notifications <span id="notif-badge" class="nav-badge" style="display:none;">0</span></a>
       <a data-page="settings" onclick="app.navigate('settings')"><span>⚙️</span> Settings</a>
     </nav>
@@ -203,6 +204,7 @@ import { listSettlements, createSettlement, reviewSettlement, deleteSettlement }
 import { listNotifications, getUnreadCount, markAllRead, subscribeToNotifications } from './js/notifications.js';
 import { createShareToken, getShareByToken, listSentShares, listReceivedShares, confirmShare, dismissShare, expireShare, getShareUrl } from './js/sharing.js';
 import { createScheduledReminder, listActiveReminders, cancelReminder, processDueReminders } from './js/reminders.js';
+import { listGroups, getGroup, createGroup, deleteGroup, archiveGroup, addGroupMember, removeGroupMember, createRound, markContributionPaid, completeRound, getNoticeBoard, postNotice, calcGroupStats } from './js/groups.js';
 import { toast, esc, navigate, statusBadge, TX_LABELS, TX_COLORS, fmtDate, fmtRelative, openModal, closeModal } from './js/ui.js';
 
 let currentUser = null;
@@ -301,6 +303,7 @@ function navTo(page) {
     case 'dash': renderDash(content); break;
     case 'contacts': renderContacts(content); break;
     case 'entries': renderEntries(content); break;
+    case 'groups': renderGroups(content); break;
     case 'notifications': renderNotifications(content); break;
     case 'settings': renderSettings(content); break;
     default: renderDash(content);
@@ -1032,6 +1035,229 @@ async function renderNotifications(el) {
   }
   el.innerHTML = html;
 }
+
+// ── Groups ────────────────────────────────────────────────────────
+async function renderGroups(el) {
+  el.innerHTML = '<div class="page-header"><h2>Groups</h2></div><p style="color:var(--muted);">Loading...</p>';
+  const groups = await listGroups(currentUser.id);
+
+  let html = `<div class="page-header"><h2>Group Savings</h2>
+    <button class="btn btn-primary btn-sm" onclick="openNewGroupModal()">+ New Group</button>
+  </div>`;
+
+  if (groups.length === 0) {
+    html += `<div class="card" style="text-align:center;padding:40px;"><p style="color:var(--muted);">No groups yet. Create one to start tracking group savings.</p></div>`;
+  } else {
+    groups.forEach(g => {
+      const stats = calcGroupStats(g);
+      const isOwner = g.user_id === currentUser.id;
+      html += `<div class="card" style="margin-bottom:12px;">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;">
+          <div>
+            <h3 style="font-size:17px;margin-bottom:4px;cursor:pointer;" onclick="openGroupDetail('${g.id}')">${esc(g.name)}</h3>
+            ${g.description ? `<p style="font-size:13px;color:var(--muted);margin-bottom:8px;">${esc(g.description)}</p>` : ''}
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
+              <span class="badge badge-blue">${stats.memberCount} member${stats.memberCount !== 1 ? 's' : ''}</span>
+              <span class="badge badge-green">${fmtMoney(g.amount, g.currency)} / ${esc(g.frequency)}</span>
+              <span class="badge badge-gray">${stats.roundCount} round${stats.roundCount !== 1 ? 's' : ''}</span>
+            </div>
+            ${stats.currentRound ? `<p style="font-size:12px;color:var(--muted);">Current round: ${stats.paidInRound}/${stats.memberCount} paid</p>` : ''}
+          </div>
+          <div class="action-menu">
+            <button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button>
+            <div class="action-dropdown">
+              <button onclick="openGroupDetail('${g.id}')">View</button>
+              ${isOwner ? `<button onclick="openAddMemberModal('${g.id}')">Add Member</button>` : ''}
+              ${isOwner ? `<button onclick="doCreateRound('${g.id}')">New Round</button>` : ''}
+              ${isOwner ? `<button onclick="confirmDeleteGroup('${g.id}')" style="color:var(--red);">Delete</button>` : ''}
+            </div>
+          </div>
+        </div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;padding-top:8px;border-top:1px solid var(--border);">
+          <button class="btn btn-secondary btn-sm" onclick="openGroupDetail('${g.id}')">View Group</button>
+          ${isOwner ? `<button class="btn btn-secondary btn-sm" onclick="openAddMemberModal('${g.id}')">+ Add Member</button>` : ''}
+        </div>
+      </div>`;
+    });
+  }
+  el.innerHTML = html;
+}
+
+// ── Group Detail ──────────────────────────────────────────────────
+window.openGroupDetail = async function(id) {
+  const g = await getGroup(id);
+  if (!g) return toast('Group not found.', 'error');
+  const stats = calcGroupStats(g);
+  const members = (g.members || []).filter(m => m.status === 'active');
+  const rounds = g.rounds || [];
+  const notices = await getNoticeBoard(id);
+  const isOwner = g.user_id === currentUser.id;
+
+  let membersHtml = members.map(m => `
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border);">
+      <div>
+        <span style="font-weight:600;">${esc(m.name)}</span>
+        <span class="badge badge-gray" style="margin-left:6px;">${esc(m.role)}</span>
+      </div>
+      ${isOwner && m.role !== 'owner' ? `<button class="btn btn-secondary btn-sm" onclick="doRemoveMember('${m.id}','${esc(m.name)}')">Remove</button>` : ''}
+    </div>
+  `).join('');
+
+  let roundsHtml = rounds.slice(-3).reverse().map(r => {
+    const contribs = r.contributions || [];
+    const paid = contribs.filter(c => c.paid).length;
+    return `<div style="padding:8px 0;border-bottom:1px solid var(--border);font-size:13px;">
+      <div style="display:flex;justify-content:space-between;">
+        <span style="font-weight:600;">Round ${r.round_number}</span>
+        <span class="badge ${r.status === 'completed' ? 'badge-green' : 'badge-blue'}">${paid}/${contribs.length} paid</span>
+      </div>
+      ${contribs.map(c => {
+        const mem = members.find(m => m.id === c.member_id);
+        return `<div style="display:flex;justify-content:space-between;padding:4px 0;font-size:12px;">
+          <span>${esc(mem?.name || '—')}</span>
+          <span>${c.paid ? '<span style="color:var(--green);font-weight:600;">Paid</span>' : isOwner ? `<button class="btn btn-primary btn-sm" style="padding:2px 8px;font-size:11px;" onclick="doMarkPaid('${c.id}','${id}')">Mark Paid</button>` : '<span style="color:var(--amber);">Pending</span>'}</span>
+        </div>`;
+      }).join('')}
+    </div>`;
+  }).join('');
+
+  let noticesHtml = notices.slice(0, 5).map(n => `
+    <div style="padding:8px 0;border-bottom:1px solid var(--border);font-size:13px;">
+      <span style="font-weight:600;">${esc(n.user_name)}</span>
+      <span style="color:var(--muted);font-size:12px;margin-left:8px;">${fmtDate(n.created_at)}</span>
+      <p style="margin-top:2px;">${esc(n.message)}</p>
+    </div>
+  `).join('');
+
+  openModal(`
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px;">
+      <div>
+        <h3 style="margin:0;">${esc(g.name)}</h3>
+        <p style="color:var(--muted);font-size:13px;margin-top:4px;">${esc(g.description || '')}</p>
+      </div>
+      <button class="btn btn-secondary btn-sm" onclick="closeModal()">Close</button>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:16px;">
+      <div class="stat-card"><div class="stat-lbl">Members</div><div class="stat-val">${stats.memberCount}</div></div>
+      <div class="stat-card"><div class="stat-lbl">Rounds</div><div class="stat-val">${stats.roundCount}</div></div>
+      <div class="stat-card"><div class="stat-lbl">Collected</div><div class="stat-val" style="font-size:16px;">${fmtMoney(stats.totalCollected, g.currency)}</div></div>
+    </div>
+    <div style="margin-bottom:16px;">
+      <h4 style="font-size:14px;font-weight:700;margin-bottom:8px;">Members</h4>
+      ${membersHtml || '<p style="color:var(--muted);font-size:13px;">No members yet.</p>'}
+    </div>
+    <div style="margin-bottom:16px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+        <h4 style="font-size:14px;font-weight:700;">Recent Rounds</h4>
+        ${isOwner ? `<button class="btn btn-primary btn-sm" onclick="doCreateRound('${id}');closeModal();">+ New Round</button>` : ''}
+      </div>
+      ${roundsHtml || '<p style="color:var(--muted);font-size:13px;">No rounds yet.</p>'}
+    </div>
+    <div>
+      <h4 style="font-size:14px;font-weight:700;margin-bottom:8px;">Notice Board</h4>
+      ${noticesHtml || '<p style="color:var(--muted);font-size:13px;">No messages yet.</p>'}
+      <div style="display:flex;gap:8px;margin-top:8px;">
+        <input type="text" id="notice-msg" placeholder="Write a message..." style="flex:1;">
+        <button class="btn btn-primary btn-sm" onclick="doPostNotice('${id}')">Post</button>
+      </div>
+    </div>
+  `, { maxWidth: '600px' });
+};
+
+// ── Group action handlers ─────────────────────────────────────────
+window.openNewGroupModal = function() {
+  openModal(`
+    <h3 style="margin-bottom:16px;">New Group</h3>
+    <div class="form-group"><label>Name *</label><input type="text" id="ng-name" placeholder="Friday Savings Club"></div>
+    <div class="form-group"><label>Description</label><textarea id="ng-desc" rows="2" placeholder="What's this group about?"></textarea></div>
+    <div class="form-row">
+      <div class="form-group"><label>Contribution Amount</label><input type="number" id="ng-amount" min="0" step="0.01" placeholder="100"></div>
+      <div class="form-group"><label>Frequency</label><select id="ng-freq">
+        <option value="weekly">Weekly</option><option value="biweekly">Bi-weekly</option>
+        <option value="monthly" selected>Monthly</option><option value="custom">Custom</option>
+      </select></div>
+    </div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;">
+      <button class="btn btn-secondary btn-sm" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-primary btn-sm" onclick="doCreateGroup()">Create Group</button>
+    </div>
+  `, { maxWidth: '460px' });
+};
+
+window.doCreateGroup = async function() {
+  const name = document.getElementById('ng-name').value.trim();
+  if (!name) return toast('Name required.', 'error');
+  await createGroup(currentUser.id, {
+    name,
+    description: document.getElementById('ng-desc').value.trim(),
+    amount: parseFloat(document.getElementById('ng-amount').value) || 0,
+    frequency: document.getElementById('ng-freq').value
+  });
+  closeModal();
+  toast('Group created!', 'success');
+  navTo('groups');
+};
+
+window.openAddMemberModal = async function(groupId) {
+  const contacts = await listContacts(currentUser.id);
+  const opts = contacts.map(c => `<option value="${c.id}" data-name="${esc(c.name)}">${esc(c.name)}</option>`).join('');
+  openModal(`
+    <h3 style="margin-bottom:16px;">Add Member</h3>
+    <div class="form-group"><label>Contact</label><select id="am-contact">${opts || '<option value="">No contacts</option>'}</select></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;">
+      <button class="btn btn-secondary btn-sm" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-primary btn-sm" onclick="doAddMember('${groupId}')">Add</button>
+    </div>
+  `);
+};
+
+window.doAddMember = async function(groupId) {
+  const sel = document.getElementById('am-contact');
+  const contactId = sel.value;
+  const name = sel.options[sel.selectedIndex]?.dataset?.name || 'Member';
+  if (!contactId) return toast('Select a contact.', 'error');
+  await addGroupMember(groupId, { contactId, name });
+  closeModal();
+  toast('Member added.', 'success');
+  navTo('groups');
+};
+
+window.doRemoveMember = async function(memberId, name) {
+  if (!confirm(`Remove ${name}?`)) return;
+  await removeGroupMember(memberId);
+  toast('Member removed.', 'success');
+  closeModal();
+  navTo('groups');
+};
+
+window.doCreateRound = async function(groupId) {
+  await createRound(groupId);
+  toast('New round created.', 'success');
+  navTo('groups');
+};
+
+window.doMarkPaid = async function(contributionId, groupId) {
+  await markContributionPaid(contributionId);
+  toast('Marked as paid.', 'success');
+  closeModal();
+  openGroupDetail(groupId);
+};
+
+window.doPostNotice = async function(groupId) {
+  const msg = document.getElementById('notice-msg').value.trim();
+  if (!msg) return;
+  await postNotice(groupId, currentUser.id, currentProfile?.display_name || 'User', msg);
+  document.getElementById('notice-msg').value = '';
+  closeModal();
+  openGroupDetail(groupId);
+};
+
+window.confirmDeleteGroup = async function(id) {
+  if (!confirm('Delete this group?')) return;
+  await deleteGroup(id);
+  toast('Group deleted.', 'success');
+  navTo('groups');
+};
 
 // ── Settings ──────────────────────────────────────────────────────
 async function renderSettings(el) {
