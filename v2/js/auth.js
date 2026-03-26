@@ -49,7 +49,7 @@ export async function logOut() {
 // ── Password Reset ────────────────────────────────────────────────
 export async function resetPassword(email) {
   const { error } = await supabase.auth.resetPasswordForEmail(email, {
-    redirectTo: window.location.origin + '/reset'
+    redirectTo: 'https://moneyinteractions.com/#reset'
   });
   if (error) {
     toast(error.message, 'error');
