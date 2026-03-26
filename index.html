@@ -2162,6 +2162,7 @@
 
 
     async function _loadSharedWithMeInner() {
+      if (_freshnessPaused) return; // skip during delete operations
       const el = document.getElementById('shared-with-me');
       // Note: el may be null if we're on the entries page — that's fine, we still load the data
       try {
@@ -5350,7 +5351,7 @@
       renderEntries();
     }
 
-    function delEntry(eid) {
+    async function delEntry(eid) {
       if (!confirm('Delete this entry?')) return;
       const e = db.entries.find(x => x.id === eid);
       // Track deleted IDs so server-side merge doesn't resurrect them
@@ -5374,10 +5375,13 @@
       db.entries = db.entries.filter(x => x.id !== eid);
       // If deleted entry was a settlement, resync the linked invoice
       if (linkedInv) { _syncInvoiceStatus(linkedInv); _pushShareStatus(linkedInv); }
-      saveNow().catch(() => save()); // immediate push so merge doesn't resurrect
       logAudit('delete_entry', { eid });
       toast('Entry deleted');
       refreshCurPage();
+      // AWAIT the save — must complete before any polling can reload old data
+      _freshnessPaused = true;
+      try { await saveNow(); } catch(_) { save(); }
+      setTimeout(() => { _freshnessPaused = false; }, 5000);
     }
 
     async function openNotifyModal(eid) {
