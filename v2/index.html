@@ -174,6 +174,7 @@ tr:hover { background: var(--bg2); }
       <a data-page="templates" onclick="app.navigate('templates')"><span>📄</span> Templates</a>
       <a data-page="recurring" onclick="app.navigate('recurring')"><span>🔁</span> Recurring</a>
       <a data-page="notifications" onclick="app.navigate('notifications')"><span>🔔</span> Notifications <span id="notif-badge" class="nav-badge" style="display:none;">0</span></a>
+      <a data-page="nok" onclick="app.navigate('nok')"><span>🔐</span> Trusted Access</a>
       <a data-page="admin" onclick="app.navigate('admin')" id="admin-link" style="display:none;"><span>🛡️</span> Admin</a>
       <a data-page="settings" onclick="app.navigate('settings')"><span>⚙️</span> Settings</a>
     </nav>
@@ -212,6 +213,7 @@ import { listGroups, getGroup, createGroup, deleteGroup, archiveGroup, addGroupM
 import { listInvestments, getInvestment, createInvestment, deleteInvestment, addInvestmentMember, addInvestmentTransaction, calcInvestmentStats, INV_TYPES, INV_STATUSES } from './js/investments.js';
 import { listTemplates, listPublicTemplates, createTemplate, updateTemplate, deleteTemplate, copyPublicTemplate, togglePublic, archiveTemplate } from './js/templates.js';
 import { listAllUsers, updateUserRole, updateUserStatus, getAuditLog, logAudit, getPlatformStats } from './js/admin.js';
+import { listTrustees, createTrustee, deleteTrustee, verifyTrustee, activateTrustee } from './js/nok.js';
 import { listRecurring, createRecurring, deleteRecurring, toggleRecurring, processDueRecurring, FREQUENCIES } from './js/recurring.js';
 import { toast, esc, navigate, statusBadge, TX_LABELS, TX_COLORS, fmtDate, fmtRelative, openModal, closeModal } from './js/ui.js';
 
@@ -320,6 +322,7 @@ function navTo(page) {
     case 'templates': renderTemplatesPage(content); break;
     case 'recurring': renderRecurringPage(content); break;
     case 'notifications': renderNotifications(content); break;
+    case 'nok': renderNokPage(content); break;
     case 'admin': renderAdmin(content); break;
     case 'settings': renderSettings(content); break;
     default: renderDash(content);
@@ -1441,6 +1444,101 @@ window.confirmDeleteGroup = async function(id) {
   await deleteGroup(id);
   toast('Group deleted.', 'success');
   navTo('groups');
+};
+
+// ── Trusted Access (NOK) ──────────────────────────────────────────
+async function renderNokPage(el) {
+  el.innerHTML = '<div class="page-header"><h2>Trusted Access</h2></div><p style="color:var(--muted);">Loading...</p>';
+  const trustees = await listTrustees(currentUser.id);
+  let html = `<div class="page-header"><h2>Trusted Access</h2>
+    <button class="btn btn-primary btn-sm" onclick="openNewTrusteeModal()">+ Add Trustee</button>
+  </div>`;
+  html += `<div class="card" style="margin-bottom:16px;background:var(--bg2);">
+    <p style="font-size:13px;color:var(--muted);line-height:1.6;">Trusted Access lets you designate people who can access your financial records under specific conditions — such as inactivity, emergency, or manual activation. Your data stays private until you or the system triggers access.</p>
+  </div>`;
+  if (trustees.length === 0) {
+    html += `<div class="card" style="text-align:center;padding:40px;"><p style="color:var(--muted);">No trustees yet. Add someone you trust.</p></div>`;
+  } else {
+    trustees.forEach(t => {
+      html += `<div class="card" style="margin-bottom:12px;">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+          <div>
+            <h3 style="font-size:16px;font-weight:700;">${esc(t.trustee_name)}</h3>
+            <p style="font-size:13px;color:var(--muted);">${esc(t.trustee_email)} ${t.relationship ? '· ' + esc(t.relationship) : ''}</p>
+            <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;">
+              <span class="badge ${t.verified ? 'badge-green' : 'badge-gray'}">${t.verified ? 'Verified' : 'Unverified'}</span>
+              <span class="badge badge-blue">${esc(t.access_level)}</span>
+              <span class="badge badge-gray">${esc(t.release_type)}${t.release_type === 'inactivity' ? ' (' + t.inactivity_days + ' days)' : ''}</span>
+              ${t.activated ? '<span class="badge badge-red">ACTIVATED</span>' : ''}
+            </div>
+          </div>
+          <div class="action-menu">
+            <button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button>
+            <div class="action-dropdown">
+              ${!t.verified ? `<button onclick="doVerifyTrustee('${t.id}')" style="color:var(--green);">Verify</button>` : ''}
+              ${!t.activated ? `<button onclick="doActivateTrustee('${t.id}')">Activate Access</button>` : ''}
+              <button onclick="confirmDeleteTrustee('${t.id}')" style="color:var(--red);">Remove</button>
+            </div>
+          </div>
+        </div>
+      </div>`;
+    });
+  }
+  el.innerHTML = html;
+}
+
+window.openNewTrusteeModal = function() {
+  openModal(`
+    <h3 style="margin-bottom:16px;">Add Trusted Person</h3>
+    <div class="form-group"><label>Name *</label><input type="text" id="nk-name" placeholder="Full name"></div>
+    <div class="form-group"><label>Email *</label><input type="email" id="nk-email" placeholder="their@email.com"></div>
+    <div class="form-group"><label>Relationship</label><input type="text" id="nk-rel" placeholder="Spouse, sibling, lawyer..."></div>
+    <div class="form-row">
+      <div class="form-group"><label>Access Level</label><select id="nk-access">
+        <option value="readonly">Read Only</option><option value="full">Full Access</option><option value="custom">Custom</option>
+      </select></div>
+      <div class="form-group"><label>Release Trigger</label><select id="nk-release" onchange="document.getElementById('nk-days-wrap').style.display=this.value==='inactivity'?'':'none'">
+        <option value="manual">Manual Only</option><option value="inactivity">After Inactivity</option><option value="death">Death Certificate</option>
+      </select></div>
+    </div>
+    <div class="form-group" id="nk-days-wrap" style="display:none;"><label>Inactivity Days</label><input type="number" id="nk-days" value="90" min="7" max="365"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;">
+      <button class="btn btn-secondary btn-sm" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-primary btn-sm" onclick="doCreateTrustee()">Add Trustee</button>
+    </div>
+  `, { maxWidth: '460px' });
+};
+
+window.doCreateTrustee = async function() {
+  const name = document.getElementById('nk-name').value.trim();
+  const email = document.getElementById('nk-email').value.trim();
+  if (!name || !email) return toast('Name and email required.', 'error');
+  await createTrustee(currentUser.id, {
+    trusteeName: name, trusteeEmail: email,
+    relationship: document.getElementById('nk-rel').value.trim(),
+    accessLevel: document.getElementById('nk-access').value,
+    releaseType: document.getElementById('nk-release').value,
+    inactivityDays: parseInt(document.getElementById('nk-days')?.value) || 90
+  });
+  closeModal(); toast('Trustee added.', 'success'); navTo('nok');
+};
+
+window.doVerifyTrustee = async function(id) {
+  await verifyTrustee(id);
+  toast('Trustee verified.', 'success'); navTo('nok');
+};
+
+window.doActivateTrustee = async function(id) {
+  if (!confirm('Activate access for this trustee? They will be able to view your records.')) return;
+  const reason = prompt('Reason for activation (optional):') || '';
+  await activateTrustee(id, reason);
+  toast('Access activated.', 'success'); navTo('nok');
+};
+
+window.confirmDeleteTrustee = async function(id) {
+  if (!confirm('Remove this trustee?')) return;
+  await deleteTrustee(id);
+  toast('Trustee removed.', 'success'); navTo('nok');
 };
 
 // ── Admin ─────────────────────────────────────────────────────────
