@@ -2048,7 +2048,7 @@
       // Admin accounts can be recipients of shared records too — excluding them meant
       // confirmed entries were never migrated into their db.entries.
       // Skip if _dashSharedLoading is set (we're already inside a _loadSharedWithMe → renderDash cycle)
-      if (_IS_SERVER && !window._dashSharedLoading) {
+      if (_IS_SERVER && !window._dashSharedLoading && !_freshnessPaused) {
         _loadSharedWithMe();
         _loadSharedGroupsAndInvestments();
       }
@@ -5376,11 +5376,15 @@
       // If deleted entry was a settlement, resync the linked invoice
       if (linkedInv) { _syncInvoiceStatus(linkedInv); _pushShareStatus(linkedInv); }
       logAudit('delete_entry', { eid });
+      // PAUSE ALL background loading BEFORE refreshing the page
+      // Otherwise renderDash → _loadSharedWithMe re-inserts the entry
+      _freshnessPaused = true;
+      _sharedWithMeRunning = true; // block _loadSharedWithMe from starting
       toast('Entry deleted');
       refreshCurPage();
-      // AWAIT the save — must complete before any polling can reload old data
-      _freshnessPaused = true;
+      // AWAIT the save so server has the clean blob before polling resumes
       try { await saveNow(); } catch(_) { save(); }
+      _sharedWithMeRunning = false;
       setTimeout(() => { _freshnessPaused = false; }, 5000);
     }
 
