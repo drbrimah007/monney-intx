@@ -84,6 +84,23 @@ let v2User = null;
 let v1Data = null;
 const logEl = document.getElementById('log');
 
+// Convert any date format to YYYY-MM-DD
+function parseDate(d) {
+  if (!d) return new Date().toISOString().slice(0, 10);
+  // Already a date string like "2026-03-24"
+  if (typeof d === 'string' && d.match(/^\d{4}-\d{2}-\d{2}/)) return d.slice(0, 10);
+  // Unix milliseconds (number or numeric string)
+  const num = typeof d === 'number' ? d : parseInt(d);
+  if (!isNaN(num) && num > 1000000000) {
+    // If > 10 digits, it's milliseconds. If 10 digits, seconds.
+    const ms = num > 9999999999 ? num : num * 1000;
+    return new Date(ms).toISOString().slice(0, 10);
+  }
+  // Try parsing as date string
+  try { return new Date(d).toISOString().slice(0, 10); } catch(_) {}
+  return new Date().toISOString().slice(0, 10);
+}
+
 function log(msg, type = '') {
   const span = document.createElement('span');
   span.className = type;
@@ -180,7 +197,7 @@ window.runMigration = async function() {
       start_toy: Math.round((c.startToy || 0) * 100),
       start_yot: Math.round((c.startYot || 0) * 100),
       archived_at: c.archived ? new Date().toISOString() : null,
-      created_at: c.createdAt ? new Date(c.createdAt).toISOString() : new Date().toISOString()
+      created_at: c.createdAt ? new Date(typeof c.createdAt === 'number' ? c.createdAt : Date.parse(c.createdAt)).toISOString() : new Date().toISOString()
     });
     if (error) { migrated.errors++; log('Contact error: ' + c.name + ' - ' + error.message, 'error'); }
     else migrated.contacts++;
@@ -207,7 +224,7 @@ window.runMigration = async function() {
       tx_type: t.txType || null, fields: t.fields || [],
       invoice_prefix: t.invoicePrefix || 'INV-', invoice_next_num: t.invoiceNextNum || 1,
       is_public: t.isPublic || false,
-      created_at: t.createdAt ? new Date(t.createdAt).toISOString() : new Date().toISOString()
+      created_at: t.createdAt ? new Date(typeof t.createdAt === 'number' ? t.createdAt : Date.parse(t.createdAt)).toISOString() : new Date().toISOString()
     }).select().single();
     if (error) { migrated.errors++; log('Template error: ' + t.name + ' - ' + error.message, 'error'); }
     else { migrated.templates++; if (data) templateMap[t.id] = data.id; }
@@ -232,7 +249,7 @@ window.runMigration = async function() {
       user_id: userId, contact_id: contactId,
       tx_type: e.txType || 'they_owe_you', amount, currency: e.currency || 'USD',
       settled_amount: Math.round((parseFloat(e.settledAmt) || 0) * 100),
-      note: e.note || '', date: e.date || new Date().toISOString().slice(0, 10),
+      note: e.note || '', date: parseDate(e.date),
       invoice_number: e.invoiceNumber || '', entry_number: e.entryNum || null,
       status: e.status || 'posted', template_id: templateId,
       template_data: e.templateData || {}, is_shared: e.isShared || false,
@@ -241,7 +258,7 @@ window.runMigration = async function() {
       no_ledger: e.noLedger || false, is_receipt: e.isReceipt || false,
       reminder_count: e.reminderCount || 0,
       archived_at: e.archived ? new Date().toISOString() : null,
-      created_at: e.createdAt ? new Date(e.createdAt).toISOString() : new Date().toISOString()
+      created_at: e.createdAt ? new Date(typeof e.createdAt === 'number' ? e.createdAt : Date.parse(e.createdAt)).toISOString() : new Date().toISOString()
     }).select().single();
     if (error) { migrated.errors++; log('Entry error: ' + (e.invoiceNumber || e.id?.slice(-6)) + ' - ' + error.message, 'error'); }
     else { migrated.entries++; if (data) entryMap[e.id] = data.id; }
@@ -259,7 +276,7 @@ window.runMigration = async function() {
       amount: Math.round((parseFloat(g.amount) || 0) * 100),
       currency: g.currency || 'USD', frequency: g.frequency || 'monthly',
       use_rotation: g.useRotation || false,
-      created_at: g.createdAt ? new Date(g.createdAt).toISOString() : new Date().toISOString()
+      created_at: g.createdAt ? new Date(typeof g.createdAt === 'number' ? g.createdAt : Date.parse(g.createdAt)).toISOString() : new Date().toISOString()
     }).select().single();
     if (error) { migrated.errors++; log('Group error: ' + g.name + ' - ' + error.message, 'error'); continue; }
     migrated.groups++;
@@ -284,7 +301,7 @@ window.runMigration = async function() {
       type: inv.type || 'general', initial_amount: Math.round((parseFloat(inv.initialAmount) || 0) * 100),
       currency: inv.currency || 'USD', expected_return: inv.expectedReturn || null,
       status: inv.status || 'active',
-      created_at: inv.createdAt ? new Date(inv.createdAt).toISOString() : new Date().toISOString()
+      created_at: inv.createdAt ? new Date(typeof inv.createdAt === 'number' ? inv.createdAt : Date.parse(inv.createdAt)).toISOString() : new Date().toISOString()
     }).select().single();
     if (error) { migrated.errors++; log('Investment error: ' + inv.name + ' - ' + error.message, 'error'); continue; }
     migrated.investments++;
