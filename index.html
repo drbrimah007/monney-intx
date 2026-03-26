@@ -1879,7 +1879,8 @@
       // ── STANDARD USER ROLE ───────────────────────────────────────────
       } else {
         const myContacts = db.contacts.filter(c => c.userId === u.id && !c.archived);
-        const myEntries  = db.entries.filter(e => e.userId === u.id);
+        const _dashDel = new Set(db.settings?._deletedEntryIds || []);
+        const myEntries  = db.entries.filter(e => e.userId === u.id && !_dashDel.has(e.id) && !(e.shareToken && _dashDel.has('st:' + e.shareToken)));
         let totToy = 0, totYot = 0;
         myContacts.forEach(c => { const l = getLedger(c.id); totToy += l.toy; totYot += l.yot; });
         const net = totToy - totYot;
@@ -2134,7 +2135,9 @@
 
 
     async function _loadSharedWithMeInner() {
-      if (_freshnessPaused) return; // skip during delete operations
+      if (_freshnessPaused) return;
+      // Skip entirely if user has deleted entries — prevent zombie re-creation
+      if ((db.settings?._deletedEntryIds || []).length > 0) return;
       const el = document.getElementById('shared-with-me');
       // Note: el may be null if we're on the entries page — that's fine, we still load the data
       try {
