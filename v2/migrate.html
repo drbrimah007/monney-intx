@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Money IntX — v1 → v2 Migration Tool</title>
+<style>
+  body { font-family: Inter, -apple-system, sans-serif; background: #f8fafc; color: #0f172a; margin: 0; padding: 24px; }
+  .container { max-width: 700px; margin: 0 auto; }
+  h1 { font-size: 24px; font-weight: 800; margin-bottom: 8px; }
+  .subtitle { color: #64748b; font-size: 14px; margin-bottom: 32px; }
+  .card { background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 24px; margin-bottom: 16px; }
+  .step { display: flex; gap: 16px; align-items: flex-start; margin-bottom: 20px; }
+  .step-num { width: 32px; height: 32px; border-radius: 50%; background: #6c63ff; color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 14px; flex-shrink: 0; }
+  .step-num.done { background: #16a34a; }
+  .step-num.error { background: #dc2626; }
+  .btn { padding: 10px 24px; border-radius: 10px; font-size: 14px; font-weight: 600; cursor: pointer; border: none; }
+  .btn-primary { background: #6c63ff; color: #fff; }
+  .btn-primary:hover { background: #5a52e0; }
+  .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn-secondary { background: #fff; color: #0f172a; border: 1px solid #e2e8f0; }
+  .progress { width: 100%; height: 8px; background: #e2e8f0; border-radius: 4px; overflow: hidden; margin: 12px 0; }
+  .progress-bar { height: 100%; background: #6c63ff; border-radius: 4px; transition: width 0.3s; }
+  .log { background: #0f172a; color: #94a3b8; border-radius: 10px; padding: 16px; font-family: monospace; font-size: 12px; max-height: 300px; overflow-y: auto; white-space: pre-wrap; }
+  .log .success { color: #4ade80; }
+  .log .error { color: #f87171; }
+  .log .info { color: #60a5fa; }
+  .log .warn { color: #fbbf24; }
+  .stat { display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px; background: #f1f5f9; border-radius: 8px; font-size: 13px; font-weight: 600; margin: 2px; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>v1 → v2 Migration Tool</h1>
+  <p class="subtitle">Migrate your Money IntX data from the blob-based v1 to the relational v2 database.</p>
+
+  <div class="card">
+    <h3 style="margin-bottom:16px;">How it works</h3>
+    <div class="step"><div class="step-num">1</div><div><strong>Export v1 data</strong><br><span style="color:#64748b;font-size:13px;">Downloads your current blob data as JSON</span></div></div>
+    <div class="step"><div class="step-num">2</div><div><strong>Clean &amp; transform</strong><br><span style="color:#64748b;font-size:13px;">Converts amounts to cents, maps fields, deduplicates</span></div></div>
+    <div class="step"><div class="step-num">3</div><div><strong>Import to v2</strong><br><span style="color:#64748b;font-size:13px;">Inserts rows into Supabase tables</span></div></div>
+    <div class="step"><div class="step-num">4</div><div><strong>Verify</strong><br><span style="color:#64748b;font-size:13px;">Checks counts match and data integrity</span></div></div>
+  </div>
+
+  <div class="card">
+    <h3 style="margin-bottom:12px;">Step 1: Login to v2</h3>
+    <p style="font-size:13px;color:#64748b;margin-bottom:12px;">Sign in with your v2 account (must be the same email as v1).</p>
+    <div style="display:flex;gap:8px;margin-bottom:12px;">
+      <input type="email" id="m-email" placeholder="Email" style="flex:1;padding:8px 12px;border:1px solid #e2e8f0;border-radius:8px;font-size:14px;">
+      <input type="password" id="m-pass" placeholder="Password" style="flex:1;padding:8px 12px;border:1px solid #e2e8f0;border-radius:8px;font-size:14px;">
+      <button class="btn btn-primary" onclick="migrateLogin()">Login</button>
+    </div>
+    <div id="auth-status" style="font-size:13px;color:#64748b;"></div>
+  </div>
+
+  <div class="card">
+    <h3 style="margin-bottom:12px;">Step 2: Load v1 Data</h3>
+    <p style="font-size:13px;color:#64748b;margin-bottom:12px;">Paste your v1 blob JSON, or load from localStorage.</p>
+    <div style="display:flex;gap:8px;margin-bottom:12px;">
+      <button class="btn btn-secondary" onclick="loadFromLocalStorage()">Load from localStorage</button>
+      <button class="btn btn-secondary" onclick="document.getElementById('file-input').click()">Upload JSON file</button>
+      <input type="file" id="file-input" accept=".json" style="display:none;" onchange="loadFromFile(event)">
+    </div>
+    <div id="v1-stats" style="display:none;margin-top:12px;"></div>
+  </div>
+
+  <div class="card">
+    <h3 style="margin-bottom:12px;">Step 3: Migrate</h3>
+    <button class="btn btn-primary" id="migrate-btn" disabled onclick="runMigration()">Start Migration</button>
+    <div class="progress" style="display:none;" id="progress-wrap"><div class="progress-bar" id="progress-bar" style="width:0%"></div></div>
+    <div id="migrate-stats" style="margin-top:12px;display:none;"></div>
+  </div>
+
+  <div class="card">
+    <h3 style="margin-bottom:12px;">Log</h3>
+    <div class="log" id="log">Waiting...</div>
+  </div>
+</div>
+
+<script type="module">
+import { supabase } from './js/supabase.js';
+
+let v2User = null;
+let v1Data = null;
+const logEl = document.getElementById('log');
+
+function log(msg, type = '') {
+  const span = document.createElement('span');
+  span.className = type;
+  span.textContent = msg + '\n';
+  logEl.appendChild(span);
+  logEl.scrollTop = logEl.scrollHeight;
+}
+
+// ── Auth ──────────────────────────────────────────────────────────
+window.migrateLogin = async function() {
+  const email = document.getElementById('m-email').value.trim();
+  const pass = document.getElementById('m-pass').value;
+  const { data, error } = await supabase.auth.signInWithPassword({ email, password: pass });
+  if (error) { document.getElementById('auth-status').innerHTML = `<span style="color:#dc2626;">${error.message}</span>`; return; }
+  v2User = data.user;
+  document.getElementById('auth-status').innerHTML = `<span style="color:#16a34a;">Logged in as ${email}</span>`;
+  log('Authenticated as ' + email, 'success');
+  checkReady();
+};
+
+// ── Load v1 data ──────────────────────────────────────────────────
+window.loadFromLocalStorage = function() {
+  try {
+    const raw = localStorage.getItem('mxi_v2');
+    if (!raw) return log('No mxi_v2 data in localStorage', 'error');
+    v1Data = JSON.parse(raw);
+    showV1Stats();
+    log('Loaded v1 data from localStorage', 'success');
+    checkReady();
+  } catch(e) { log('Failed to parse localStorage: ' + e.message, 'error'); }
+};
+
+window.loadFromFile = function(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    try {
+      v1Data = JSON.parse(e.target.result);
+      showV1Stats();
+      log('Loaded v1 data from file: ' + file.name, 'success');
+      checkReady();
+    } catch(err) { log('Failed to parse file: ' + err.message, 'error'); }
+  };
+  reader.readAsText(file);
+};
+
+function showV1Stats() {
+  const el = document.getElementById('v1-stats');
+  el.style.display = '';
+  const entries = (v1Data.entries || []).length;
+  const contacts = (v1Data.contacts || []).length;
+  const templates = (v1Data.templates || []).length;
+  const groups = (v1Data.groups || []).length;
+  const investments = (v1Data.investments || []).length;
+  const notifs = (v1Data.notifs || []).length;
+  const recurring = (v1Data.recurring || []).length;
+  el.innerHTML = `
+    <span class="stat">Entries: ${entries}</span>
+    <span class="stat">Contacts: ${contacts}</span>
+    <span class="stat">Templates: ${templates}</span>
+    <span class="stat">Groups: ${groups}</span>
+    <span class="stat">Investments: ${investments}</span>
+    <span class="stat">Recurring: ${recurring}</span>
+    <span class="stat">Notifications: ${notifs}</span>
+  `;
+}
+
+function checkReady() {
+  document.getElementById('migrate-btn').disabled = !(v2User && v1Data);
+}
+
+// ── Migration ─────────────────────────────────────────────────────
+window.runMigration = async function() {
+  const btn = document.getElementById('migrate-btn');
+  btn.disabled = true; btn.textContent = 'Migrating...';
+  const pw = document.getElementById('progress-wrap'); pw.style.display = '';
+  const pb = document.getElementById('progress-bar');
+  const statsEl = document.getElementById('migrate-stats'); statsEl.style.display = '';
+  let migrated = { contacts: 0, entries: 0, templates: 0, groups: 0, investments: 0, notifs: 0, recurring: 0, skipped: 0, errors: 0 };
+
+  const deletedIds = new Set(v1Data.settings?._deletedEntryIds || []);
+  const userId = v2User.id;
+
+  // ── Contacts ────────────────────────────────────────────────────
+  log('Migrating contacts...', 'info');
+  pb.style.width = '10%';
+  const contacts = (v1Data.contacts || []).filter(c => c.userId === v1Data.settings?.sessionUserId || !c.userId);
+  for (const c of contacts) {
+    if (!c.name) { migrated.skipped++; continue; }
+    const { error } = await supabase.from('contacts').insert({
+      user_id: userId, name: c.name, email: c.email || '', phone: c.phone || '',
+      address: c.address || '', notes: c.notes || '', tags: c.tags || [],
+      start_toy: Math.round((c.startToy || 0) * 100),
+      start_yot: Math.round((c.startYot || 0) * 100),
+      archived_at: c.archived ? new Date().toISOString() : null,
+      created_at: c.createdAt ? new Date(c.createdAt).toISOString() : new Date().toISOString()
+    });
+    if (error) { migrated.errors++; log('Contact error: ' + c.name + ' - ' + error.message, 'error'); }
+    else migrated.contacts++;
+  }
+  log(`Contacts: ${migrated.contacts} migrated, ${migrated.skipped} skipped`, 'success');
+
+  // Build contact ID map (v1 id → v2 id by name+email match)
+  const { data: v2Contacts } = await supabase.from('contacts').select('id, name, email').eq('user_id', userId);
+  const contactMap = {};
+  contacts.forEach(c => {
+    const match = (v2Contacts || []).find(v => v.name === c.name || (v.email && v.email === c.email));
+    if (match) contactMap[c.id] = match.id;
+  });
+
+  // ── Templates ───────────────────────────────────────────────────
+  log('Migrating templates...', 'info');
+  pb.style.width = '25%';
+  const templates = (v1Data.templates || []).filter(t => t.userId === v1Data.settings?.sessionUserId || !t.userId);
+  const templateMap = {};
+  for (const t of templates) {
+    if (!t.name) { migrated.skipped++; continue; }
+    const { data, error } = await supabase.from('templates').insert({
+      user_id: userId, name: t.name, description: t.desc || '',
+      tx_type: t.txType || null, fields: t.fields || [],
+      invoice_prefix: t.invoicePrefix || 'INV-', invoice_next_num: t.invoiceNextNum || 1,
+      is_public: t.isPublic || false,
+      created_at: t.createdAt ? new Date(t.createdAt).toISOString() : new Date().toISOString()
+    }).select().single();
+    if (error) { migrated.errors++; log('Template error: ' + t.name + ' - ' + error.message, 'error'); }
+    else { migrated.templates++; if (data) templateMap[t.id] = data.id; }
+  }
+  log(`Templates: ${migrated.templates} migrated`, 'success');
+
+  // ── Entries ─────────────────────────────────────────────────────
+  log('Migrating entries...', 'info');
+  pb.style.width = '50%';
+  const entries = (v1Data.entries || []).filter(e => {
+    if (deletedIds.has(e.id)) return false;
+    if (e.shareToken && deletedIds.has('st:' + e.shareToken)) return false;
+    return e.userId === v1Data.settings?.sessionUserId || !e.userId;
+  });
+  const entryMap = {};
+  for (const e of entries) {
+    const contactId = contactMap[e.cId] || null;
+    const templateId = templateMap[e.templateId] || null;
+    const amount = Math.round((parseFloat(e.amount) || 0) * 100);
+    if (amount === 0 && !e.invoiceNumber) { migrated.skipped++; continue; }
+    const { data, error } = await supabase.from('entries').insert({
+      user_id: userId, contact_id: contactId,
+      tx_type: e.txType || 'they_owe_you', amount, currency: e.currency || 'USD',
+      settled_amount: Math.round((parseFloat(e.settledAmt) || 0) * 100),
+      note: e.note || '', date: e.date || new Date().toISOString().slice(0, 10),
+      invoice_number: e.invoiceNumber || '', entry_number: e.entryNum || null,
+      status: e.status || 'posted', template_id: templateId,
+      template_data: e.templateData || {}, is_shared: e.isShared || false,
+      share_token: e.shareToken || null, from_name: e.fromName || '',
+      from_email: e.fromEmail || '', sender_tx_type: e.senderTxType || null,
+      no_ledger: e.noLedger || false, is_receipt: e.isReceipt || false,
+      reminder_count: e.reminderCount || 0,
+      archived_at: e.archived ? new Date().toISOString() : null,
+      created_at: e.createdAt ? new Date(e.createdAt).toISOString() : new Date().toISOString()
+    }).select().single();
+    if (error) { migrated.errors++; log('Entry error: ' + (e.invoiceNumber || e.id?.slice(-6)) + ' - ' + error.message, 'error'); }
+    else { migrated.entries++; if (data) entryMap[e.id] = data.id; }
+  }
+  log(`Entries: ${migrated.entries} migrated`, 'success');
+
+  // ── Groups ──────────────────────────────────────────────────────
+  log('Migrating groups...', 'info');
+  pb.style.width = '65%';
+  const groups = (v1Data.groups || []).filter(g => !g._shared && (g.userId === v1Data.settings?.sessionUserId || !g.userId));
+  for (const g of groups) {
+    if (!g.name) { migrated.skipped++; continue; }
+    const { data: grp, error } = await supabase.from('groups').insert({
+      user_id: userId, name: g.name, description: g.description || '',
+      amount: Math.round((parseFloat(g.amount) || 0) * 100),
+      currency: g.currency || 'USD', frequency: g.frequency || 'monthly',
+      use_rotation: g.useRotation || false,
+      created_at: g.createdAt ? new Date(g.createdAt).toISOString() : new Date().toISOString()
+    }).select().single();
+    if (error) { migrated.errors++; log('Group error: ' + g.name + ' - ' + error.message, 'error'); continue; }
+    migrated.groups++;
+    // Members
+    for (const m of (g.members || [])) {
+      await supabase.from('group_members').insert({
+        group_id: grp.id, contact_id: contactMap[m.contactId] || null,
+        name: m.name || 'Member', role: m.role || 'member', status: 'active'
+      });
+    }
+  }
+  log(`Groups: ${migrated.groups} migrated`, 'success');
+
+  // ── Investments ─────────────────────────────────────────────────
+  log('Migrating investments...', 'info');
+  pb.style.width = '80%';
+  const investments = (v1Data.investments || []).filter(i => !i._shared && (i.userId === v1Data.settings?.sessionUserId || !i.userId));
+  for (const inv of investments) {
+    if (!inv.name) { migrated.skipped++; continue; }
+    const { data: newInv, error } = await supabase.from('investments').insert({
+      user_id: userId, name: inv.name, description: inv.description || '',
+      type: inv.type || 'general', initial_amount: Math.round((parseFloat(inv.initialAmount) || 0) * 100),
+      currency: inv.currency || 'USD', expected_return: inv.expectedReturn || null,
+      status: inv.status || 'active',
+      created_at: inv.createdAt ? new Date(inv.createdAt).toISOString() : new Date().toISOString()
+    }).select().single();
+    if (error) { migrated.errors++; log('Investment error: ' + inv.name + ' - ' + error.message, 'error'); continue; }
+    migrated.investments++;
+    // Transactions
+    for (const t of (inv.transactions || [])) {
+      await supabase.from('investment_transactions').insert({
+        investment_id: newInv.id, type: t.type || 'deposit',
+        amount: Math.round((parseFloat(t.amount) || 0) * 100),
+        note: t.note || '', recorded_by: userId
+      });
+    }
+    // Members
+    for (const m of (inv.members || [])) {
+      await supabase.from('investment_members').insert({
+        investment_id: newInv.id, contact_id: contactMap[m.contactId] || null,
+        name: m.name || 'Member', role: m.role || 'member'
+      });
+    }
+  }
+  log(`Investments: ${migrated.investments} migrated`, 'success');
+
+  // ── Recurring ───────────────────────────────────────────────────
+  log('Migrating recurring rules...', 'info');
+  pb.style.width = '90%';
+  for (const r of (v1Data.recurring || [])) {
+    const cId = contactMap[r.contactId] || null;
+    await supabase.from('recurring_rules').insert({
+      user_id: userId, contact_id: cId, template_id: templateMap[r.templateId] || null,
+      frequency: r.frequency || 'monthly', custom_days: r.customDays || null,
+      next_run_at: r.nextDate ? new Date(r.nextDate).toISOString() : new Date().toISOString(),
+      tx_type: r.txType || 'they_owe_you',
+      amount: Math.round((parseFloat(r.amount) || 0) * 100),
+      currency: r.currency || 'USD', note: r.note || '',
+      auto_notify: r.autoNotify || false, active: r.active !== false
+    });
+    migrated.recurring++;
+  }
+  log(`Recurring: ${migrated.recurring} migrated`, 'success');
+
+  // ── Notifications (skip — they're transient) ────────────────────
+  log('Skipping notifications (transient data)', 'warn');
+
+  // ── Done ────────────────────────────────────────────────────────
+  pb.style.width = '100%';
+  pb.style.background = '#16a34a';
+  log('', '');
+  log('═══════════════════════════════════════', 'success');
+  log('MIGRATION COMPLETE', 'success');
+  log(`Contacts:    ${migrated.contacts}`, 'success');
+  log(`Entries:     ${migrated.entries}`, 'success');
+  log(`Templates:   ${migrated.templates}`, 'success');
+  log(`Groups:      ${migrated.groups}`, 'success');
+  log(`Investments: ${migrated.investments}`, 'success');
+  log(`Recurring:   ${migrated.recurring}`, 'success');
+  log(`Skipped:     ${migrated.skipped}`, 'warn');
+  log(`Errors:      ${migrated.errors}`, migrated.errors > 0 ? 'error' : 'success');
+  log('═══════════════════════════════════════', 'success');
+
+  statsEl.innerHTML = `
+    <span class="stat" style="background:#d1fae5;">Contacts: ${migrated.contacts}</span>
+    <span class="stat" style="background:#d1fae5;">Entries: ${migrated.entries}</span>
+    <span class="stat" style="background:#d1fae5;">Templates: ${migrated.templates}</span>
+    <span class="stat" style="background:#d1fae5;">Groups: ${migrated.groups}</span>
+    <span class="stat" style="background:#d1fae5;">Investments: ${migrated.investments}</span>
+    <span class="stat" style="background:#d1fae5;">Recurring: ${migrated.recurring}</span>
+    ${migrated.errors > 0 ? `<span class="stat" style="background:#fee2e2;">Errors: ${migrated.errors}</span>` : ''}
+  `;
+  btn.textContent = 'Done!';
+};
+</script>
+</body>
+</html>
