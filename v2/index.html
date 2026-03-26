@@ -1,0 +1,581 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Money IntX v2</title>
+<link rel="icon" type="image/png" href="../money.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+:root {
+  --accent: #6c63ff;
+  --accent-hover: #5a52e0;
+  --green: #16a34a;
+  --red: #dc2626;
+  --amber: #d97706;
+  --bg: #ffffff;
+  --bg2: #f8fafc;
+  --bg3: #f1f5f9;
+  --text: #0f172a;
+  --muted: #64748b;
+  --border: #e2e8f0;
+  --radius: 12px;
+  --shadow: 0 1px 3px rgba(0,0,0,0.08);
+  --shadow-lg: 0 8px 24px rgba(0,0,0,0.08);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0f172a; --bg2: #1e293b; --bg3: #334155;
+    --text: #f1f5f9; --muted: #94a3b8; --border: #334155;
+  }
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: 'Inter', -apple-system, sans-serif; background: var(--bg2); color: var(--text); line-height: 1.5; -webkit-font-smoothing: antialiased; }
+a { color: var(--accent); text-decoration: none; }
+
+/* Shell */
+.shell { display: none; min-height: 100vh; }
+.shell.active { display: flex; }
+.sidebar { width: 240px; background: var(--bg); border-right: 1px solid var(--border); padding: 20px 0; display: flex; flex-direction: column; position: fixed; top: 0; bottom: 0; z-index: 50; }
+.sidebar-brand { padding: 0 20px 20px; font-size: 18px; font-weight: 800; color: var(--accent); }
+.sidebar-nav { flex: 1; }
+.sidebar-nav a { display: flex; align-items: center; gap: 10px; padding: 10px 20px; font-size: 14px; font-weight: 500; color: var(--muted); transition: all 0.15s; cursor: pointer; }
+.sidebar-nav a:hover, .sidebar-nav a.active { background: var(--bg3); color: var(--text); }
+.sidebar-nav a.active { font-weight: 600; border-right: 3px solid var(--accent); }
+.sidebar-user { padding: 16px 20px; border-top: 1px solid var(--border); font-size: 13px; }
+.main { margin-left: 240px; flex: 1; padding: 24px; min-height: 100vh; }
+.page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 12px; }
+.page-header h2 { font-size: 22px; font-weight: 700; }
+
+/* Cards */
+.card { background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; box-shadow: var(--shadow); }
+.card + .card { margin-top: 12px; }
+.stat-card { background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; text-align: center; }
+.stat-lbl { font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+.stat-val { font-size: 24px; font-weight: 800; margin-top: 4px; }
+.grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 16px; }
+
+/* Buttons */
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 10px 20px; border-radius: 10px; font-size: 14px; font-weight: 600; cursor: pointer; border: none; transition: all 0.15s; }
+.btn-primary { background: var(--accent); color: #fff; }
+.btn-primary:hover { background: var(--accent-hover); }
+.btn-secondary { background: var(--bg); color: var(--text); border: 1px solid var(--border); }
+.btn-secondary:hover { border-color: var(--muted); }
+.btn-danger { background: #fee2e2; color: var(--red); }
+.btn-sm { padding: 6px 14px; font-size: 13px; border-radius: 8px; }
+
+/* Forms */
+input, textarea, select { width: 100%; padding: 10px 14px; border: 1.5px solid var(--border); border-radius: 10px; font-size: 14px; font-family: inherit; color: var(--text); background: var(--bg); outline: none; }
+input:focus, textarea:focus, select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(108,99,255,0.1); }
+label { display: block; font-size: 13px; font-weight: 600; color: var(--muted); margin-bottom: 6px; }
+.form-group { margin-bottom: 14px; }
+.form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+/* Tables */
+.tbl-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+th { text-align: left; padding: 10px 12px; font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 2px solid var(--border); }
+td { padding: 10px 12px; border-bottom: 1px solid var(--border); }
+tr:hover { background: var(--bg2); }
+
+/* Badge */
+.badge { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 6px; font-size: 11px; font-weight: 700; }
+.badge-blue { background: rgba(108,99,255,0.1); color: var(--accent); }
+.badge-green { background: rgba(22,163,74,0.1); color: var(--green); }
+.badge-red { background: rgba(220,38,38,0.1); color: var(--red); }
+.badge-gray { background: var(--bg3); color: var(--muted); }
+
+/* Action menu */
+.action-menu { position: relative; display: inline-block; }
+.action-menu-btn { background: none; border: 1px solid var(--border); border-radius: 6px; padding: 4px 8px; cursor: pointer; font-size: 16px; color: var(--muted); }
+.action-dropdown { display: none; position: absolute; right: 0; top: 100%; background: var(--bg); border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow-lg); z-index: 100; min-width: 180px; padding: 4px 0; }
+.action-dropdown.open { display: block; }
+.action-dropdown button, .action-dropdown a { display: block; width: 100%; text-align: left; padding: 8px 14px; font-size: 13px; border: none; background: none; cursor: pointer; color: var(--text); text-decoration: none; }
+.action-dropdown button:hover, .action-dropdown a:hover { background: var(--bg3); }
+
+/* Landing */
+.landing { display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 24px; background: linear-gradient(135deg, #6c63ff10, #6c63ff05); }
+.landing-card { background: var(--bg); border-radius: 16px; padding: 40px; max-width: 420px; width: 100%; box-shadow: var(--shadow-lg); }
+.landing-card h1 { font-size: 24px; font-weight: 800; margin-bottom: 8px; }
+.landing-card p { color: var(--muted); font-size: 14px; margin-bottom: 24px; }
+.landing-tabs { display: flex; gap: 0; margin-bottom: 24px; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+.landing-tab { flex: 1; padding: 10px; text-align: center; font-size: 14px; font-weight: 600; cursor: pointer; background: var(--bg); color: var(--muted); border: none; }
+.landing-tab.active { background: var(--accent); color: #fff; }
+
+/* Notification badge */
+.nav-badge { background: var(--red); color: #fff; font-size: 10px; font-weight: 700; border-radius: 50%; min-width: 18px; height: 18px; display: inline-flex; align-items: center; justify-content: center; padding: 0 4px; }
+
+/* Mobile */
+@media (max-width: 768px) {
+  .sidebar { display: none; }
+  .main { margin-left: 0; padding: 16px; padding-bottom: 80px; }
+  .mobile-nav { display: flex !important; }
+  .grid3 { grid-template-columns: 1fr; }
+  .form-row { grid-template-columns: 1fr; }
+  .page-header h2 { font-size: 18px; }
+}
+.mobile-nav { display: none; position: fixed; bottom: 0; left: 0; right: 0; background: var(--bg); border-top: 1px solid var(--border); z-index: 50; justify-content: space-around; padding: 8px 0; }
+.mobile-nav button { display: flex; flex-direction: column; align-items: center; gap: 2px; font-size: 10px; font-weight: 500; color: var(--muted); background: none; border: none; cursor: pointer; padding: 4px 8px; }
+.mobile-nav button.active { color: var(--accent); }
+.mobile-nav .nav-icon { font-size: 20px; }
+
+/* Animations */
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes slideUp { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+</style>
+</head>
+<body>
+
+<!-- Landing / Auth -->
+<div id="landing" class="landing">
+  <div class="landing-card">
+    <div style="text-align:center;margin-bottom:20px;">
+      <div style="font-size:36px;margin-bottom:8px;">💰</div>
+      <h1>Money IntX</h1>
+      <p>Making Money Matters Memorable</p>
+    </div>
+    <div class="landing-tabs">
+      <button class="landing-tab active" onclick="showAuthTab('login')">Log In</button>
+      <button class="landing-tab" onclick="showAuthTab('signup')">Sign Up</button>
+    </div>
+    <div id="auth-forms">
+      <!-- Login form (default) -->
+      <div id="login-form">
+        <div class="form-group"><label>Email</label><input type="email" id="login-email" placeholder="you@example.com"></div>
+        <div class="form-group"><label>Password</label><input type="password" id="login-pass" placeholder="Your password"></div>
+        <button class="btn btn-primary" style="width:100%;margin-top:8px;" onclick="handleLogin()">Log In</button>
+        <p style="text-align:center;margin-top:12px;font-size:13px;"><a href="#" onclick="handleForgotPassword();return false;">Forgot password?</a></p>
+      </div>
+      <!-- Signup form (hidden) -->
+      <div id="signup-form" style="display:none;">
+        <div class="form-group"><label>Display Name</label><input type="text" id="signup-name" placeholder="Your name"></div>
+        <div class="form-group"><label>Email</label><input type="email" id="signup-email" placeholder="you@example.com"></div>
+        <div class="form-group"><label>Password</label><input type="password" id="signup-pass" placeholder="Choose a strong password"></div>
+        <button class="btn btn-primary" style="width:100%;margin-top:8px;" onclick="handleSignup()">Create Account</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- App Shell -->
+<div id="shell" class="shell">
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="sidebar-brand">💰 Money IntX</div>
+    <nav class="sidebar-nav" id="sidebar-nav">
+      <a data-page="dash" class="active" onclick="app.navigate('dash')"><span>📊</span> Dashboard</a>
+      <a data-page="contacts" onclick="app.navigate('contacts')"><span>👤</span> Contacts</a>
+      <a data-page="entries" onclick="app.navigate('entries')"><span>📋</span> Entries</a>
+      <a data-page="templates" onclick="app.navigate('templates')"><span>📄</span> Templates</a>
+      <a data-page="notifications" onclick="app.navigate('notifications')"><span>🔔</span> Notifications <span id="notif-badge" class="nav-badge" style="display:none;">0</span></a>
+      <a data-page="settings" onclick="app.navigate('settings')"><span>⚙️</span> Settings</a>
+    </nav>
+    <div class="sidebar-user">
+      <div id="sidebar-user-name" style="font-weight:600;"></div>
+      <div id="sidebar-user-email" style="font-size:12px;color:var(--muted);"></div>
+      <button class="btn btn-secondary btn-sm" style="margin-top:8px;width:100%;" onclick="app.logOut()">Sign Out</button>
+    </div>
+  </aside>
+
+  <!-- Main content -->
+  <main class="main" id="content">
+    <!-- Pages render here -->
+  </main>
+
+  <!-- Mobile nav -->
+  <nav class="mobile-nav">
+    <button data-page="dash" class="active" onclick="app.navigate('dash')"><span class="nav-icon">📊</span>Dash</button>
+    <button data-page="contacts" onclick="app.navigate('contacts')"><span class="nav-icon">👤</span>Contacts</button>
+    <button data-page="entries" onclick="app.navigate('entries')"><span class="nav-icon">📋</span>Entries</button>
+    <button data-page="notifications" onclick="app.navigate('notifications')"><span class="nav-icon">🔔</span>Notifs</button>
+    <button data-page="settings" onclick="app.navigate('settings')"><span class="nav-icon">⚙️</span>More</button>
+  </nav>
+</div>
+
+<script type="module">
+import { supabase, getCurrentUser, getProfile } from './js/supabase.js';
+import { signUp, logIn, logOut, onAuthChange } from './js/auth.js';
+import { listContacts, createContact, deleteContact } from './js/contacts.js';
+import { listEntries, recentEntries, createEntry, deleteEntry, getDashboardTotals, fmtMoney, toCents, toDollars } from './js/entries.js';
+import { listNotifications, getUnreadCount, markAllRead, subscribeToNotifications } from './js/notifications.js';
+import { toast, esc, navigate, statusBadge, TX_LABELS, TX_COLORS, fmtDate, openModal, closeModal } from './js/ui.js';
+
+let currentUser = null;
+let currentProfile = null;
+let notifChannel = null;
+
+// ── Expose to onclick handlers ────────────────────────────────────
+window.app = { navigate: navTo, logOut: handleLogOut };
+
+// ── Auth tab toggle ───────────────────────────────────────────────
+window.showAuthTab = function(tab) {
+  document.getElementById('login-form').style.display = tab === 'login' ? '' : 'none';
+  document.getElementById('signup-form').style.display = tab === 'signup' ? '' : 'none';
+  document.querySelectorAll('.landing-tab').forEach(t => t.classList.toggle('active', t.textContent.toLowerCase().includes(tab)));
+};
+
+// ── Auth handlers ─────────────────────────────────────────────────
+window.handleLogin = async function() {
+  const email = document.getElementById('login-email').value.trim();
+  const pass = document.getElementById('login-pass').value;
+  if (!email || !pass) return toast('Email and password required.', 'error');
+  const user = await logIn({ email, password: pass });
+  if (user) enterApp(user);
+};
+
+window.handleSignup = async function() {
+  const name = document.getElementById('signup-name').value.trim();
+  const email = document.getElementById('signup-email').value.trim();
+  const pass = document.getElementById('signup-pass').value;
+  if (!name || !email || !pass) return toast('All fields required.', 'error');
+  if (pass.length < 6) return toast('Password must be at least 6 characters.', 'error');
+  const user = await signUp({ email, password: pass, displayName: name });
+  if (user) enterApp(user);
+};
+
+window.handleForgotPassword = async function() {
+  const email = prompt('Enter your email address:');
+  if (!email) return;
+  const { error } = await supabase.auth.resetPasswordForEmail(email);
+  if (error) toast(error.message, 'error');
+  else toast('Password reset email sent.', 'success');
+};
+
+async function handleLogOut() {
+  if (notifChannel) supabase.removeChannel(notifChannel);
+  await logOut();
+  currentUser = null;
+  currentProfile = null;
+  document.getElementById('shell').classList.remove('active');
+  document.getElementById('landing').style.display = '';
+}
+
+// ── Enter app after auth ──────────────────────────────────────────
+async function enterApp(user) {
+  currentUser = user;
+  currentProfile = await getProfile(user.id);
+  document.getElementById('landing').style.display = 'none';
+  document.getElementById('shell').classList.add('active');
+  document.getElementById('sidebar-user-name').textContent = currentProfile?.display_name || user.email;
+  document.getElementById('sidebar-user-email').textContent = user.email;
+
+  // Start realtime notifications
+  notifChannel = subscribeToNotifications(user.id, (notif) => {
+    updateNotifBadge();
+    if (window._currentPage === 'notifications') navTo('notifications');
+    toast(notif.message || 'New notification');
+  });
+
+  updateNotifBadge();
+  navTo('dash');
+}
+
+// ── Notification badge ────────────────────────────────────────────
+async function updateNotifBadge() {
+  if (!currentUser) return;
+  const count = await getUnreadCount(currentUser.id);
+  const badge = document.getElementById('notif-badge');
+  if (badge) {
+    badge.textContent = count;
+    badge.style.display = count > 0 ? '' : 'none';
+  }
+}
+
+// ── Navigation ────────────────────────────────────────────────────
+function navTo(page) {
+  window._currentPage = page;
+  // Update sidebar active state
+  document.querySelectorAll('.sidebar-nav a, .mobile-nav button').forEach(el => {
+    el.classList.toggle('active', el.dataset.page === page);
+  });
+  const content = document.getElementById('content');
+  switch (page) {
+    case 'dash': renderDash(content); break;
+    case 'contacts': renderContacts(content); break;
+    case 'entries': renderEntries(content); break;
+    case 'notifications': renderNotifications(content); break;
+    case 'settings': renderSettings(content); break;
+    default: renderDash(content);
+  }
+  history.replaceState(null, '', '#' + page);
+}
+
+// ── Dashboard ─────────────────────────────────────────────────────
+async function renderDash(el) {
+  el.innerHTML = '<div class="page-header"><h2>Dashboard</h2></div><p style="color:var(--muted);">Loading...</p>';
+  const [totals, recent] = await Promise.all([
+    getDashboardTotals(currentUser.id),
+    recentEntries(currentUser.id)
+  ]);
+  const toyFmt = fmtMoney(totals.total_they_owe_me || 0);
+  const yotFmt = fmtMoney(totals.total_i_owe_them || 0);
+  const netFmt = fmtMoney(totals.total_net || 0);
+  const netColor = (totals.total_net || 0) >= 0 ? 'var(--green)' : 'var(--red)';
+
+  let html = `<div class="page-header"><h2>Dashboard</h2>
+    <div style="display:flex;gap:8px;">
+      <button class="btn btn-primary btn-sm" onclick="app.navigate('entries')">+ Add Entry</button>
+      <button class="btn btn-secondary btn-sm" onclick="app.navigate('contacts')">+ Add Contact</button>
+    </div>
+  </div>`;
+  html += `<div class="grid3">
+    <div class="stat-card"><div class="stat-lbl">They Owe Me</div><div class="stat-val" style="color:var(--green)">${toyFmt}</div></div>
+    <div class="stat-card"><div class="stat-lbl">I Owe Them</div><div class="stat-val" style="color:var(--red)">${yotFmt}</div></div>
+    <div class="stat-card"><div class="stat-lbl">Net Balance</div><div class="stat-val" style="color:${netColor}">${netFmt}</div></div>
+  </div>`;
+
+  html += `<div class="card"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+    <h3 style="font-size:16px;font-weight:700;">Recent Entries</h3>
+    <a onclick="app.navigate('entries')" style="font-size:13px;cursor:pointer;">View all →</a>
+  </div>`;
+  if (recent.length === 0) {
+    html += `<p style="color:var(--muted);font-size:14px;">No entries yet. Create your first one.</p>`;
+  } else {
+    html += `<div class="tbl-wrap"><table><thead><tr><th>Contact</th><th>Amount</th><th>Type</th><th>Date</th><th>Status</th></tr></thead><tbody>`;
+    recent.forEach(e => {
+      const cName = e.contact?.name || '—';
+      const txLabel = TX_LABELS[e.tx_type] || e.tx_type;
+      const txColor = TX_COLORS[e.tx_type] || 'var(--text)';
+      html += `<tr>
+        <td style="font-weight:600;">${esc(cName)}</td>
+        <td style="font-weight:700;">${fmtMoney(e.amount, e.currency)}</td>
+        <td><span style="font-weight:600;color:${txColor};">${esc(txLabel)}</span></td>
+        <td style="color:var(--muted);">${fmtDate(e.date)}</td>
+        <td>${statusBadge(e.status)}</td>
+      </tr>`;
+    });
+    html += `</tbody></table></div>`;
+  }
+  html += `</div>`;
+  el.innerHTML = html;
+}
+
+// ── Contacts ──────────────────────────────────────────────────────
+async function renderContacts(el) {
+  el.innerHTML = '<div class="page-header"><h2>Contacts</h2></div><p style="color:var(--muted);">Loading...</p>';
+  const contacts = await listContacts(currentUser.id);
+
+  let html = `<div class="page-header"><h2>Contacts</h2>
+    <button class="btn btn-primary btn-sm" onclick="openNewContactModal()">+ Add Contact</button>
+  </div>`;
+  if (contacts.length === 0) {
+    html += `<div class="card" style="text-align:center;padding:40px;"><p style="color:var(--muted);">No contacts yet. Add your first one.</p></div>`;
+  } else {
+    html += `<div class="card"><div class="tbl-wrap"><table><thead><tr><th>Name</th><th>Email</th><th>Phone</th><th>Created</th><th></th></tr></thead><tbody>`;
+    contacts.forEach(c => {
+      html += `<tr>
+        <td style="font-weight:600;">${esc(c.name)}</td>
+        <td style="color:var(--muted);font-size:13px;">${esc(c.email || '—')}</td>
+        <td style="color:var(--muted);font-size:13px;">${esc(c.phone || '—')}</td>
+        <td style="color:var(--muted);font-size:13px;">${fmtDate(c.created_at)}</td>
+        <td>
+          <button class="btn btn-secondary btn-sm" onclick="confirmDeleteContact('${c.id}','${esc(c.name)}')">Delete</button>
+        </td>
+      </tr>`;
+    });
+    html += `</tbody></table></div></div>`;
+  }
+  el.innerHTML = html;
+}
+
+window.openNewContactModal = function() {
+  openModal(`
+    <h3 style="margin-bottom:16px;">New Contact</h3>
+    <div class="form-group"><label>Name *</label><input type="text" id="nc-name" placeholder="Contact name"></div>
+    <div class="form-group"><label>Email</label><input type="email" id="nc-email" placeholder="email@example.com"></div>
+    <div class="form-group"><label>Phone</label><input type="tel" id="nc-phone" placeholder="+1 555 000 0000"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;">
+      <button class="btn btn-secondary btn-sm" onclick="document.getElementById('modal')?.remove()">Cancel</button>
+      <button class="btn btn-primary btn-sm" onclick="saveNewContact()">Save</button>
+    </div>
+  `);
+};
+
+window.saveNewContact = async function() {
+  const name = document.getElementById('nc-name').value.trim();
+  if (!name) return toast('Name is required.', 'error');
+  await createContact(currentUser.id, {
+    name,
+    email: document.getElementById('nc-email').value.trim(),
+    phone: document.getElementById('nc-phone').value.trim()
+  });
+  closeModal();
+  toast('Contact added.', 'success');
+  navTo('contacts');
+};
+
+window.confirmDeleteContact = async function(id, name) {
+  if (!confirm('Delete ' + name + '?')) return;
+  await deleteContact(id);
+  toast('Contact deleted.', 'success');
+  navTo('contacts');
+};
+
+// ── Entries ───────────────────────────────────────────────────────
+async function renderEntries(el) {
+  el.innerHTML = '<div class="page-header"><h2>Entries</h2></div><p style="color:var(--muted);">Loading...</p>';
+  const entries = await listEntries(currentUser.id);
+
+  let html = `<div class="page-header"><h2>Entries</h2>
+    <button class="btn btn-primary btn-sm" onclick="openNewEntryModal()">+ Add Entry</button>
+  </div>`;
+  if (entries.length === 0) {
+    html += `<div class="card" style="text-align:center;padding:40px;"><p style="color:var(--muted);">No entries yet. Record your first transaction.</p></div>`;
+  } else {
+    html += `<div class="card"><div class="tbl-wrap"><table><thead><tr><th>Contact</th><th>Amount</th><th>Type</th><th>Date</th><th>Status</th><th></th></tr></thead><tbody>`;
+    entries.forEach(e => {
+      const cName = e.contact?.name || '—';
+      const txLabel = TX_LABELS[e.tx_type] || e.tx_type;
+      const txColor = TX_COLORS[e.tx_type] || 'var(--text)';
+      html += `<tr>
+        <td style="font-weight:600;">${esc(cName)}</td>
+        <td style="font-weight:700;">${fmtMoney(e.amount, e.currency)}</td>
+        <td><span style="font-weight:600;color:${txColor};">${esc(txLabel)}</span></td>
+        <td style="color:var(--muted);">${fmtDate(e.date)}</td>
+        <td>${statusBadge(e.status)}</td>
+        <td>
+          <button class="btn btn-secondary btn-sm" onclick="confirmDeleteEntry('${e.id}')">Delete</button>
+        </td>
+      </tr>`;
+    });
+    html += `</tbody></table></div></div>`;
+  }
+  el.innerHTML = html;
+}
+
+window.openNewEntryModal = async function() {
+  const contacts = await listContacts(currentUser.id);
+  const contactOpts = contacts.map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join('');
+  openModal(`
+    <h3 style="margin-bottom:16px;">New Entry</h3>
+    <div class="form-group"><label>Contact *</label><select id="ne-contact">${contactOpts || '<option value="">No contacts — add one first</option>'}</select></div>
+    <div class="form-group"><label>Type *</label><select id="ne-type">
+      <option value="they_owe_you">They Owe Me</option>
+      <option value="you_owe_them">I Owe Them</option>
+      <option value="invoice">Invoice</option>
+      <option value="bill">Bill</option>
+      <option value="they_paid_you">They Settled Me</option>
+      <option value="you_paid_them">I Settled Them</option>
+    </select></div>
+    <div class="form-row">
+      <div class="form-group"><label>Amount *</label><input type="number" id="ne-amount" min="0" step="0.01" placeholder="0.00"></div>
+      <div class="form-group"><label>Date</label><input type="date" id="ne-date" value="${new Date().toISOString().slice(0,10)}"></div>
+    </div>
+    <div class="form-group"><label>Note</label><textarea id="ne-note" rows="2" placeholder="Optional note..."></textarea></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;">
+      <button class="btn btn-secondary btn-sm" onclick="document.getElementById('modal')?.remove()">Cancel</button>
+      <button class="btn btn-primary btn-sm" onclick="saveNewEntry()">Save Entry</button>
+    </div>
+  `, { maxWidth: '480px' });
+};
+
+window.saveNewEntry = async function() {
+  const contactId = document.getElementById('ne-contact').value;
+  const txType = document.getElementById('ne-type').value;
+  const amount = document.getElementById('ne-amount').value;
+  const date = document.getElementById('ne-date').value;
+  const note = document.getElementById('ne-note').value.trim();
+  if (!contactId) return toast('Select a contact.', 'error');
+  if (!amount || parseFloat(amount) <= 0) return toast('Enter a valid amount.', 'error');
+  await createEntry(currentUser.id, { contactId, txType, amount: parseFloat(amount), date, note });
+  closeModal();
+  toast('Entry created.', 'success');
+  navTo('entries');
+};
+
+window.confirmDeleteEntry = async function(id) {
+  if (!confirm('Delete this entry?')) return;
+  await deleteEntry(id);
+  toast('Entry deleted.', 'success');
+  navTo('entries');
+};
+
+// ── Notifications ─────────────────────────────────────────────────
+async function renderNotifications(el) {
+  el.innerHTML = '<div class="page-header"><h2>Notifications</h2></div><p style="color:var(--muted);">Loading...</p>';
+  const notifs = await listNotifications(currentUser.id);
+  await markAllRead(currentUser.id);
+  updateNotifBadge();
+
+  let html = `<div class="page-header"><h2>Notifications</h2></div>`;
+  if (notifs.length === 0) {
+    html += `<div class="card" style="text-align:center;padding:40px;"><p style="color:var(--muted);">No notifications yet.</p></div>`;
+  } else {
+    html += `<div class="card">`;
+    notifs.forEach(n => {
+      html += `<div style="padding:12px 0;border-bottom:1px solid var(--border);${n.read ? '' : 'background:rgba(108,99,255,0.03);'}">
+        <div style="font-size:14px;">${esc(n.message)}</div>
+        <div style="font-size:12px;color:var(--muted);margin-top:4px;">${fmtDate(n.created_at)}</div>
+      </div>`;
+    });
+    html += `</div>`;
+  }
+  el.innerHTML = html;
+}
+
+// ── Settings ──────────────────────────────────────────────────────
+async function renderSettings(el) {
+  const p = currentProfile || {};
+  let html = `<div class="page-header"><h2>Settings</h2></div>`;
+  html += `<div class="card">
+    <h3 style="font-size:16px;font-weight:700;margin-bottom:16px;">Profile</h3>
+    <div class="form-group"><label>Display Name</label><input type="text" id="s-name" value="${esc(p.display_name || '')}"></div>
+    <div class="form-group"><label>Email</label><input type="email" value="${esc(p.email || '')}" disabled style="opacity:0.6;"></div>
+    <div class="form-group"><label>Phone</label><input type="text" id="s-phone" value="${esc(p.phone || '')}"></div>
+    <div class="form-group"><label>City</label><input type="text" id="s-city" value="${esc(p.city || '')}"></div>
+    <div class="form-group"><label>Default Currency</label><select id="s-currency">
+      ${['USD','EUR','GBP','NGN','CAD','AUD','JPY','KES','ZAR','GHS','INR'].map(c =>
+        `<option value="${c}" ${p.default_currency === c ? 'selected' : ''}>${c}</option>`
+      ).join('')}
+    </select></div>
+    <button class="btn btn-primary btn-sm" onclick="saveSettings()">Save</button>
+  </div>`;
+  html += `<div class="card" style="margin-top:12px;">
+    <h3 style="font-size:16px;font-weight:700;margin-bottom:12px;">Account</h3>
+    <button class="btn btn-danger btn-sm" onclick="app.logOut()">Sign Out</button>
+  </div>`;
+  el.innerHTML = html;
+}
+
+window.saveSettings = async function() {
+  const { error } = await supabase.from('users').update({
+    display_name: document.getElementById('s-name').value.trim(),
+    phone: document.getElementById('s-phone').value.trim(),
+    city: document.getElementById('s-city').value.trim(),
+    default_currency: document.getElementById('s-currency').value,
+    updated_at: new Date().toISOString()
+  }).eq('id', currentUser.id);
+  if (error) return toast(error.message, 'error');
+  currentProfile = await getProfile(currentUser.id);
+  document.getElementById('sidebar-user-name').textContent = currentProfile.display_name;
+  toast('Settings saved.', 'success');
+};
+
+// ── Action menu toggle (global) ───────────────────────────────────
+window.toggleActionMenu = function(btn) {
+  const dd = btn.nextElementSibling;
+  document.querySelectorAll('.action-dropdown.open').forEach(d => { if (d !== dd) d.classList.remove('open'); });
+  dd.classList.toggle('open');
+};
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('.action-menu')) {
+    document.querySelectorAll('.action-dropdown.open').forEach(d => d.classList.remove('open'));
+  }
+});
+
+// ── Session restore on page load ──────────────────────────────────
+onAuthChange(async (event, session) => {
+  if (event === 'SIGNED_IN' && session?.user && !currentUser) {
+    enterApp(session.user);
+  }
+});
+
+// Check existing session
+const { data: { session } } = await supabase.auth.getSession();
+if (session?.user) {
+  enterApp(session.user);
+}
+</script>
+</body>
+</html>
