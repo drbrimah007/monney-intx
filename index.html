@@ -3675,7 +3675,10 @@
       const tab = window._entriesTab;
 
       // ── Own entries ──────────────────────────────────────────────────────
-      const allEntries = role === 'admin' ? db.entries : (role === 'standard' ? db.entries.filter(e => e.userId === u.id) : db.entries.filter(e => e.shared && e.cId));
+      // Filter out explicitly deleted entries at render time — last line of defense
+      const _rdel = new Set(db.settings?._deletedEntryIds || []);
+      const _allFiltered = db.entries.filter(e => !_rdel.has(e.id) && !(e.shareToken && _rdel.has('st:' + e.shareToken)));
+      const allEntries = role === 'admin' ? _allFiltered : (role === 'standard' ? _allFiltered.filter(e => e.userId === u.id) : _allFiltered.filter(e => e.shared && e.cId));
       const q = (window._search_entries||'').toLowerCase().trim();
       const sortDesc = window._sort_entries !== false;
       let listed = allEntries.filter(e => e.status !== 'voided');
@@ -3747,6 +3750,7 @@
 
       let html = `<div class="page-header"><h2>Entries</h2>`;
       if (role === 'admin' || role === 'standard') html += `<button class="btn sm" onclick="openNewEntry()">+ Add Entry</button>`;
+      if (role === 'admin') html += `<button class="bs sm" onclick="purgeAllEntries()" style="color:var(--red);border-color:var(--red);margin-left:4px;">Delete All</button>`;
       html += `</div>`;
 
       // Tabs — only show for standard users with shared records or server mode
@@ -5354,6 +5358,49 @@
       try { await saveNow(); } catch(_) { save(); }
       _sharedWithMeRunning = false;
       setTimeout(() => { _freshnessPaused = false; }, 5000);
+    }
+
+    async function purgeAllEntries() {
+      if (!confirm('DELETE ALL ENTRIES? This cannot be undone.')) return;
+      if (!confirm('Are you absolutely sure? ALL entries will be permanently deleted.')) return;
+      _freshnessPaused = true;
+      _sharedWithMeRunning = true;
+      // Track every entry ID for deletion so nothing can re-add them
+      if (!db.settings._deletedEntryIds) db.settings._deletedEntryIds = [];
+      db.entries.forEach(e => {
+        db.settings._deletedEntryIds.push(e.id);
+        if (e.shareToken) db.settings._deletedEntryIds.push('st:' + e.shareToken);
+        // Dismiss shared entries on server
+        if (e.isShared && e.shareToken && _IS_SERVER) {
+          fetch('/api/share', {
+            method: 'POST', credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'dismiss-shared', token: e.shareToken })
+          }).catch(() => {});
+        }
+      });
+      // Also dismiss all cached shared records
+      (_cachedSharedRecords || []).forEach(r => {
+        if (r.token) {
+          db.settings._deletedEntryIds.push('st:' + r.token);
+          if (_IS_SERVER) {
+            fetch('/api/share', {
+              method: 'POST', credentials: 'include',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ action: 'dismiss-shared', token: r.token })
+            }).catch(() => {});
+          }
+          if (r.entry) r.entry.dismissed = true;
+        }
+      });
+      db.entries = [];
+      _cachedSharedRecords = [];
+      db.notifs = [];
+      toast('All entries deleted');
+      refreshCurPage();
+      try { await saveNow(); } catch(_) { save(); }
+      _sharedWithMeRunning = false;
+      setTimeout(() => { _freshnessPaused = false; }, 10000);
     }
 
     async function openNotifyModal(eid) {
