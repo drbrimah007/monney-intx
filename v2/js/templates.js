@@ -6,7 +6,6 @@ export async function listTemplates(userId) {
     .from('templates')
     .select('*')
     .eq('user_id', userId)
-    .is('archived_at', null)
     .order('created_at', { ascending: false });
   if (error) console.error('[listTemplates]', error.message);
   return data || [];
@@ -29,18 +28,36 @@ export async function getTemplate(id) {
   return data;
 }
 
-export async function createTemplate(userId, { name, description = '', txType = null, fields = [], invoicePrefix = 'INV-' }) {
+export async function createTemplate(userId, {
+  name,
+  description = '',
+  txType = null,
+  fields = [],
+  invoicePrefix = 'INV-',
+  invoiceNextNum = 1,
+  currency = ''
+} = {}) {
   const { data, error } = await supabase.from('templates').insert({
-    user_id: userId, name, description, tx_type: txType, fields, invoice_prefix: invoicePrefix
+    user_id: userId,
+    name,
+    description,
+    tx_type: txType,
+    fields,
+    invoice_prefix: invoicePrefix,
+    invoice_next_num: invoiceNextNum,
+    currency: currency || ''
   }).select().single();
   if (error) console.error('[createTemplate]', error.message);
   return data;
 }
 
 export async function updateTemplate(id, updates) {
-  const { data, error } = await supabase.from('templates')
+  const { data, error } = await supabase
+    .from('templates')
     .update({ ...updates, updated_at: new Date().toISOString() })
-    .eq('id', id).select().single();
+    .eq('id', id)
+    .select()
+    .single();
   if (error) console.error('[updateTemplate]', error.message);
   return data;
 }
@@ -53,12 +70,19 @@ export async function deleteTemplate(id) {
 export async function copyPublicTemplate(userId, templateId) {
   const original = await getTemplate(templateId);
   if (!original) return null;
+  // Deep-clone fields with new IDs to avoid collisions
+  const clonedFields = (original.fields || []).map(f => ({
+    ...f,
+    id: crypto.randomUUID()
+  }));
   return createTemplate(userId, {
     name: original.name + ' (Copy)',
     description: original.description,
     txType: original.tx_type,
-    fields: original.fields,
-    invoicePrefix: original.invoice_prefix
+    fields: clonedFields,
+    invoicePrefix: original.invoice_prefix,
+    invoiceNextNum: original.invoice_next_num || 1,
+    currency: original.currency || ''
   });
 }
 

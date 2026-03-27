@@ -123,6 +123,22 @@ tr:hover { background: var(--bg2); }
 /* Animations */
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 @keyframes slideUp { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+
+/* ── Template Builder Styles ── */
+.tpl-grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+@media(max-width:640px) { .tpl-grid2 { grid-template-columns: 1fr; } }
+.tpl-section-title { font-size: 12px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; margin-bottom: 12px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+.tpl-modal-bg { position: fixed; inset: 0; background: rgba(0,0,0,.6); z-index: 500; display: flex; align-items: center; justify-content: center; padding: 16px; overflow-y: auto; }
+@media(max-width:640px) { .tpl-modal-bg { align-items: flex-start; padding: 10px 8px; } }
+.tpl-modal { background: var(--bg); border-radius: 14px; max-width: 680px; width: 100%; max-height: 90vh; overflow-y: auto; padding: 24px; border: 1px solid var(--border); }
+@media(max-width:640px) { .tpl-modal { max-height: none; overflow-y: visible; max-width: calc(100vw - 16px); padding: 18px 14px; } }
+/* Toggle switch for public flag */
+.tpl-toggle { position: relative; display: inline-block; width: 44px; height: 24px; flex-shrink: 0; }
+.tpl-toggle input { opacity: 0; width: 0; height: 0; }
+.tpl-slider { position: absolute; inset: 0; background: var(--bg3); border-radius: 24px; transition: .3s; cursor: pointer; border: 1px solid var(--border); }
+.tpl-slider:before { content: ''; position: absolute; height: 18px; width: 18px; left: 2px; bottom: 2px; background: var(--muted); border-radius: 50%; transition: .3s; }
+input:checked + .tpl-slider { background: var(--accent); border-color: var(--accent); }
+input:checked + .tpl-slider:before { transform: translateX(20px); background: #fff; }
 </style>
 </head>
 <body>
@@ -171,7 +187,6 @@ tr:hover { background: var(--bg2); }
       <a data-page="templates" onclick="app.navigate('templates')"><span>📄</span> Templates</a>
       <a data-page="groups" onclick="app.navigate('groups')"><span>👥</span> Groups</a>
       <a data-page="investments" onclick="app.navigate('investments')"><span>📈</span> Investments</a>
-      <a data-page="templates" onclick="app.navigate('templates')"><span>📄</span> Templates</a>
       <a data-page="recurring" onclick="app.navigate('recurring')"><span>🔁</span> Recurring</a>
       <a data-page="notifications" onclick="app.navigate('notifications')"><span>🔔</span> Notifications <span id="notif-badge" class="nav-badge" style="display:none;">0</span></a>
       <a data-page="nok" onclick="app.navigate('nok')"><span>🔐</span> Trusted Access</a>
@@ -721,8 +736,9 @@ window.openEditEntryModal = async function(id) {
     </select></div>
     <div class="form-row">
       <div class="form-group"><label>Amount</label><input type="number" id="ee-amount" min="0" step="0.01" value="${toDollars(entry.amount)}"></div>
-      <div class="form-group"><label>Date</label><input type="date" id="ee-date" value="${entry.date}"></div>
+      <div class="form-group"><label>Currency</label><select id="ee-currency">${currencyOpts(entry.currency || 'USD')}</select></div>
     </div>
+    <div class="form-group"><label>Date</label><input type="date" id="ee-date" value="${entry.date}"></div>
     <div class="form-group"><label>Status</label><select id="ee-status">
       ${['draft','posted','sent','viewed','accepted','partially_settled','settled','fulfilled','overdue','disputed','voided','cancelled'].map(s =>
         `<option value="${s}" ${s === entry.status ? 'selected' : ''}>${s.charAt(0).toUpperCase() + s.slice(1).replace('_',' ')}</option>`
@@ -739,11 +755,12 @@ window.openEditEntryModal = async function(id) {
 window.saveEditEntry = async function(id) {
   await updateEntry(id, {
     contact_id: document.getElementById('ee-contact').value,
-    tx_type: document.getElementById('ee-type').value,
-    amount: parseFloat(document.getElementById('ee-amount').value),
-    date: document.getElementById('ee-date').value,
-    status: document.getElementById('ee-status').value,
-    note: document.getElementById('ee-note').value.trim()
+    tx_type:    document.getElementById('ee-type').value,
+    amount:     parseFloat(document.getElementById('ee-amount').value),
+    currency:   document.getElementById('ee-currency')?.value || 'USD',
+    date:       document.getElementById('ee-date').value,
+    status:     document.getElementById('ee-status').value,
+    note:       document.getElementById('ee-note').value.trim()
   });
   closeModal();
   toast('Entry updated.', 'success');
@@ -1092,9 +1109,15 @@ window.doSendReminder = async function(entryId) {
   navTo('entries');
 };
 
+const CURRENCIES = ['USD','EUR','GBP','NGN','CAD','AUD','JPY','KES','ZAR','GHS','INR'];
+function currencyOpts(selected = 'USD') {
+  return CURRENCIES.map(c => `<option value="${c}" ${c === selected ? 'selected' : ''}>${c}</option>`).join('');
+}
+
 window.openNewEntryModal = async function() {
   const contacts = await listContacts(currentUser.id);
   const contactOpts = contacts.map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join('');
+  const defaultCur = currentProfile?.default_currency || 'USD';
   openModal(`
     <h3 style="margin-bottom:16px;">New Entry</h3>
     <div class="form-group"><label>Contact *</label><select id="ne-contact">${contactOpts || '<option value="">No contacts — add one first</option>'}</select></div>
@@ -1108,8 +1131,9 @@ window.openNewEntryModal = async function() {
     </select></div>
     <div class="form-row">
       <div class="form-group"><label>Amount *</label><input type="number" id="ne-amount" min="0" step="0.01" placeholder="0.00"></div>
-      <div class="form-group"><label>Date</label><input type="date" id="ne-date" value="${new Date().toISOString().slice(0,10)}"></div>
+      <div class="form-group"><label>Currency</label><select id="ne-currency">${currencyOpts(defaultCur)}</select></div>
     </div>
+    <div class="form-group"><label>Date</label><input type="date" id="ne-date" value="${new Date().toISOString().slice(0,10)}"></div>
     <div class="form-group"><label>Note</label><textarea id="ne-note" rows="2" placeholder="Optional note..."></textarea></div>
     <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;">
       <button class="btn btn-secondary btn-sm" onclick="document.getElementById('modal')?.remove()">Cancel</button>
@@ -1120,13 +1144,14 @@ window.openNewEntryModal = async function() {
 
 window.saveNewEntry = async function() {
   const contactId = document.getElementById('ne-contact').value;
-  const txType = document.getElementById('ne-type').value;
-  const amount = document.getElementById('ne-amount').value;
-  const date = document.getElementById('ne-date').value;
-  const note = document.getElementById('ne-note').value.trim();
+  const txType    = document.getElementById('ne-type').value;
+  const amount    = document.getElementById('ne-amount').value;
+  const currency  = document.getElementById('ne-currency')?.value || 'USD';
+  const date      = document.getElementById('ne-date').value;
+  const note      = document.getElementById('ne-note').value.trim();
   if (!contactId) return toast('Select a contact.', 'error');
   if (!amount || parseFloat(amount) <= 0) return toast('Enter a valid amount.', 'error');
-  await createEntry(currentUser.id, { contactId, txType, amount: parseFloat(amount), date, note });
+  await createEntry(currentUser.id, { contactId, txType, amount: parseFloat(amount), currency, date, note });
   closeModal();
   toast('Entry created.', 'success');
   navTo('entries');
@@ -1730,109 +1755,723 @@ window.activateUser = async function(userId) {
   toast('User activated.', 'success'); navTo('admin');
 };
 
-// ── Templates ─────────────────────────────────────────────────────
+// ── Templates (Full Builder) ───────────────────────────────────────
+
+// Local state
+let _tplCache  = [];   // Templates loaded for current session
+let _editTid   = null; // Template being edited
+let _fldOpts   = [];   // Dropdown options (field modal)
+let _fldCalcs  = [];   // Calculators (field modal)
+let _tdbCache  = null; // Public template DB cache
+
+// Field type constants
+const FIELD_TYPES = {
+  text:    'Text (description only)',
+  numeric: 'Numeric (standalone number)',
+  paired:  'Paired (text + number row)'
+};
+const _isNumericField = f => f.type==='numeric'||f.type==='number'||f.type==='dropdown';
+const _isPairedField  = f => f.type==='paired';
+const _isTextField    = f => !_isNumericField(f) && !_isPairedField(f);
+const _isCalcField    = f => _isNumericField(f) || _isPairedField(f) || (f.calculators||[]).length > 0;
+const LEDGER_FX = {
+  '':'No ledger effect',
+  they_owe_you:'They Owe Me (+)',
+  they_paid_you:'They Settled Me (−)',
+  you_owe_them:'I Owe Them (+)',
+  you_paid_them:'I Settled Them (−)'
+};
+const CALC_OPS = {
+  multiply:'Multiply by factor',
+  add:'Add to field',
+  subtract:'Subtract from field',
+  aggregate:'Run Aggregate (all non-excluded)',
+  select_aggregate:'Run Selection Aggregate (choose fields)'
+};
+
+function _getTpl(tid) { return _tplCache.find(x => x.id === tid); }
+
+async function _saveTplFields(tid) {
+  const t = _getTpl(tid); if (!t) return;
+  const updated = await updateTemplate(tid, { fields: t.fields });
+  if (updated) Object.assign(t, updated);
+}
+
+// ── Templates list page ────────────────────────────────────────────
 async function renderTemplatesPage(el) {
   el.innerHTML = '<div class="page-header"><h2>Templates</h2></div><p style="color:var(--muted);">Loading...</p>';
-  const templates = await listTemplates(currentUser.id);
+  _tplCache = await listTemplates(currentUser.id);
+
   let html = `<div class="page-header"><h2>Templates</h2>
-    <div style="display:flex;gap:8px;">
-      <button class="btn btn-primary btn-sm" onclick="openNewTemplateModal()">+ New Template</button>
-      <button class="btn btn-secondary btn-sm" onclick="openPublicTemplateDB()">Public DB</button>
+    <button class="btn btn-primary btn-sm" onclick="openTemplateBuilder()">+ New Template</button>
+  </div>
+  <div onclick="renderPublicTemplateDB()" style="cursor:pointer;margin-bottom:14px;padding:14px 18px;
+    background:linear-gradient(135deg,rgba(108,99,255,.10),rgba(59,130,246,.08));
+    border:1.5px solid rgba(108,99,255,.25);border-radius:12px;
+    display:flex;align-items:center;gap:12px;transition:all .15s;"
+    onmouseenter="this.style.borderColor='var(--accent)';this.style.transform='translateY(-1px)'"
+    onmouseleave="this.style.borderColor='rgba(108,99,255,.25)';this.style.transform='none'">
+    <span style="font-size:28px;">🌐</span>
+    <div style="flex:1;">
+      <div style="font-size:15px;font-weight:700;color:var(--accent);">Public Template DB</div>
+      <div style="font-size:12px;color:var(--muted);margin-top:2px;">Browse and copy ready-made templates from the community</div>
     </div>
+    <span style="font-size:18px;color:var(--accent);">→</span>
   </div>`;
-  if (templates.length === 0) {
-    html += `<div class="card" style="text-align:center;padding:40px;"><p style="color:var(--muted);">No templates yet.</p></div>`;
+
+  if (_tplCache.length === 0) {
+    html += `<div class="card"><p style="color:var(--muted);text-align:center;padding:24px;">No templates yet. Create one to define reusable entry structures.</p></div>`;
   } else {
-    templates.forEach(t => {
+    html += `<div style="display:flex;flex-direction:column;gap:12px;">`;
+    _tplCache.forEach(t => {
       const fCount = (t.fields || []).length;
-      html += `<div class="card" style="margin-bottom:12px;">
-        <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+      html += `<div class="card" style="${t.archived_at ? 'opacity:.65;' : ''}">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;">
           <div>
-            <h3 style="font-size:16px;font-weight:700;">${esc(t.name)} ${t.is_public ? '<span class="badge badge-blue" style="font-size:10px;">Public</span>' : ''}</h3>
-            ${t.description ? `<p style="font-size:13px;color:var(--muted);margin-top:2px;">${esc(t.description)}</p>` : ''}
-            <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;">
+            <div style="font-size:16px;font-weight:700;">${esc(t.name)}
+              ${t.archived_at ? `<span class="badge badge-gray" style="margin-left:6px;">Archived</span>` : ''}
+              ${t.is_public   ? `<span class="badge badge-blue" style="font-size:10px;margin-left:6px;">🌐 Public</span>` : ''}
+            </div>
+            ${t.description ? `<div style="color:var(--muted);font-size:13px;margin-top:2px;">${esc(t.description)}</div>` : ''}
+            <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;">
               <span class="badge badge-blue">${fCount} field${fCount !== 1 ? 's' : ''}</span>
               ${t.tx_type ? `<span class="badge badge-gray">${esc(TX_LABELS[t.tx_type] || t.tx_type)}</span>` : ''}
+              ${t.currency ? `<span class="badge badge-gray">${esc(t.currency)}</span>` : ''}
             </div>
           </div>
-          <div class="action-menu">
-            <button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button>
-            <div class="action-dropdown">
-              <button onclick="toggleTemplatePublic('${t.id}',${!t.is_public})">${t.is_public ? 'Make Private' : 'Make Public'}</button>
-              <button onclick="confirmDeleteTemplate('${t.id}')" style="color:var(--red);">Delete</button>
+          <div style="display:flex;gap:6px;flex-shrink:0;flex-wrap:wrap;">
+            ${!t.archived_at ? `<button class="btn btn-primary btn-sm" onclick="openTemplateBuilder('${t.id}')">✏️ Edit Fields</button>` : ''}
+            <div class="action-menu">
+              <button class="action-menu-btn" onclick="toggleActionMenu(this)">⋮</button>
+              <div class="action-dropdown">
+                <button onclick="doToggleArchiveTemplate('${t.id}')">${t.archived_at ? '📤 Unarchive' : '📦 Archive'}</button>
+                <button onclick="doTogglePublic('${t.id}',${!t.is_public})">${t.is_public ? '🔒 Make Private' : '🌐 Make Public'}</button>
+                <button onclick="doDelTemplate('${t.id}')" style="color:var(--red);">🗑 Delete</button>
+              </div>
             </div>
           </div>
         </div>
+        ${fCount > 0 ? `<div style="margin-top:12px;border-top:1px solid var(--border);padding-top:10px;display:flex;flex-wrap:wrap;gap:6px;">
+          ${(t.fields || []).map(f => `<span style="background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:3px 10px;font-size:12px;">
+            ${esc(f.label || '?')} <span style="color:var(--muted);">[${FIELD_TYPES[f.type] || f.type}]</span>
+          </span>`).join('')}
+        </div>` : ''}
       </div>`;
     });
+    html += `</div>`;
   }
   el.innerHTML = html;
 }
 
-window.openNewTemplateModal = function() {
-  openModal(`
-    <h3 style="margin-bottom:16px;">New Template</h3>
-    <div class="form-group"><label>Name *</label><input type="text" id="nt-name" placeholder="Invoice Template"></div>
-    <div class="form-group"><label>Description</label><textarea id="nt-desc" rows="2"></textarea></div>
-    <div class="form-group"><label>Default Type</label><select id="nt-type">
-      <option value="">None</option>
-      ${Object.entries(TX_LABELS).map(([k,v]) => `<option value="${k}">${v}</option>`).join('')}
-    </select></div>
-    <div class="form-group"><label>Invoice Prefix</label><input type="text" id="nt-prefix" value="INV-"></div>
-    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;">
-      <button class="btn btn-secondary btn-sm" onclick="closeModal()">Cancel</button>
-      <button class="btn btn-primary btn-sm" onclick="doCreateTemplate()">Create</button>
-    </div>
-  `);
-};
+// ── Public Template DB ─────────────────────────────────────────────
+window.renderPublicTemplateDB = async function renderPublicTemplateDB() {
+  const content = document.getElementById('content');
+  content.innerHTML = `<div class="page-header">
+    <div><button class="btn btn-secondary btn-sm" onclick="navTo('templates')" style="margin-bottom:6px;">← Back</button>
+    <h2 style="margin-top:4px;">🌐 Public Template DB</h2></div>
+  </div><div class="card"><p style="color:var(--muted);text-align:center;padding:32px;">Loading…</p></div>`;
 
-window.doCreateTemplate = async function() {
-  const name = document.getElementById('nt-name').value.trim();
-  if (!name) return toast('Name required.', 'error');
-  await createTemplate(currentUser.id, {
-    name, description: document.getElementById('nt-desc').value.trim(),
-    txType: document.getElementById('nt-type').value || null,
-    invoicePrefix: document.getElementById('nt-prefix').value.trim()
-  });
-  closeModal(); toast('Template created!', 'success'); navTo('templates');
-};
+  if (!_tdbCache) _tdbCache = await listPublicTemplates();
+  const myIds = new Set((_tplCache || []).filter(t => t.copied_from).map(t => t.copied_from));
 
-window.openPublicTemplateDB = async function() {
-  const el = document.getElementById('content');
-  el.innerHTML = '<p style="color:var(--muted);">Loading public templates...</p>';
-  const templates = await listPublicTemplates();
-  let html = `<div class="page-header"><h2>Public Template DB</h2>
-    <button class="btn btn-secondary btn-sm" onclick="navTo('templates')">Back</button>
-  </div>`;
-  if (templates.length === 0) {
-    html += `<div class="card" style="text-align:center;padding:40px;"><p style="color:var(--muted);">No public templates yet.</p></div>`;
+  let html = `<div class="page-header">
+    <div><button class="btn btn-secondary btn-sm" onclick="navTo('templates')" style="margin-bottom:6px;">← Back</button>
+    <h2 style="margin-top:4px;">🌐 Public Template DB</h2></div>
+  </div>
+  <p style="color:var(--muted);font-size:13px;margin-bottom:16px;">Browse templates shared by the community. Load any template to get your own editable copy — the original is never modified.</p>`;
+
+  if (!_tdbCache || _tdbCache.length === 0) {
+    html += `<div class="card"><p style="color:var(--muted);text-align:center;padding:32px;">No public templates yet.</p></div>`;
   } else {
-    templates.forEach(t => {
-      html += `<div class="card" style="margin-bottom:12px;">
-        <div style="display:flex;justify-content:space-between;align-items:center;">
-          <div>
-            <h3 style="font-size:16px;font-weight:700;">${esc(t.name)}</h3>
-            <p style="font-size:13px;color:var(--muted);">${esc(t.description || '')} ${t.creator?.display_name ? '— by ' + esc(t.creator.display_name) : ''}</p>
+    html += `<div style="display:flex;flex-direction:column;gap:12px;">`;
+    _tdbCache.forEach(t => {
+      const already = myIds.has(t.id);
+      const fCount  = (t.fields || []).length;
+      html += `<div class="card">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+          <div style="flex:1;">
+            <div style="font-size:16px;font-weight:700;">${esc(t.name)}</div>
+            ${t.description ? `<div style="color:var(--muted);font-size:13px;margin-top:3px;">${esc(t.description)}</div>` : ''}
+            <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+              <span class="badge badge-gray">${fCount} field${fCount !== 1 ? 's' : ''}</span>
+              ${t.creator?.display_name ? `<span style="font-size:12px;color:var(--muted);">by <strong>${esc(t.creator.display_name)}</strong></span>` : ''}
+            </div>
+            ${fCount > 0 ? `<div style="margin-top:10px;display:flex;flex-wrap:wrap;gap:5px;">
+              ${(t.fields || []).slice(0, 6).map(f => `<span style="background:var(--bg3);border:1px solid var(--border);border-radius:5px;padding:2px 8px;font-size:11px;">${esc(f.label || '?')}</span>`).join('')}
+              ${fCount > 6 ? `<span style="font-size:11px;color:var(--muted);">+${fCount - 6} more</span>` : ''}
+            </div>` : ''}
           </div>
-          <button class="btn btn-primary btn-sm" onclick="doCopyTemplate('${t.id}')">Copy</button>
+          <div style="flex-shrink:0;display:flex;flex-direction:column;align-items:flex-end;gap:6px;">
+            ${already ? `<span class="badge badge-green" style="padding:5px 10px;">✓ Copied</span>` : ''}
+            <button class="btn btn-primary btn-sm" onclick="doLoadPublicTemplate('${t.id}','${esc(t.name)}')">${already ? '📋 Load Again' : '📋 Load Template'}</button>
+          </div>
         </div>
       </div>`;
     });
+    html += `</div>`;
   }
-  el.innerHTML = html;
+  content.innerHTML = html;
+}
+
+window.doLoadPublicTemplate = async function(tid, tname) {
+  const src = (_tdbCache || []).find(x => x.id === tid);
+  if (!src) return;
+  if (!confirm(`Copy "${src.name}" to your templates?\nYou'll get your own editable copy.`)) return;
+  const copy = await copyPublicTemplate(currentUser.id, tid);
+  if (copy) {
+    _tplCache.push(copy);
+    await logAudit(currentUser.id, 'load_public_template', { entityType: 'template', entityId: copy.id, details: { srcId: tid } });
+    toast(`"${src.name}" copied to your templates.`, 'success');
+    navTo('templates');
+  }
 };
 
-window.doCopyTemplate = async function(id) {
-  await copyPublicTemplate(currentUser.id, id);
-  toast('Template copied!', 'success'); navTo('templates');
+// ── Template Builder (full page) ───────────────────────────────────
+window.openTemplateBuilder = function(tid) {
+  _editTid = tid || null;
+  if (tid && !_getTpl(tid)) return toast('Template not found — please reload.', 'error');
+  const t = tid
+    ? _getTpl(tid)
+    : { id: null, name: '', description: '', fields: [], tx_type: 'invoice', invoice_prefix: 'INV-', invoice_next_num: 1, currency: '' };
+  renderTemplateBuilder(t);
 };
-window.toggleTemplatePublic = async function(id, pub) {
-  await togglePublic(id, pub);
-  toast(pub ? 'Template is now public.' : 'Template is now private.', 'success'); navTo('templates');
+
+function renderTemplateBuilder(t) {
+  const isNew   = !t.id;
+  const fields  = t.fields || [];
+  const CURRS   = ['USD','EUR','GBP','NGN','CAD','AUD','JPY','KES','ZAR','GHS','INR'];
+
+  let html = `<div class="page-header">
+    <div>
+      <button class="btn btn-secondary btn-sm" onclick="navTo('templates')" style="margin-bottom:6px;">← Back to Templates</button>
+      <h2 style="margin-top:4px;">${isNew ? 'New Template' : 'Edit: ' + esc(t.name)}</h2>
+    </div>
+    ${!isNew ? `<button class="btn btn-primary btn-sm" onclick="saveTplMeta()">💾 Save</button>` : ''}
+  </div>
+
+  <div class="card" style="margin-bottom:16px;">
+    <div class="tpl-section-title">Template Info</div>
+    <div class="tpl-grid2">
+      <div class="form-group"><label>Template Name *</label>
+        <input id="tplname" value="${esc(t.name)}" placeholder="e.g. Service Invoice"></div>
+      <div class="form-group"><label>Description</label>
+        <input id="tpldesc" value="${esc(t.description || '')}" placeholder="Optional description"></div>
+    </div>
+    <div class="tpl-grid2">
+      <div class="form-group">
+        <label>Transaction Type</label>
+        <select id="tpltxtype">
+          <option value="invoice"       ${(t.tx_type || 'invoice') === 'invoice'      ? 'selected' : ''}>Invoice — they owe you</option>
+          <option value="bill"          ${t.tx_type === 'bill'          ? 'selected' : ''}>Bill — they owe you</option>
+          <option value="they_owe_you"  ${t.tx_type === 'they_owe_you'  ? 'selected' : ''}>They Owe Me</option>
+          <option value="they_paid_you" ${t.tx_type === 'they_paid_you' ? 'selected' : ''}>They Settled Me</option>
+          <option value="you_owe_them"  ${t.tx_type === 'you_owe_them'  ? 'selected' : ''}>I Owe Them</option>
+          <option value="you_paid_them" ${t.tx_type === 'you_paid_them' ? 'selected' : ''}>I Settled Them</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Currency Override <span style="color:var(--muted);font-weight:400;">(overrides account default)</span></label>
+        <select id="tplcurrency">
+          <option value="">Use Account Default</option>
+          ${CURRS.map(c => `<option value="${c}" ${(t.currency || '') === c ? 'selected' : ''}>${c}</option>`).join('')}
+        </select>
+      </div>
+    </div>
+    <div class="tpl-grid2">
+      <div class="form-group">
+        <label>Document Number Prefix <span style="color:var(--muted);font-weight:400;">(e.g. INV-, BILL-)</span></label>
+        <input id="tplprefix" value="${esc(t.invoice_prefix || 'INV-')}" placeholder="INV-">
+      </div>
+      <div class="form-group">
+        <label>Starting Number <span style="color:var(--muted);font-weight:400;">(next number to issue)</span></label>
+        <input type="number" id="tplstartnum" value="${t.invoice_next_num || 1}" min="1" step="1">
+      </div>
+    </div>
+    ${!isNew ? `
+    <div style="margin-top:12px;padding:12px 14px;background:var(--bg3);border-radius:8px;border:1px solid var(--border);">
+      <div style="display:flex;align-items:center;justify-content:space-between;">
+        <div>
+          <div style="font-size:14px;font-weight:600;">Share to Public Template DB</div>
+          <div style="font-size:12px;color:var(--muted);margin-top:2px;">Others can browse and copy this template. Your display name will be shown as creator.</div>
+        </div>
+        <label class="tpl-toggle">
+          <input type="checkbox" id="tplpublic" ${t.is_public ? 'checked' : ''}>
+          <span class="tpl-slider"></span>
+        </label>
+      </div>
+    </div>` : ''}
+    <div style="margin-top:14px;">
+      ${isNew
+        ? `<button class="btn btn-primary btn-sm" onclick="createTplAndContinue()">Create & Add Fields →</button>`
+        : `<button class="btn btn-secondary btn-sm" onclick="saveTplMeta()">Save Info</button>`}
+    </div>
+  </div>`;
+
+  if (!isNew) {
+    html += `<div class="card">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
+        <div class="tpl-section-title" style="margin:0;">Fields</div>
+        <button class="btn btn-primary btn-sm" onclick="openAddFieldModal('${t.id}')">+ Add Field</button>
+      </div>`;
+
+    // Validation banners
+    const hasCalcFields   = fields.some(f => (f.calculators || []).length > 0);
+    const finalTotals     = fields.filter(f => f.isFinalTotal);
+    if (hasCalcFields && finalTotals.length === 0) {
+      html += `<div style="background:rgba(217,119,6,.1);border:1px solid var(--amber);border-radius:8px;padding:10px 14px;margin-bottom:14px;display:flex;gap:10px;align-items:flex-start;">
+        <span>⚠️</span>
+        <div style="font-size:13px;"><strong style="color:var(--amber);">No Final Total field set.</strong>
+        This template has computed fields but none is marked as the Final Total.
+        Edit a computed field and check <strong>Final Total</strong> to designate which value drives the entry amount.</div>
+      </div>`;
+    }
+    if (finalTotals.length > 1) {
+      html += `<div style="background:rgba(220,38,38,.1);border:1px solid var(--red);border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:13px;">
+        <strong style="color:var(--red);">⚠️ Multiple Final Total fields detected.</strong>
+        Keep exactly one: ${finalTotals.map(f => esc(f.label)).join(', ')}
+      </div>`;
+    }
+
+    if (fields.length === 0) {
+      html += `<p style="color:var(--muted);font-size:14px;padding:12px 0;">No fields yet. Use <strong>+ Add Field</strong> to define what this template captures.</p>`;
+    } else {
+      fields.forEach((f, idx) => {
+        const calcs = (f.calculators || []);
+        html += `<div style="border:1px solid var(--border);border-radius:8px;padding:14px;margin-bottom:10px;">
+          <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;">
+            <div style="flex:1;">
+              <div style="font-weight:700;font-size:15px;">${esc(f.label || 'Unnamed')}</div>
+              <div style="font-size:12px;color:var(--muted);margin-top:3px;display:flex;gap:10px;flex-wrap:wrap;">
+                <span>Type: ${_isPairedField(f) ? 'Paired' : _isNumericField(f) ? 'Numeric' : 'Text'}</span>
+                ${_isPairedField(f) ? `<span style="color:var(--accent);">${esc(f.textLabel || 'Item')} + ${esc(f.numericLabel || 'Amount')}${f.repeatable !== false ? ' · Repeatable' : ''}</span>` : ''}
+                ${f.ledgerEffect ? `<span style="color:var(--green);">Ledger: ${LEDGER_FX[f.ledgerEffect] || f.ledgerEffect}</span>` : ''}
+                ${f.visible === false ? `<span class="badge badge-gray">Hidden</span>` : ''}
+                ${f.editableAtExecution === false ? `<span class="badge badge-gray">Locked</span>` : ''}
+                ${f.isFinalTotal ? `<span class="badge" style="background:rgba(22,163,74,.18);color:var(--green);border:1px solid var(--green);">★ Final Total</span>` : ''}
+              </div>
+              ${calcs.length > 0 ? `<div style="margin-top:6px;font-size:12px;color:var(--accent);">
+                Calculators: ${calcs.map(c => `${esc(c.name || '?')} (${CALC_OPS[c.operation] || c.operation})`).join(', ')}
+              </div>` : ''}
+            </div>
+            <div style="display:flex;gap:4px;flex-shrink:0;flex-wrap:wrap;">
+              ${idx > 0 ? `<button class="btn btn-secondary btn-sm" onclick="moveTplField('${t.id}',${idx},-1)">↑</button>` : ''}
+              ${idx < fields.length - 1 ? `<button class="btn btn-secondary btn-sm" onclick="moveTplField('${t.id}',${idx},1)">↓</button>` : ''}
+              <button class="btn btn-secondary btn-sm" onclick="openEditFieldModal('${t.id}','${f.id}')">Edit</button>
+              <button class="btn btn-danger btn-sm" onclick="delTplField('${t.id}','${f.id}')">✕</button>
+            </div>
+          </div>
+        </div>`;
+      });
+    }
+    html += `</div>`;
+  }
+  document.getElementById('content').innerHTML = html;
+}
+
+// Read template info fields from DOM
+function _readTplInfoFields() {
+  return {
+    name:             (document.getElementById('tplname')?.value || '').trim(),
+    description:      (document.getElementById('tpldesc')?.value || '').trim(),
+    tx_type:          document.getElementById('tpltxtype')?.value || 'invoice',
+    invoice_prefix:   (document.getElementById('tplprefix')?.value || 'INV-').trim(),
+    invoice_next_num: parseInt(document.getElementById('tplstartnum')?.value || '1', 10) || 1,
+    currency:         document.getElementById('tplcurrency')?.value || ''
+  };
+}
+
+window.createTplAndContinue = async function() {
+  const meta = _readTplInfoFields();
+  if (!meta.name) { alert('Template name required'); return; }
+  const t = await createTemplate(currentUser.id, {
+    name: meta.name,
+    description: meta.description,
+    txType: meta.tx_type,
+    fields: [],
+    invoicePrefix: meta.invoice_prefix,
+    invoiceNextNum: meta.invoice_next_num,
+    currency: meta.currency
+  });
+  if (!t) return toast('Failed to create template.', 'error');
+  _tplCache.push(t);
+  _editTid = t.id;
+  await logAudit(currentUser.id, 'add_template', { entityType: 'template', entityId: t.id, details: { name: meta.name } });
+  toast('Template created', 'success');
+  renderTemplateBuilder(t);
 };
-window.confirmDeleteTemplate = async function(id) {
-  if (!confirm('Delete this template?')) return;
-  await deleteTemplate(id); toast('Deleted.', 'success'); navTo('templates');
+
+window.saveTplMeta = async function() {
+  const t = _getTpl(_editTid); if (!t) return;
+  const meta = _readTplInfoFields();
+  if (!meta.name) { alert('Name required'); return; }
+  const is_public = document.getElementById('tplpublic')?.checked || false;
+  const updated = await updateTemplate(t.id, { ...meta, is_public });
+  if (updated) { Object.assign(t, updated); _tdbCache = null; }
+  await logAudit(currentUser.id, 'edit_template', { entityType: 'template', entityId: t.id, details: { name: meta.name, is_public } });
+  toast('Template saved', 'success');
+  renderTemplateBuilder(t);
+};
+
+window.moveTplField = async function(tid, idx, dir) {
+  const t = _getTpl(tid); if (!t) return;
+  const arr = t.fields; const target = idx + dir;
+  if (target < 0 || target >= arr.length) return;
+  [arr[idx], arr[target]] = [arr[target], arr[idx]];
+  await _saveTplFields(tid);
+  renderTemplateBuilder(t);
+};
+
+window.delTplField = async function(tid, fid) {
+  const t = _getTpl(tid); if (!t) return;
+  if (!confirm('Remove this field?')) return;
+  t.fields = t.fields.filter(f => f.id !== fid);
+  await _saveTplFields(tid);
+  renderTemplateBuilder(t);
+};
+
+window.doToggleArchiveTemplate = async function(tid) {
+  const t = _getTpl(tid) || {};
+  const updated = t.archived_at
+    ? await updateTemplate(tid, { archived_at: null })
+    : await archiveTemplate(tid);
+  if (updated) Object.assign(t, updated);
+  toast(t.archived_at ? 'Template archived.' : 'Template unarchived.', 'success');
+  navTo('templates');
+};
+
+window.doTogglePublic = async function(tid, pub) {
+  const t = _getTpl(tid);
+  const updated = await togglePublic(tid, pub);
+  if (updated && t) Object.assign(t, updated);
+  _tdbCache = null;
+  toast(pub ? 'Template is now public.' : 'Template is now private.', 'success');
+  navTo('templates');
+};
+
+window.doDelTemplate = async function(tid) {
+  if (!confirm('Delete this template permanently?')) return;
+  await deleteTemplate(tid);
+  _tplCache = _tplCache.filter(x => x.id !== tid);
+  await logAudit(currentUser.id, 'delete_template', { entityType: 'template', entityId: tid });
+  toast('Template deleted.', 'success');
+  navTo('templates');
+};
+
+// ── Field Modal (Add / Edit) ───────────────────────────────────────
+
+function calcTargetFieldOpts(tid, selfFid, selId) {
+  const t = _getTpl(tid);
+  const cands = (t?.fields || []).filter(f => f.id !== selfFid && _isCalcField(f) && !_isTextField(f));
+  if (!cands.length) return `<option value="">— no numeric/result fields yet —</option>`;
+  return `<option value="">— none —</option>` + cands.map(f => {
+    const tag = _isPairedField(f) ? ' [paired total]' : (f.calculators || []).length > 0 ? ' [result]' : '';
+    return `<option value="${f.id}" ${selId === f.id ? 'selected' : ''}>${esc(f.label)}${tag}</option>`;
+  }).join('');
+}
+
+function calcSelectAggCheckboxes(tid, selfFid, selIds) {
+  const t = _getTpl(tid);
+  const cands = (t?.fields || []).filter(f => f.id !== selfFid && _isCalcField(f) && !_isTextField(f));
+  if (!cands.length) return `<p style="color:var(--muted);font-size:12px;">No numeric or result fields yet.</p>`;
+  return cands.map(f => {
+    const tag = _isPairedField(f) ? ' [paired total]' : (f.calculators || []).length > 0 ? ' [result]' : '';
+    return `<label style="display:flex;align-items:center;gap:8px;padding:4px 0;font-size:13px;cursor:pointer;">
+      <input type="checkbox" class="sagg_check" value="${f.id}" ${(selIds || []).includes(f.id) ? 'checked' : ''}>
+      ${esc(f.label)}${tag ? ` <span style="font-size:10px;color:var(--accent);font-weight:700;">${tag}</span>` : ''}
+    </label>`;
+  }).join('');
+}
+
+function fieldModalHtml(tid, fid) {
+  const t = _getTpl(tid); if (!t) return '';
+  const f = fid ? t.fields.find(x => x.id === fid) : null;
+  const isNew = !f;
+  let ftype = f?.type || 'text';
+  if (ftype === 'number' || ftype === 'dropdown') ftype = 'numeric';
+  if (ftype === 'date') ftype = 'text';
+  if (ftype === 'text' && (f?.calculators || []).length > 0) ftype = 'numeric';
+  const calcs = f?.calculators || [];
+  const isN = ftype === 'numeric', isP = ftype === 'paired', isT = ftype === 'text';
+
+  const calcRows = calcs.map((c, i) => {
+    const isSAgg = c.operation === 'select_aggregate';
+    const isAgg  = c.operation === 'aggregate';
+    return `<div style="border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:10px;" id="fcalc_${i}">
+      <div class="tpl-grid2">
+        <div class="form-group"><label>Result Name *</label>
+          <input value="${esc(c.name || '')}" oninput="updateCalc(${i},'name',this.value)" placeholder="e.g. Tax"></div>
+        <div class="form-group"><label>Operation</label>
+          <select onchange="updateCalc(${i},'operation',this.value);onCalcOpChange(this,${i},'${tid}','${fid || ''}')">
+            ${Object.entries(CALC_OPS).map(([k, v]) => `<option value="${k}" ${c.operation === k ? 'selected' : ''}>${v}</option>`).join('')}
+          </select></div>
+        <div class="form-group calc_operand_wrap_${i}" style="${isAgg || isSAgg ? 'display:none' : ''}">
+          <label>Factor / Operand <span style="color:var(--muted);font-weight:400;">(0.1 = 10%)</span></label>
+          <input type="number" value="${c.operand || ''}" oninput="updateCalc(${i},'operand',this.value)" placeholder="e.g. 0.1" step="any"></div>
+        <div class="form-group calc_target_wrap_${i}" style="${isAgg || isSAgg ? 'display:none' : ''}">
+          <label>Apply To Field</label>
+          <select onchange="updateCalc(${i},'targetFieldId',this.value)">
+            ${calcTargetFieldOpts(tid, fid, c.targetFieldId || '')}</select></div>
+        <div class="form-group calc_sagg_wrap_${i}" style="${isSAgg ? '' : 'display:none'};grid-column:1/-1;">
+          <label>Fields to Include in Selection Aggregate</label>
+          <div style="border:1px solid var(--border);border-radius:6px;padding:10px;background:var(--bg3);max-height:180px;overflow-y:auto;">
+            ${calcSelectAggCheckboxes(tid, fid, c.targetFieldIds || [])}</div></div>
+        <div class="form-group" style="grid-column:1/-1;"><label>Show Result to User</label>
+          <select onchange="updateCalc(${i},'resultVisible',this.value==='yes')">
+            <option value="yes" ${c.resultVisible !== false ? 'selected' : ''}>Yes — display result on entry form</option>
+            <option value="no"  ${c.resultVisible === false ? 'selected' : ''}>No — hidden (usable in later calculations)</option>
+          </select></div>
+      </div>
+      <button class="btn btn-danger btn-sm" style="margin-top:4px;" onclick="removeCalc(${i})">✕ Remove Calculator</button>
+    </div>`;
+  }).join('');
+
+  return `<div class="tpl-modal-bg" id="fieldModalBg" onclick="if(event.target===this)this.remove()">
+    <div class="tpl-modal" onclick="event.stopPropagation()">
+      <div style="font-size:18px;font-weight:700;margin-bottom:20px;">${isNew ? 'Add Field' : 'Edit Field'}</div>
+
+      <div class="tpl-grid2" style="margin-bottom:12px;">
+        <div class="form-group">
+          <label>Field Label *</label>
+          <input id="fl_label" value="${esc(f?.label || '')}" placeholder="e.g. Items / Cost / Notes">
+        </div>
+        <div class="form-group"><label>Field Type</label>
+          <select id="fl_type" onchange="onFldTypeChange(this.value)">
+            ${Object.entries(FIELD_TYPES).map(([k, v]) => `<option value="${k}" ${ftype === k ? 'selected' : ''}>${v}</option>`).join('')}
+          </select>
+        </div>
+      </div>
+
+      <!-- TEXT PANEL -->
+      <div id="fl_panel_text" style="display:${isT ? 'block' : 'none'}">
+        <p style="color:var(--muted);font-size:13px;margin-bottom:10px;">Text fields hold descriptive content only — no calculations.</p>
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;padding:10px 12px;background:var(--bg3);border-radius:8px;border:1px solid var(--border);">
+          <input type="checkbox" id="fl_visible_t" ${f?.visible !== false ? 'checked' : ''} style="width:auto;">
+          Visible on invoice / entry form
+        </label>
+      </div>
+
+      <!-- NUMERIC PANEL -->
+      <div id="fl_panel_numeric" style="display:${isN ? 'block' : 'none'}">
+        <div class="tpl-grid2" style="margin-bottom:8px;">
+          <div class="form-group"><label>Default Value</label>
+            <input type="number" id="fl_defval" value="${esc(String(f?.defaultValue || ''))}" placeholder="0.00" min="0" step="0.01"></div>
+          <div class="form-group"><label>Add to Ledger</label>
+            <select id="fl_ledger">
+              ${Object.entries(LEDGER_FX).map(([k, v]) => `<option value="${k}" ${(f?.ledgerEffect || '') === k ? 'selected' : ''}>${v}</option>`).join('')}
+            </select>
+            <span style="font-size:11px;color:var(--muted);margin-top:3px;display:block;line-height:1.4;">Set only on the Final Total field.</span>
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px 20px;margin-bottom:14px;padding:12px;background:var(--bg3);border-radius:8px;border:1px solid var(--border);">
+          <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;font-size:13px;line-height:1.3;">
+            <input type="checkbox" id="fl_visible_n" ${f?.visible !== false ? 'checked' : ''} style="width:auto;margin-top:2px;flex-shrink:0;">
+            <span>Visible on invoice</span>
+          </label>
+          <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;font-size:13px;line-height:1.3;">
+            <input type="checkbox" id="fl_editable" ${f?.editableAtExecution !== false ? 'checked' : ''} style="width:auto;margin-top:2px;flex-shrink:0;">
+            <span>Editable at entry time</span>
+          </label>
+          <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;font-size:13px;line-height:1.3;">
+            <input type="checkbox" id="fl_excludeagg" ${f?.excludeFromAggregate ? 'checked' : ''} style="width:auto;margin-top:2px;flex-shrink:0;">
+            <span>Exclude from aggregate</span>
+          </label>
+          <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;font-size:13px;line-height:1.3;">
+            <input type="checkbox" id="fl_finaltotal" ${f?.isFinalTotal ? 'checked' : ''} style="width:auto;margin-top:2px;flex-shrink:0;">
+            <span><strong>Final Total</strong><br><span style="font-size:11px;color:var(--green);">invoice amount basis</span></span>
+          </label>
+        </div>
+        <div style="border-top:1px solid var(--border);padding-top:12px;margin-top:4px;">
+          <div style="font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px;">Calculators</div>
+          <p style="color:var(--muted);font-size:12px;margin-bottom:10px;">Compute results from other numeric fields. Results can be chained into later calculators.</p>
+          <div id="fl_calc_list">${calcRows}</div>
+          <button class="btn btn-secondary btn-sm" onclick="addCalc('${tid}','${fid || ''}')">+ Add Calculator</button>
+        </div>
+      </div>
+
+      <!-- PAIRED PANEL -->
+      <div id="fl_panel_paired" style="display:${isP ? 'block' : 'none'}">
+        <p style="color:var(--muted);font-size:13px;margin-bottom:10px;">Paired fields create structured rows: each row has a text description and a numeric value. Renders as a table on the invoice.</p>
+        <div class="tpl-grid2" style="margin-bottom:8px;">
+          <div class="form-group"><label>Text Column Label</label>
+            <input id="fl_textlabel" value="${esc(f?.textLabel || 'Item')}" placeholder="e.g. Item / Service / Description"></div>
+          <div class="form-group"><label>Numeric Column Label</label>
+            <input id="fl_numlabel" value="${esc(f?.numericLabel || 'Amount')}" placeholder="e.g. Cost / Amount / Charge"></div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px 20px;margin-bottom:12px;padding:12px;background:var(--bg3);border-radius:8px;border:1px solid var(--border);">
+          <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;font-size:13px;line-height:1.3;">
+            <input type="checkbox" id="fl_repeat_p" ${f?.repeatable !== false ? 'checked' : ''} style="width:auto;margin-top:2px;flex-shrink:0;">
+            <span>Repeatable rows</span>
+          </label>
+          <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;font-size:13px;line-height:1.3;">
+            <input type="checkbox" id="fl_visible_p" ${f?.visible !== false ? 'checked' : ''} style="width:auto;margin-top:2px;flex-shrink:0;">
+            <span>Visible on invoice</span>
+          </label>
+          <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;font-size:13px;line-height:1.3;">
+            <input type="checkbox" id="fl_excludeagg_p" ${f?.excludeFromAggregate ? 'checked' : ''} style="width:auto;margin-top:2px;flex-shrink:0;">
+            <span>Exclude from aggregate</span>
+          </label>
+          <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;font-size:13px;line-height:1.3;">
+            <input type="checkbox" id="fl_finaltotal_p" ${f?.isFinalTotal ? 'checked' : ''} style="width:auto;margin-top:2px;flex-shrink:0;">
+            <span><strong>Final Total</strong><br><span style="font-size:11px;color:var(--green);">invoice amount basis</span></span>
+          </label>
+        </div>
+        <div class="form-group"><label>Add to Ledger (on numeric total)</label>
+          <select id="fl_ledger_p">
+            ${Object.entries(LEDGER_FX).map(([k, v]) => `<option value="${k}" ${(f?.ledgerEffect || '') === k ? 'selected' : ''}>${v}</option>`).join('')}
+          </select>
+        </div>
+      </div>
+
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:20px;border-top:1px solid var(--border);padding-top:16px;">
+        <button class="btn btn-secondary" onclick="document.getElementById('fieldModalBg').remove()">Cancel</button>
+        <button class="btn btn-primary" onclick="saveFieldModal('${tid}','${fid || ''}')">Save Field</button>
+      </div>
+    </div></div>`;
+}
+
+window.openAddFieldModal = function(tid) {
+  _fldOpts = []; _fldCalcs = [];
+  const d = document.createElement('div');
+  d.innerHTML = fieldModalHtml(tid, null);
+  document.body.appendChild(d.firstChild);
+};
+
+window.openEditFieldModal = function(tid, fid) {
+  const t = _getTpl(tid);
+  const f = t?.fields.find(x => x.id === fid);
+  _fldOpts  = f ? JSON.parse(JSON.stringify(f.dropdownOptions || [])) : [];
+  _fldCalcs = f ? JSON.parse(JSON.stringify(f.calculators || [])) : [];
+  const d = document.createElement('div');
+  d.innerHTML = fieldModalHtml(tid, fid);
+  document.body.appendChild(d.firstChild);
+};
+
+window.onFldTypeChange = function(val) {
+  document.getElementById('fl_panel_text').style.display    = val === 'text'    ? '' : 'none';
+  document.getElementById('fl_panel_numeric').style.display = val === 'numeric' ? '' : 'none';
+  document.getElementById('fl_panel_paired').style.display  = val === 'paired'  ? '' : 'none';
+};
+
+window.addCalc = function(tid, selfFid) {
+  _fldCalcs.push({ name: '', operation: 'multiply', operand: 1, targetFieldId: '', targetFieldIds: [], resultVisible: true });
+  const list = document.getElementById('fl_calc_list');
+  const i    = _fldCalcs.length - 1;
+  const div  = document.createElement('div');
+  div.style.cssText = 'border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:10px;';
+  div.id = 'fcalc_' + i;
+  div.innerHTML = `<div class="tpl-grid2">
+    <div class="form-group"><label>Result Name *</label>
+      <input oninput="updateCalc(${i},'name',this.value)" placeholder="e.g. Service Fee"></div>
+    <div class="form-group"><label>Operation</label>
+      <select onchange="onCalcOpChange(this,${i},'${tid}','${selfFid}')">
+        ${Object.entries(CALC_OPS).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}
+      </select></div>
+    <div class="form-group calc_operand_wrap_${i}">
+      <label>Factor / Operand <span style="color:var(--muted);font-weight:400;">(0.1 = 10%)</span></label>
+      <input type="number" oninput="updateCalc(${i},'operand',this.value)" placeholder="e.g. 0.1" step="any"></div>
+    <div class="form-group calc_target_wrap_${i}">
+      <label>Apply To Field</label>
+      <select onchange="updateCalc(${i},'targetFieldId',this.value)">${calcTargetFieldOpts(tid || '', selfFid || '', '')}</select></div>
+    <div class="form-group calc_sagg_wrap_${i}" style="display:none;grid-column:1/-1;">
+      <label>Fields to Include in Selection Aggregate</label>
+      <div style="border:1px solid var(--border);border-radius:6px;padding:10px;background:var(--bg3);max-height:180px;overflow-y:auto;">
+        ${calcSelectAggCheckboxes(tid || '', selfFid || '', [])}
+      </div></div>
+    <div class="form-group" style="grid-column:1/-1;"><label>Show Result to User</label>
+      <select onchange="updateCalc(${i},'resultVisible',this.value==='yes')">
+        <option value="yes" selected>Yes — display result on entry form</option>
+        <option value="no">No — hidden (usable in later calculations)</option>
+      </select></div>
+  </div>
+  <button class="btn btn-danger btn-sm" style="margin-top:4px;" onclick="removeCalc(${i})">✕ Remove Calculator</button>`;
+  list.appendChild(div);
+};
+
+window.updateCalc  = function(i, key, val) { if (_fldCalcs[i]) _fldCalcs[i][key] = val; };
+window.removeCalc  = function(i) { _fldCalcs.splice(i, 1); document.getElementById('fcalc_' + i)?.remove(); };
+
+window.onCalcOpChange = function(sel, i, tid, selfFid) {
+  const isAgg  = sel.value === 'aggregate';
+  const isSAgg = sel.value === 'select_aggregate';
+  document.querySelector(`.calc_operand_wrap_${i}`)?.style.setProperty('display', (isAgg || isSAgg) ? 'none' : '');
+  document.querySelector(`.calc_target_wrap_${i}`)?.style.setProperty('display',  (isAgg || isSAgg) ? 'none' : '');
+  const saggWrap = document.querySelector(`.calc_sagg_wrap_${i}`);
+  if (saggWrap) {
+    saggWrap.style.display = isSAgg ? '' : 'none';
+    if (isSAgg && !saggWrap.querySelector('.sagg_check')) {
+      saggWrap.querySelector('div').innerHTML = calcSelectAggCheckboxes(tid, selfFid, _fldCalcs[i]?.targetFieldIds || []);
+    }
+  }
+  if (_fldCalcs[i]) _fldCalcs[i].operation = sel.value;
+};
+
+window.saveFieldModal = async function(tid, fid) {
+  const t = _getTpl(tid); if (!t) return;
+  const label = document.getElementById('fl_label')?.value.trim();
+  if (!label) { alert('Field label required.'); return; }
+  const type = document.getElementById('fl_type')?.value || 'text';
+  let field;
+
+  if (type === 'text') {
+    field = {
+      id: fid || crypto.randomUUID(), label, type,
+      visible: document.getElementById('fl_visible_t')?.checked !== false,
+      calculators: [], dropdownOptions: []
+    };
+  } else if (type === 'numeric') {
+    const defVal = document.getElementById('fl_defval')?.value || '';
+    // Sync any calculator row values from the DOM
+    document.querySelectorAll('[id^=fcalc_]').forEach((row, i) => {
+      if (!_fldCalcs[i]) return;
+      const inputs  = row.querySelectorAll('input[type=text],input:not([type])');
+      const numInps = row.querySelectorAll('input[type=number]');
+      const sels    = row.querySelectorAll('select');
+      if (inputs[0])  _fldCalcs[i].name         = inputs[0].value.trim();
+      if (numInps[0]) _fldCalcs[i].operand       = parseFloat(numInps[0].value) || 0;
+      if (sels[0])    _fldCalcs[i].operation     = sels[0].value;
+      if (sels[1])    _fldCalcs[i].targetFieldId = sels[1]?.value || '';
+      if (sels[2])    _fldCalcs[i].resultVisible = sels[2]?.value !== 'no';
+      if (_fldCalcs[i].operation === 'select_aggregate')
+        _fldCalcs[i].targetFieldIds = Array.from(row.querySelectorAll('.sagg_check:checked')).map(cb => cb.value);
+    });
+    const isFinalTotal = document.getElementById('fl_finaltotal')?.checked || false;
+    if (isFinalTotal) t.fields.forEach(of => { if (of.id !== (fid || '__new__')) of.isFinalTotal = false; });
+    field = {
+      id: fid || crypto.randomUUID(), label, type,
+      defaultValue: defVal !== '' ? parseFloat(defVal) || defVal : '',
+      ledgerEffect: document.getElementById('fl_ledger')?.value || null,
+      visible: document.getElementById('fl_visible_n')?.checked !== false,
+      editableAtExecution: document.getElementById('fl_editable')?.checked !== false,
+      excludeFromAggregate: document.getElementById('fl_excludeagg')?.checked || false,
+      isFinalTotal,
+      calculators: _fldCalcs.filter(c => c.operation),
+      dropdownOptions: []
+    };
+  } else {
+    // Paired
+    const isFinalTotal_p = document.getElementById('fl_finaltotal_p')?.checked || false;
+    if (isFinalTotal_p) t.fields.forEach(of => { if (of.id !== (fid || '__new__')) of.isFinalTotal = false; });
+    field = {
+      id: fid || crypto.randomUUID(), label, type,
+      textLabel:   document.getElementById('fl_textlabel')?.value.trim() || 'Item',
+      numericLabel:document.getElementById('fl_numlabel')?.value.trim()  || 'Amount',
+      repeatable:  document.getElementById('fl_repeat_p')?.checked !== false,
+      visible:     document.getElementById('fl_visible_p')?.checked !== false,
+      excludeFromAggregate: document.getElementById('fl_excludeagg_p')?.checked || false,
+      ledgerEffect: document.getElementById('fl_ledger_p')?.value || null,
+      isFinalTotal: isFinalTotal_p,
+      calculators: [], dropdownOptions: []
+    };
+  }
+
+  if (fid) { const idx = t.fields.findIndex(x => x.id === fid); if (idx >= 0) t.fields[idx] = field; }
+  else      { t.fields.push(field); }
+
+  await _saveTplFields(tid);
+  await logAudit(currentUser.id, 'edit_template_field', { entityType: 'template', entityId: tid, details: { label, type } });
+  document.getElementById('fieldModalBg')?.remove();
+  toast(fid ? 'Field updated' : 'Field added', 'success');
+  renderTemplateBuilder(t);
 };
 
 // ── Recurring ─────────────────────────────────────────────────────
@@ -1873,32 +2512,39 @@ async function renderRecurringPage(el) {
 window.openNewRecurringModal = async function() {
   const contacts = await listContacts(currentUser.id);
   const contactOpts = contacts.map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join('');
+  const defaultCur2 = currentProfile?.default_currency || 'USD';
   openModal(`
     <h3 style="margin-bottom:16px;">New Recurring Rule</h3>
     <div class="form-group"><label>Contact *</label><select id="nr-contact">${contactOpts || '<option value="">No contacts</option>'}</select></div>
     <div class="form-group"><label>Type *</label><select id="nr-type">${Object.entries(TX_LABELS).map(([k,v]) => `<option value="${k}">${v}</option>`).join('')}</select></div>
     <div class="form-row">
       <div class="form-group"><label>Amount *</label><input type="number" id="nr-amount" min="0" step="0.01"></div>
-      <div class="form-group"><label>Frequency</label><select id="nr-freq">${Object.entries(FREQUENCIES).map(([k,v]) => `<option value="${k}" ${k==='monthly'?'selected':''}>${v}</option>`).join('')}</select></div>
+      <div class="form-group"><label>Currency</label><select id="nr-currency">${currencyOpts(defaultCur2)}</select></div>
     </div>
-    <div class="form-group"><label>Start Date</label><input type="date" id="nr-start" value="${new Date(Date.now()+86400000).toISOString().slice(0,10)}"></div>
+    <div class="form-row">
+      <div class="form-group"><label>Frequency</label><select id="nr-freq">${Object.entries(FREQUENCIES).map(([k,v]) => `<option value="${k}" ${k==='monthly'?'selected':''}>${v}</option>`).join('')}</select></div>
+      <div class="form-group"><label>Start Date</label><input type="date" id="nr-start" value="${new Date(Date.now()+86400000).toISOString().slice(0,10)}"></div>
+    </div>
     <div class="form-group"><label>Note</label><input type="text" id="nr-note" placeholder="Optional"></div>
     <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;">
       <button class="btn btn-secondary btn-sm" onclick="closeModal()">Cancel</button>
       <button class="btn btn-primary btn-sm" onclick="doCreateRecurring()">Create</button>
     </div>
-  `, { maxWidth: '440px' });
+  `, { maxWidth: '480px' });
 };
 
 window.doCreateRecurring = async function() {
   const contactId = document.getElementById('nr-contact').value;
-  const amount = parseFloat(document.getElementById('nr-amount').value);
+  const amount    = parseFloat(document.getElementById('nr-amount').value);
   if (!contactId || !amount) return toast('Contact and amount required.', 'error');
   await createRecurring(currentUser.id, {
-    contactId, txType: document.getElementById('nr-type').value,
-    amount, frequency: document.getElementById('nr-freq').value,
+    contactId,
+    txType:    document.getElementById('nr-type').value,
+    amount,
+    currency:  document.getElementById('nr-currency')?.value || 'USD',
+    frequency: document.getElementById('nr-freq').value,
     nextRunAt: new Date(document.getElementById('nr-start').value + 'T09:00:00').toISOString(),
-    note: document.getElementById('nr-note').value.trim()
+    note:      document.getElementById('nr-note').value.trim()
   });
   closeModal(); toast('Recurring rule created!', 'success'); navTo('recurring');
 };
