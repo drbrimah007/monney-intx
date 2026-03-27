@@ -238,6 +238,9 @@ let notifChannel = null;
 
 // ── Expose to onclick handlers ────────────────────────────────────
 window.app = { navigate: navTo, logOut: handleLogOut };
+window.closeModal = closeModal;
+window.navTo = navTo;
+window.toast = toast;
 
 // ── Auth tab toggle ───────────────────────────────────────────────
 window.showAuthTab = function(tab) {
@@ -779,7 +782,10 @@ window.openSettleModal = async function(id) {
       <div style="font-size:12px;color:var(--muted);">Balance remaining</div>
       <div style="font-size:20px;font-weight:800;">${fmtMoney(entry.amount - entry.settled_amount, entry.currency)}</div>
     </div>
-    <div class="form-group"><label>Amount to settle *</label><input type="number" id="settle-amount" min="0.01" step="0.01" max="${remaining}" value="${remaining}"></div>
+    <div class="tpl-grid2" style="gap:8px;">
+      <div class="form-group"><label>Amount to settle *</label><input type="number" id="settle-amount" min="0.01" step="0.01" max="${remaining}" value="${remaining}"></div>
+      <div class="form-group"><label>Currency</label><select id="settle-currency">${currencyOpts(entry.currency || currentProfile?.default_currency || 'USD')}</select></div>
+    </div>
     <div class="form-group"><label>Method</label><select id="settle-method">
       <option value="">Select method</option>
       <option value="cash">Cash</option>
@@ -802,6 +808,7 @@ window.saveSettlement = async function(entryId) {
   if (!amount || amount <= 0) return toast('Enter a valid amount.', 'error');
   await createSettlement(entryId, {
     amount,
+    currency: document.getElementById('settle-currency')?.value || 'USD',
     method: document.getElementById('settle-method').value,
     note: document.getElementById('settle-note').value.trim(),
     recordedBy: currentUser.id
@@ -1091,6 +1098,33 @@ window.doSendReminder = async function(entryId) {
       reminder_count: (entry?.reminder_count || 0) + 1,
       last_reminder_at: new Date().toISOString()
     });
+    // Send actual email if contact has an email address
+    const contactEmail = entry?.contact?.email;
+    if (contactEmail) {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        const token = session?.access_token;
+        await fetch('/api/email', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+          body: JSON.stringify({
+            action: 'send-reminder',
+            recipientEmail: contactEmail,
+            fromName: currentProfile?.display_name || currentUser.email,
+            fromEmail: currentProfile?.company_email || currentUser.email,
+            message,
+            amount: entry.amount / 100,
+            currency: entry.currency || 'USD',
+            txType: entry.tx_type,
+            isSelf: false, isReminder: true,
+            entryStatus: entry.status,
+            appName: currentProfile?.app_name || 'Money IntX',
+            tagline: currentProfile?.tagline || '',
+            siteUrl: 'https://moneyinteractions.com'
+          })
+        });
+      } catch (e) { console.warn('[email]', e.message); }
+    }
     closeModal();
     toast('Reminder sent.', 'success');
   } else {
@@ -1329,7 +1363,10 @@ window.openAddInvTxModal = function(invId) {
       <option value="expense">Expense</option><option value="revenue">Revenue</option>
       <option value="profit_distribution">Profit Distribution</option>
     </select></div>
-    <div class="form-group"><label>Amount</label><input type="number" id="itx-amount" min="0" step="0.01"></div>
+    <div class="tpl-grid2" style="gap:8px;">
+      <div class="form-group"><label>Amount</label><input type="number" id="itx-amount" min="0" step="0.01"></div>
+      <div class="form-group"><label>Currency</label><select id="itx-currency">${currencyOpts(currentProfile?.default_currency || 'USD')}</select></div>
+    </div>
     <div class="form-group"><label>Note</label><input type="text" id="itx-note" placeholder="Optional"></div>
     <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;">
       <button class="btn btn-secondary btn-sm" onclick="closeModal()">Cancel</button>
@@ -1343,7 +1380,9 @@ window.doAddInvTx = async function(invId) {
   if (!amount || amount <= 0) return toast('Enter amount.', 'error');
   await addInvestmentTransaction(invId, {
     type: document.getElementById('itx-type').value,
-    amount, note: document.getElementById('itx-note').value.trim(),
+    amount,
+    currency: document.getElementById('itx-currency')?.value || 'USD',
+    note: document.getElementById('itx-note').value.trim(),
     recordedBy: currentUser.id
   });
   closeModal(); toast('Transaction added.', 'success'); navTo('investments');
@@ -2221,7 +2260,7 @@ function fieldModalHtml(tid, fid) {
             <option value="no"  ${c.resultVisible === false ? 'selected' : ''}>No — hidden (usable in later calculations)</option>
           </select></div>
       </div>
-      <button class="btn btn-danger btn-sm" style="margin-top:4px;" onclick="removeCalc(${i})">✕ Remove Calculator</button>
+      <button type="button" class="btn btn-danger btn-sm" style="margin-top:4px;" onclick="removeCalc(${i})">✕ Remove Calculator</button>
     </div>`;
   }).join('');
 
@@ -2284,7 +2323,7 @@ function fieldModalHtml(tid, fid) {
           <div style="font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px;">Calculators</div>
           <p style="color:var(--muted);font-size:12px;margin-bottom:10px;">Compute results from other numeric fields. Results can be chained into later calculators.</p>
           <div id="fl_calc_list">${calcRows}</div>
-          <button class="btn btn-secondary btn-sm" onclick="addCalc('${tid}','${fid || ''}')">+ Add Calculator</button>
+          <button type="button" class="btn btn-secondary btn-sm" onclick="addCalc('${tid}','${fid || ''}')">+ Add Calculator</button>
         </div>
       </div>
 
@@ -2323,8 +2362,8 @@ function fieldModalHtml(tid, fid) {
       </div>
 
       <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:20px;border-top:1px solid var(--border);padding-top:16px;">
-        <button class="btn btn-secondary" onclick="document.getElementById('fieldModalBg').remove()">Cancel</button>
-        <button class="btn btn-primary" onclick="saveFieldModal('${tid}','${fid || ''}')">Save Field</button>
+        <button type="button" class="btn btn-secondary" onclick="document.getElementById('fieldModalBg').remove()">Cancel</button>
+        <button type="button" class="btn btn-primary" onclick="saveFieldModal('${tid}','${fid || ''}')">Save Field</button>
       </div>
     </div></div>`;
 }
@@ -2383,7 +2422,7 @@ window.addCalc = function(tid, selfFid) {
         <option value="no">No — hidden (usable in later calculations)</option>
       </select></div>
   </div>
-  <button class="btn btn-danger btn-sm" style="margin-top:4px;" onclick="removeCalc(${i})">✕ Remove Calculator</button>`;
+  <button type="button" class="btn btn-danger btn-sm" style="margin-top:4px;" onclick="removeCalc(${i})">✕ Remove Calculator</button>`;
   list.appendChild(div);
 };
 
@@ -2635,8 +2674,44 @@ onAuthChange(async (event, session) => {
     document.getElementById('landing').style.display = '';
   } else if (event === 'SIGNED_IN' && session?.user && !currentUser) {
     enterApp(session.user);
+  } else if (event === 'PASSWORD_RECOVERY') {
+    // Show password reset form — user arrived via a reset link
+    document.getElementById('landing').style.display = '';
+    document.getElementById('shell').classList.remove('active');
+    showPasswordResetForm();
   }
 });
+
+function showPasswordResetForm() {
+  // Inject a reset overlay on top of the landing page
+  const existing = document.getElementById('resetOverlay');
+  if (existing) existing.remove();
+  const overlay = document.createElement('div');
+  overlay.id = 'resetOverlay';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;z-index:9999;';
+  overlay.innerHTML = `
+    <div style="background:var(--bg);border-radius:16px;padding:32px;width:100%;max-width:400px;box-shadow:0 16px 48px rgba(0,0,0,0.3);">
+      <h2 style="font-size:22px;font-weight:800;margin-bottom:6px;">Set New Password</h2>
+      <p style="font-size:14px;color:var(--muted);margin-bottom:20px;">Enter and confirm your new password below.</p>
+      <div class="form-group"><label>New Password</label><input type="password" id="reset-pass1" placeholder="Min 6 characters" style="border-radius:8px;"></div>
+      <div class="form-group"><label>Confirm Password</label><input type="password" id="reset-pass2" placeholder="Repeat password" style="border-radius:8px;"></div>
+      <button class="btn btn-primary" style="width:100%;margin-top:8px;" onclick="doPasswordReset()">Update Password</button>
+    </div>`;
+  document.body.appendChild(overlay);
+}
+
+window.doPasswordReset = async function() {
+  const p1 = document.getElementById('reset-pass1')?.value;
+  const p2 = document.getElementById('reset-pass2')?.value;
+  if (!p1 || p1.length < 6) return toast('Password must be at least 6 characters.', 'error');
+  if (p1 !== p2) return toast('Passwords do not match.', 'error');
+  const { error } = await supabase.auth.updateUser({ password: p1 });
+  if (error) return toast(error.message, 'error');
+  document.getElementById('resetOverlay')?.remove();
+  toast('Password updated! You are now logged in.', 'success');
+  const { data: { session } } = await supabase.auth.getSession();
+  if (session?.user) enterApp(session.user);
+};
 
 checkAuth();
 </script>

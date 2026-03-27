@@ -3,14 +3,14 @@
 // POST { action:'send-reminder', recipientEmail, fromName, message?, invoiceNumber?, … }
 // POST { action:'send-invoice',  recipientEmail, fromName, invoiceNumber, amount, viewUrl? }
 
-const { requireAuth }                                        = require('../lib/auth');
+const { requireAuthV2 }                                      = require('../lib/auth');
 const { sendReminderEmail, sendInvoiceEmail, sendInviteEmail, sendNokVerificationEmail, sendNokActivationEmail, sendLockerOtpEmail, sendLockerInfoEmail } = require('../lib/email');
 
 module.exports = async function handler(req, res) {
   if (req.method === 'OPTIONS') return res.status(200).end();
   if (req.method !== 'POST')   return res.status(405).json({ ok: false, error: 'Method not allowed' });
 
-  const payload = requireAuth(req, res);
+  const payload = await requireAuthV2(req, res);
   if (!payload) return;
 
   const { action } = req.body || {};
