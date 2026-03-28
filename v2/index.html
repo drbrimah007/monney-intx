@@ -1005,8 +1005,18 @@ async function enterApp(user) {
     ];
     let tips = TIPS_DEFAULT;
     try {
-      const { data: tr } = await supabase.from('app_settings').select('value').eq('key','banner_tips').maybeSingle();
-      if (tr?.value && Array.isArray(tr.value) && tr.value.length > 0) tips = tr.value;
+      const [tipsRes, logoRes] = await Promise.all([
+        supabase.from('app_settings').select('value').eq('key','banner_tips').maybeSingle(),
+        supabase.from('app_settings').select('value').eq('key','platform_logo').maybeSingle()
+      ]);
+      if (tipsRes.data?.value && Array.isArray(tipsRes.data.value) && tipsRes.data.value.length > 0) tips = tipsRes.data.value;
+      if (logoRes.data?.value) {
+        const tlEl = document.getElementById('topbar-logo');
+        if (tlEl) { tlEl.src = logoRes.data.value; tlEl.style.display = ''; }
+        // Also update auth loader logo
+        const authLogo = document.querySelector('#auth-loader img');
+        if (authLogo) authLogo.src = logoRes.data.value;
+      }
     } catch(_) {}
     const pick = tips[Math.floor(Math.random() * tips.length)];
     const bar = document.getElementById('app-tip-bar');
@@ -6230,16 +6240,41 @@ async function renderSettings(el) {
 
   // ── Admin: Branding + Dashboard Tips ──────────────────────────
   if (isAdmin) {
-    // Load current tips
+    // Load current tips + platform logo
     let currentTips = [];
+    let platformLogoUrl = '';
     try {
-      const { data: tipRow } = await supabase.from('app_settings').select('value').eq('key','banner_tips').maybeSingle();
-      if (tipRow?.value && Array.isArray(tipRow.value)) currentTips = tipRow.value;
+      const [tipRow, logoRow] = await Promise.all([
+        supabase.from('app_settings').select('value').eq('key','banner_tips').maybeSingle(),
+        supabase.from('app_settings').select('value').eq('key','platform_logo').maybeSingle()
+      ]);
+      if (tipRow.data?.value && Array.isArray(tipRow.data.value)) currentTips = tipRow.data.value;
+      if (logoRow.data?.value) platformLogoUrl = logoRow.data.value;
     } catch(_) {}
 
     html += `<div class="card" style="margin-top:12px;border-color:rgba(251,191,36,.3);">
       <h3 style="font-size:16px;font-weight:700;margin-bottom:4px;">🛠 Admin: Platform Branding</h3>
       <p style="font-size:12px;color:var(--muted);margin-bottom:14px;">These settings apply platform-wide.</p>
+
+      <!-- Platform Logo -->
+      <div class="form-group" style="margin-bottom:16px;">
+        <label>Platform Logo</label>
+        <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-top:6px;">
+          <div id="s-platform-logo-preview" style="${platformLogoUrl ? '' : 'display:none;'}">
+            <img id="s-platform-logo-img" src="${esc(platformLogoUrl)}" style="max-height:52px;max-width:200px;border-radius:8px;border:1px solid var(--border);object-fit:contain;" onerror="this.style.display='none'">
+          </div>
+          <div>
+            <label style="cursor:pointer;display:inline-flex;align-items:center;gap:6px;background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:6px 12px;font-size:12px;font-weight:600;color:var(--text);margin-bottom:0;">
+              🖼 Upload Logo
+              <input type="file" id="s-platform-logo-file" accept="image/*" style="display:none;" onchange="uploadPlatformLogo(this)">
+            </label>
+            ${platformLogoUrl ? `<button class="bs sm" onclick="clearPlatformLogo()" style="color:var(--red);font-size:12px;margin-left:8px;">✕ Remove</button>` : ''}
+          </div>
+          <div id="s-platform-logo-status" style="font-size:11px;color:var(--muted);"></div>
+        </div>
+        <input type="hidden" id="s-platform-logourl" value="${esc(platformLogoUrl)}">
+      </div>
+
       <div class="form-row">
         <div class="form-group"><label>App / Site Name</label><input type="text" id="s-appname" value="${esc(p.app_name || 'Money IntX')}"></div>
         <div class="form-group"><label>Tagline</label><input type="text" id="s-tagline" value="${esc(p.tagline || '')}"></div>
@@ -6528,6 +6563,7 @@ window.sendEmailInvite = async function() {
 };
 
 window.saveBranding = async function() {
+  const logoUrl = (document.getElementById('s-platform-logourl')?.value || '').trim();
   const { error } = await supabase.from('users').update({
     app_name:  document.getElementById('s-appname')?.value.trim(),
     tagline:   document.getElementById('s-tagline')?.value.trim(),
@@ -6535,8 +6571,57 @@ window.saveBranding = async function() {
     updated_at: new Date().toISOString()
   }).eq('id', currentUser.id);
   if (error) return toast(error.message, 'error');
+  // Save platform logo to app_settings
+  if (logoUrl !== undefined) {
+    await supabase.from('app_settings').upsert(
+      { key: 'platform_logo', value: logoUrl, updated_at: new Date().toISOString() },
+      { onConflict: 'key' }
+    );
+    // Update topbar logo live
+    const tlEl = document.getElementById('topbar-logo');
+    if (tlEl) { tlEl.src = logoUrl || 'money.png'; tlEl.style.display = ''; }
+  }
   currentProfile = await getProfile(currentUser.id);
   toast('Branding saved.', 'success');
+};
+
+window.uploadPlatformLogo = async function(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const statusEl = document.getElementById('s-platform-logo-status');
+  if (file.size > 10 * 1024 * 1024) { statusEl.textContent = '❌ File too large — max 10 MB'; input.value = ''; return; }
+  statusEl.textContent = '⏳ Uploading…';
+  const ext = file.name.split('.').pop();
+  const path = `platform/logo.${ext}`;
+  const { error } = await supabase.storage.from('user-logos').upload(path, file, { upsert: true });
+  if (error) { statusEl.textContent = '❌ ' + error.message; return; }
+  const { data } = supabase.storage.from('user-logos').getPublicUrl(path);
+  const url = data.publicUrl + '?t=' + Date.now();
+  document.getElementById('s-platform-logourl').value = url;
+  let imgEl = document.getElementById('s-platform-logo-img');
+  const preview = document.getElementById('s-platform-logo-preview');
+  if (!imgEl) {
+    imgEl = document.createElement('img');
+    imgEl.id = 's-platform-logo-img';
+    imgEl.style = 'max-height:52px;max-width:200px;border-radius:8px;border:1px solid var(--border);object-fit:contain;';
+    if (preview) preview.appendChild(imgEl);
+  }
+  imgEl.src = url;
+  if (preview) preview.style.display = '';
+  statusEl.textContent = '✅ Uploaded — click Save Branding to apply';
+};
+
+window.clearPlatformLogo = async function() {
+  document.getElementById('s-platform-logourl').value = '';
+  const preview = document.getElementById('s-platform-logo-preview');
+  if (preview) preview.style.display = 'none';
+  await supabase.from('app_settings').upsert(
+    { key: 'platform_logo', value: '', updated_at: new Date().toISOString() },
+    { onConflict: 'key' }
+  );
+  const tlEl = document.getElementById('topbar-logo');
+  if (tlEl) tlEl.src = 'money.png';
+  toast('Logo removed.', 'success');
 };
 
 // ── Admin tips CRUD ────────────────────────────────────────────────
