@@ -973,7 +973,7 @@ async function enterApp(user) {
   exposeTplEngine();
 
   // Init business panel engine
-  initBpEngine(user.id, navTo, toast);
+  initBpEngine(user.id, navTo, toast, sendAppInviteEmail);
   exposeBpEngine();
 
   // Start realtime notifications
@@ -1302,22 +1302,22 @@ async function renderDash(el) {
       <button onclick="openNewEntryModal('owe-me')"
         style="${_qaBtnBase}background:rgba(22,163,74,.18);border-color:rgba(22,163,74,.45);color:#4ade80;"
         onmouseover="this.style.filter='brightness(1.15)'" onmouseout="this.style.filter=''">
-        <span style="width:7px;height:7px;border-radius:50%;background:#4ade80;flex-shrink:0;"></span> They Owe Me
+        They Owe Me
       </button>
       <button onclick="openNewEntryModal('i-owe')"
         style="${_qaBtnBase}background:rgba(220,38,38,.18);border-color:rgba(220,38,38,.45);color:#f87171;"
         onmouseover="this.style.filter='brightness(1.15)'" onmouseout="this.style.filter=''">
-        <span style="width:7px;height:7px;border-radius:50%;background:#f87171;flex-shrink:0;"></span> I Owe Them
+        I Owe Them
       </button>
       <button onclick="openNewEntryModal('advance')"
         style="${_qaBtnBase}background:rgba(217,119,6,.16);border-color:rgba(217,119,6,.42);color:#fbbf24;"
         onmouseover="this.style.filter='brightness(1.15)'" onmouseout="this.style.filter=''">
-        <span style="width:7px;height:7px;border-radius:50%;background:#fbbf24;flex-shrink:0;"></span> Advances
+        Advances
       </button>
       <button onclick="navTo('templates')"
         style="${_qaBtnBase}background:rgba(14,165,233,.15);border-color:rgba(14,165,233,.4);color:#38bdf8;"
         onmouseover="this.style.filter='brightness(1.15)'" onmouseout="this.style.filter=''">
-        <span style="width:7px;height:7px;border-radius:50%;background:#38bdf8;flex-shrink:0;"></span> New Invoice
+        New Invoice
       </button>
       <button onclick="openNewContactModal()"
         style="${_qaBtnBase}background:transparent;border-color:rgba(255,255,255,.15);color:var(--muted);"
