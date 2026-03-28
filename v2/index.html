@@ -696,7 +696,7 @@ if (window.location.hash.includes('type=recovery') || window.location.hash.inclu
     document.addEventListener('DOMContentLoaded', () => {
       const landing = document.getElementById('landing');
       if (landing) {
-        landing.style.display = '';
+        landing.style.display = 'flex';
         // Find the auth card inner div
         const authCard = landing.querySelector('#auth-forms') || landing.querySelector('.landing-card');
         const target = authCard || landing.querySelector('div[style*="border-radius:16px"]');
@@ -743,7 +743,7 @@ async function handleLogOut() {
   currentUser = null;
   currentProfile = null;
   document.getElementById('shell').classList.remove('active');
-  document.getElementById('landing').style.display = '';
+  document.getElementById('landing').style.display = 'flex';
   document.getElementById('fab-add-entry')?.classList.remove('fab-visible');
 }
 
@@ -6878,7 +6878,7 @@ async function checkAuth() {
     if (_ec === 'otp_expired') _em = 'That email link has expired — please sign up or log in again.';
     history.replaceState(null, '', window.location.pathname + window.location.search);
     document.getElementById('auth-loader').style.display = 'none';
-    document.getElementById('landing').style.display = '';
+    document.getElementById('landing').style.display = 'flex';
     setTimeout(() => toast(_em, 'error'), 100);
     return;
   }
@@ -6892,17 +6892,17 @@ async function checkAuth() {
       if (!currentUser && !window._isRecovery) { enterApp(session.user); }
       else if (window._isRecovery) {
         document.getElementById('auth-loader').style.display = 'none';
-        document.getElementById('landing').style.display = '';
+        document.getElementById('landing').style.display = 'flex';
       }
       // If currentUser already set by onAuthStateChange, enterApp hid the loader — nothing to do
     } else {
       document.getElementById('auth-loader').style.display = 'none';
-      document.getElementById('landing').style.display = '';
+      document.getElementById('landing').style.display = 'flex';
     }
   } catch(e) {
     console.error('[checkAuth] error:', e);
     document.getElementById('auth-loader').style.display = 'none';
-    document.getElementById('landing').style.display = '';
+    document.getElementById('landing').style.display = 'flex';
   }
 }
 
@@ -6914,7 +6914,7 @@ onAuthChange(async (event, session) => {
     currentUser = null; currentProfile = null;
     document.getElementById('auth-loader').style.display = 'none';
     document.getElementById('shell').classList.remove('active');
-    document.getElementById('landing').style.display = '';
+    document.getElementById('landing').style.display = 'flex';
   } else if ((event === 'SIGNED_IN' || event === 'INITIAL_SESSION') && session?.user && !currentUser && !window._isRecovery) {
     try {
       await enterApp(session.user);
@@ -6922,12 +6922,12 @@ onAuthChange(async (event, session) => {
       console.error('[auth] enterApp failed', e);
       currentUser = null;
       document.getElementById('auth-loader').style.display = 'none';
-      document.getElementById('landing').style.display = '';
+      document.getElementById('landing').style.display = 'flex';
     }
   } else if (event === 'PASSWORD_RECOVERY') {
     window._isRecovery = true;
     document.getElementById('shell').classList.remove('active');
-    document.getElementById('landing').style.display = '';
+    document.getElementById('landing').style.display = 'flex';
     if (!document.getElementById('reset-pass')) {
       document.getElementById('login-form').style.display = 'none';
       const _sf = document.getElementById('signup-form');
