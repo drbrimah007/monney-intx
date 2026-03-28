@@ -1157,20 +1157,57 @@ async function renderDash(el) {
   if (!el) el = document.getElementById('content');
   if (!el || window._currentPage !== 'dash') return;
   el.innerHTML = '<div class="page-header"><h2>Dashboard</h2></div><p style="color:var(--muted);padding:20px;">Loading…</p>';
-  // Run critical queries first (top 4), then non-critical (ledger + currency) in parallel
-  // This paints the hero card faster even if ledger is slow
-  const [totals, recent, contacts, unread] = await Promise.all([
-    getDashboardTotals(currentUser.id),
-    recentEntries(currentUser.id, 15),
-    listContacts(currentUser.id),
-    getUnreadCount(currentUser.id)
-  ]);
-  // Cache contacts for entry modal
-  window._allContacts = contacts;
-  const [ledger, currencyRows] = await Promise.all([
-    getLedgerSummary(currentUser.id),
-    getCurrencyLedger(currentUser.id)
-  ]);
+
+  let totals, recent, contacts, unread, ledger, currencyRows;
+
+  if (window._impersonatedData) {
+    // ── Impersonation mode: use service-key snapshot, skip RLS-filtered queries ──
+    const snap = window._impersonatedData;
+    const snapEntries = snap.entries || [];
+    const snapContacts = snap.contacts || [];
+    contacts = snapContacts;
+    window._allContacts = snapContacts;
+    recent = snapEntries.slice(0, 15);
+    unread = (snap.notifications || []).filter(n => !n.read).length;
+
+    // Compute simplified totals from snapshot entries
+    const defaultCur2 = snap.user?.default_currency || 'USD';
+    let toy2 = 0, yot2 = 0;
+    const OWE_ME_TYPES = new Set(['owed_to_me','invoice_sent','advance_paid','loan_given','they_owe_you']);
+    const I_OWE_TYPES  = new Set(['i_owe','invoice_received','advance_received','loan_taken','you_owe_them']);
+    snapEntries.forEach(e => {
+      if (e.status === 'voided' || e.status === 'archived') return;
+      if ((e.currency || 'USD') !== defaultCur2) return;
+      if (OWE_ME_TYPES.has(e.tx_type)) toy2 += (e.amount || 0);
+      if (I_OWE_TYPES.has(e.tx_type))  yot2 += (e.amount || 0);
+    });
+    totals = { total_they_owe_me: toy2, total_i_owe_them: yot2, total_net: toy2 - yot2 };
+    ledger = snapContacts.map(c => {
+      let bal = 0;
+      snapEntries.filter(e => e.contact_id === c.id && e.status !== 'voided').forEach(e => {
+        if (OWE_ME_TYPES.has(e.tx_type)) bal += (e.amount || 0);
+        if (I_OWE_TYPES.has(e.tx_type))  bal -= (e.amount || 0);
+      });
+      return { contact_id: c.id, contact_name: c.name, balance: bal };
+    });
+    currencyRows = [{ currency: defaultCur2, owed_to_me: toy2, i_owe: yot2 }];
+  } else {
+    // ── Normal mode: run all Supabase queries ──
+    const [t, r, c, u] = await Promise.all([
+      getDashboardTotals(currentUser.id),
+      recentEntries(currentUser.id, 15),
+      listContacts(currentUser.id),
+      getUnreadCount(currentUser.id)
+    ]);
+    totals = t; recent = r; contacts = c; unread = u;
+    // Cache contacts for entry modal
+    window._allContacts = contacts;
+    const [l, cr] = await Promise.all([
+      getLedgerSummary(currentUser.id),
+      getCurrencyLedger(currentUser.id)
+    ]);
+    ledger = l; currencyRows = cr;
+  }
   // Use per-currency ledger row for the primary currency hero — never mix currencies.
   // currencyRows data is in cents (matching fmtMoney's expectation).
   const defaultCur = currentProfile?.default_currency || 'USD';
@@ -1443,10 +1480,17 @@ let _contactsPage = 1;
 async function renderContacts(el, page = 1) {
   _contactsPage = page;
   if (page === 1) el.innerHTML = '<p style="color:var(--muted);padding:20px;">Loading…</p>';
-  const [contacts, ledger] = await Promise.all([
-    listContacts(currentUser.id),
-    getLedgerSummary(currentUser.id)
-  ]);
+  let contacts, ledger;
+  if (window._impersonatedData) {
+    // Impersonation mode — use RLS-bypassed snapshot
+    contacts = window._impersonatedData.contacts || [];
+    ledger   = window._impersonatedData.ledger   || [];
+  } else {
+    [contacts, ledger] = await Promise.all([
+      listContacts(currentUser.id),
+      getLedgerSummary(currentUser.id)
+    ]);
+  }
   const ledgerMap = {};
   (ledger || []).forEach(l => { ledgerMap[l.contact_id] = l; });
 
@@ -1851,7 +1895,12 @@ async function renderEntries(el, page, forceRefresh) {
 
   // Re-fetch only when: first nav to page with empty cache, or explicitly forced
   if (_entriesAll.length === 0 || forceRefresh) {
-    _entriesAll = await listEntries(currentUser.id);
+    if (window._impersonatedData) {
+      // Impersonation mode — use RLS-bypassed snapshot
+      _entriesAll = window._impersonatedData.entries || [];
+    } else {
+      _entriesAll = await listEntries(currentUser.id);
+    }
   }
 
   const _sm = window._selectMode || false;
@@ -3788,9 +3837,15 @@ window.confirmDeleteEntry = async function(id) {
 // ── Notifications ─────────────────────────────────────────────────
 async function renderNotifications(el) {
   el.innerHTML = '<div class="page-header"><h2>Notifications</h2></div><p style="color:var(--muted);">Loading...</p>';
-  const notifs = await listNotifications(currentUser.id);
-  await markAllRead(currentUser.id);
-  updateNotifBadge();
+  let notifs;
+  if (window._impersonatedData) {
+    // Impersonation mode — use RLS-bypassed snapshot (read-only, no markAllRead)
+    notifs = window._impersonatedData.notifications || [];
+  } else {
+    notifs = await listNotifications(currentUser.id);
+    await markAllRead(currentUser.id);
+    updateNotifBadge();
+  }
 
   const typeBadge = (t) => {
     const map = {
@@ -6843,14 +6898,10 @@ window._impersonating = null;
 window._originalUser = null;
 
 window.impersonateUser = async function(userId, name) {
-  if (!confirm(`View as ${name}? You will see their data.`)) return;
+  if (!confirm(`View as ${name}?\nThis will load their real data bypassing RLS.`)) return;
   window._originalUser = { id: currentUser.id, profile: currentProfile };
-  const { data: profile } = await supabase.from('users').select('*').eq('id', userId).single();
-  window._impersonating = { id: userId, profile };
-  currentUser = { id: userId, email: profile?.email };
-  currentProfile = profile;
-  document.getElementById('sidebar-user-name').textContent = profile?.display_name || 'User';
-  // Show banner
+
+  // Show loading banner immediately
   let banner = document.getElementById('impersonate-banner');
   if (!banner) {
     banner = document.createElement('div');
@@ -6858,8 +6909,46 @@ window.impersonateUser = async function(userId, name) {
     banner.style.cssText = 'background:#7c6800;color:#fbbf24;padding:10px 16px;font-size:13px;font-weight:700;display:flex;align-items:center;justify-content:space-between;gap:8px;';
     document.getElementById('topbar').after(banner);
   }
-  banner.innerHTML = `<span>👁 Viewing as: ${esc(profile?.display_name || 'User')}</span><button class="bs sm" onclick="stopImpersonation()" style="background:rgba(251,191,36,.2);border-color:rgba(251,191,36,.3);color:#fbbf24;">Exit</button>`;
-  navTo('dash');
+  banner.innerHTML = `<span>⏳ Loading data for ${esc(name)}…</span>`;
+
+  try {
+    // Get admin's JWT — needed to authenticate the admin-view request server-side
+    const session = (await supabase.auth.getSession()).data.session;
+    const jwt = session?.access_token;
+    if (!jwt) throw new Error('No active session');
+
+    // Call the service-key endpoint — bypasses RLS, returns full user snapshot
+    const res = await fetch(`/api/v2/admin-view?userId=${encodeURIComponent(userId)}`, {
+      headers: { 'Authorization': `Bearer ${jwt}`, 'Content-Type': 'application/json' }
+    });
+    const snap = await res.json();
+    if (!snap.ok) throw new Error(snap.error || 'Admin view endpoint error');
+
+    // Store snapshot — render functions check this to skip RLS-filtered Supabase queries
+    window._impersonatedData = snap; // { user, entries, contacts, notifications, groups, settlements }
+    window._impersonating = { id: userId, profile: snap.user };
+
+    // Swap the active user identity (display only — no actual auth change)
+    currentUser = { id: userId, email: snap.user?.email };
+    currentProfile = snap.user;
+    document.getElementById('sidebar-user-name').textContent = snap.user?.display_name || 'User';
+
+    // Clear cached entries so renderEntries picks up snapshot
+    _entriesAll = [];
+
+    const ec = snap.entries?.length || 0;
+    const cc = snap.contacts?.length || 0;
+    banner.innerHTML = `<span>👁 Viewing as: <strong>${esc(snap.user?.display_name || name)}</strong> — ${ec} entries · ${cc} contacts</span>
+      <button class="bs sm" onclick="stopImpersonation()" style="background:rgba(251,191,36,.2);border-color:rgba(251,191,36,.3);color:#fbbf24;">✕ Exit View</button>`;
+    navTo('dash');
+  } catch(e) {
+    banner.innerHTML = `<span>⚠️ Failed: ${esc(e.message)}</span>
+      <button class="bs sm" onclick="stopImpersonation()" style="color:#fbbf24;">Close</button>`;
+    toast('Impersonation failed: ' + e.message, 'error');
+    // Revert original user
+    window._originalUser = null;
+    window._impersonatedData = null;
+  }
 };
 
 window.stopImpersonation = function() {
@@ -6869,6 +6958,8 @@ window.stopImpersonation = function() {
   document.getElementById('sidebar-user-name').textContent = currentProfile?.display_name || '';
   window._originalUser = null;
   window._impersonating = null;
+  window._impersonatedData = null;
+  _entriesAll = []; // force re-fetch for admin's own entries
   document.getElementById('impersonate-banner')?.remove();
   navTo('admin');
   toast('Impersonation ended.', 'success');
