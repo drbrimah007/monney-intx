@@ -334,198 +334,15 @@ tr.row-selected td { background: rgba(108,99,255,.1) !important; }
 <style>@keyframes spin{to{transform:rotate(360deg)}}</style>
 
 <!-- Landing / Auth -->
-<div id="landing" style="min-height:100vh;background:#080b12;color:#e2e8f0;display:none;overflow-x:hidden;font-family:inherit;">
+<div id="landing" style="min-height:100vh;background:var(--bg);display:none;align-items:center;justify-content:center;flex-direction:column;font-family:inherit;">
 
-  <!-- ═══ NAV BAR ═══ -->
-  <nav style="display:flex;align-items:center;justify-content:space-between;padding:16px 28px;position:sticky;top:0;z-index:100;background:rgba(8,11,18,.92);backdrop-filter:blur(12px);border-bottom:1px solid rgba(255,255,255,.06);">
-    <div style="display:flex;align-items:center;gap:10px;">
-      <img src="money.png" style="height:36px;width:auto;border-radius:8px;object-fit:contain;"
-        onerror="this.style.display='none';document.getElementById('lp-nav-name').style.display='inline-block'">
-      <span id="lp-nav-name" style="display:none;font-size:16px;font-weight:800;background:linear-gradient(135deg,#fff 30%,#e020b0 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;">Money IntX</span>
+  <div class="landing-card" style="width:100%;max-width:420px;margin:auto;padding:40px;box-sizing:border-box;">
+    <div style="text-align:center;margin-bottom:20px;">
+      <img src="money.png" style="height:52px;border-radius:12px;object-fit:contain;margin-bottom:12px;"
+        onerror="this.style.display='none';document.getElementById('lp-logo-name').style.display='block'">
+      <div id="lp-logo-name" style="display:none;font-size:22px;font-weight:900;margin-bottom:4px;">Money IntX</div>
+      <p style="font-size:14px;color:var(--muted);margin:0;">Making Money Matters Memorable</p>
     </div>
-    <div style="display:flex;gap:10px;">
-      <button class="lp-btn-secondary" style="padding:8px 18px;font-size:13px;" onclick="showAuthTab('login');document.getElementById('auth-section').scrollIntoView({behavior:'smooth'})">Log In</button>
-      <button class="lp-btn-primary" style="padding:8px 18px;font-size:13px;" onclick="showAuthTab('signup');document.getElementById('auth-section').scrollIntoView({behavior:'smooth'})">Sign Up Free</button>
-    </div>
-  </nav>
-
-  <!-- ═══ HERO ═══ -->
-  <div style="position:relative;overflow:hidden;padding:80px 24px 64px;text-align:center;">
-    <!-- Glow backgrounds -->
-    <div style="position:absolute;inset:0;pointer-events:none;overflow:hidden;">
-      <div style="position:absolute;top:-120px;left:50%;transform:translateX(-50%);width:700px;height:500px;background:radial-gradient(ellipse at center,rgba(8,11,83,.55) 0%,transparent 70%);"></div>
-      <div style="position:absolute;top:60px;right:-100px;width:400px;height:400px;background:radial-gradient(ellipse at center,rgba(224,32,176,.08) 0%,transparent 70%);"></div>
-    </div>
-
-    <!-- Label pill -->
-    <div style="display:inline-flex;align-items:center;gap:6px;background:rgba(224,32,176,.12);border:1px solid rgba(224,32,176,.28);border-radius:100px;padding:5px 14px;font-size:12px;font-weight:600;color:#e020b0;margin-bottom:24px;letter-spacing:.02em;">
-      ✦ Personal &amp; Commercial Financial Tracker
-    </div>
-
-    <!-- Main headline -->
-    <h1 style="font-size:clamp(32px,6.5vw,62px);font-weight:900;line-height:1.08;margin-bottom:20px;letter-spacing:-.02em;">
-      <span style="color:#ffffff;">Know exactly</span><br>
-      <span style="background:linear-gradient(135deg,#e020b0 0%,#a78bfa 60%,#080b53 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;">who owes you</span>
-      <span style="color:#ffffff;"> —<br>and what you owe.</span>
-    </h1>
-
-    <!-- Sub headline -->
-    <p style="font-size:clamp(18px,2.8vw,24px);color:#8892a4;max-width:400px;margin:0 auto 36px;line-height:1.5;font-weight:600;letter-spacing:.01em;">Record. Manage. Grow.</p>
-
-    <!-- CTAs -->
-    <div style="display:flex;gap:14px;justify-content:center;flex-wrap:wrap;margin-bottom:48px;">
-      <button class="lp-btn-primary" style="padding:15px 32px;font-size:16px;font-weight:700;border-radius:14px;letter-spacing:.01em;" onclick="showAuthTab('signup');document.getElementById('auth-section').scrollIntoView({behavior:'smooth'})">
-        Start Tracking Free →
-      </button>
-      <button class="lp-btn-secondary" style="padding:15px 32px;font-size:16px;font-weight:600;border-radius:14px;" onclick="showAuthTab('login');document.getElementById('auth-section').scrollIntoView({behavior:'smooth'})">
-        Sign in
-      </button>
-    </div>
-
-    <!-- Social proof tags -->
-    <div style="display:flex;flex-wrap:wrap;gap:10px;justify-content:center;margin-bottom:56px;">
-      <span style="background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);border-radius:100px;padding:5px 14px;font-size:12px;color:#8892a4;">✓ Free to use</span>
-      <span style="background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);border-radius:100px;padding:5px 14px;font-size:12px;color:#8892a4;">✓ No ads, ever</span>
-      <span style="background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);border-radius:100px;padding:5px 14px;font-size:12px;color:#8892a4;">✓ Real-time sync</span>
-      <span style="background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);border-radius:100px;padding:5px 14px;font-size:12px;color:#8892a4;">✓ Cross-device</span>
-      <span style="background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);border-radius:100px;padding:5px 14px;font-size:12px;color:#8892a4;">✓ Encrypted data</span>
-    </div>
-
-    <!-- Dashboard mockup card -->
-    <div style="max-width:520px;margin:0 auto;background:linear-gradient(160deg,#111422 0%,#0d1020 100%);border:1px solid rgba(255,255,255,.1);border-radius:20px;padding:24px;box-shadow:0 32px 80px rgba(0,0,0,.7),0 0 0 1px rgba(8,11,83,.4);text-align:left;">
-      <!-- Mock top bar -->
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;padding-bottom:14px;border-bottom:1px solid rgba(255,255,255,.07);">
-        <div style="display:flex;align-items:center;gap:8px;">
-          <div style="width:8px;height:8px;border-radius:50%;background:#e020b0;box-shadow:0 0 8px #e020b0;"></div>
-          <span style="font-size:13px;font-weight:700;color:#e2e8f0;">Dashboard</span>
-        </div>
-        <span style="font-size:11px;color:#4b5563;">Updated just now</span>
-      </div>
-      <!-- 3 stat cards -->
-      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:20px;">
-        <div style="background:rgba(16,185,129,.08);border:1px solid rgba(16,185,129,.2);border-radius:12px;padding:14px 12px;">
-          <div style="font-size:10px;font-weight:700;color:#6ee7b7;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px;">They Owe Me</div>
-          <div style="font-size:22px;font-weight:900;color:#10b981;">₦142,500</div>
-          <div style="font-size:10px;color:#6b7280;margin-top:3px;">6 contacts</div>
-        </div>
-        <div style="background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.18);border-radius:12px;padding:14px 12px;">
-          <div style="font-size:10px;font-weight:700;color:#fca5a5;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px;">I Owe Them</div>
-          <div style="font-size:22px;font-weight:900;color:#ef4444;">₦38,000</div>
-          <div style="font-size:10px;color:#6b7280;margin-top:3px;">2 contacts</div>
-        </div>
-        <div style="background:rgba(8,11,83,.4);border:1px solid rgba(224,32,176,.25);border-radius:12px;padding:14px 12px;">
-          <div style="font-size:10px;font-weight:700;color:#c4b5fd;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px;">Net Balance</div>
-          <div style="font-size:22px;font-weight:900;background:linear-gradient(135deg,#e020b0,#a78bfa);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;">₦104,500</div>
-          <div style="font-size:10px;color:#6b7280;margin-top:3px;">In your favour</div>
-        </div>
-      </div>
-      <!-- Mock recent entries -->
-      <div style="font-size:11px;font-weight:700;color:#4b5563;text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px;">Recent</div>
-      <div style="display:flex;flex-direction:column;gap:8px;">
-        <div style="display:flex;align-items:center;justify-content:space-between;background:rgba(255,255,255,.03);border-radius:10px;padding:10px 12px;">
-          <div style="display:flex;align-items:center;gap:10px;">
-            <div style="width:28px;height:28px;border-radius:50%;background:#3730a3;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;color:#a5b4fc;">A</div>
-            <div><div style="font-size:12px;font-weight:600;">Ade Bello</div><div style="font-size:10px;color:#6b7280;">Loan · Apr 1</div></div>
-          </div>
-          <span style="font-size:13px;font-weight:700;color:#10b981;">+₦50,000</span>
-        </div>
-        <div style="display:flex;align-items:center;justify-content:space-between;background:rgba(255,255,255,.03);border-radius:10px;padding:10px 12px;">
-          <div style="display:flex;align-items:center;gap:10px;">
-            <div style="width:28px;height:28px;border-radius:50%;background:#7c3aed;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;color:#ddd6fe;">K</div>
-            <div><div style="font-size:12px;font-weight:600;">Kemi Fashola</div><div style="font-size:10px;color:#6b7280;">Invoice · Mar 28</div></div>
-          </div>
-          <span style="font-size:13px;font-weight:700;color:#ef4444;">-₦38,000</span>
-        </div>
-        <div style="display:flex;align-items:center;justify-content:space-between;background:rgba(255,255,255,.03);border-radius:10px;padding:10px 12px;">
-          <div style="display:flex;align-items:center;gap:10px;">
-            <div style="width:28px;height:28px;border-radius:50%;background:#065f46;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;color:#6ee7b7;">T</div>
-            <div><div style="font-size:12px;font-weight:600;">Tunde Okafor</div><div style="font-size:10px;color:#6b7280;">Settlement · Mar 25</div></div>
-          </div>
-          <span style="font-size:13px;font-weight:700;color:#10b981;">+₦25,000</span>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- ═══ FEATURES ═══ -->
-  <div style="padding:72px 24px 64px;max-width:960px;margin:0 auto;">
-    <div style="text-align:center;margin-bottom:48px;">
-      <div style="font-size:11px;text-transform:uppercase;letter-spacing:.12em;color:#e020b0;font-weight:700;margin-bottom:10px;">Everything you need</div>
-      <h2 style="font-size:clamp(22px,4vw,36px);font-weight:900;color:#fff;line-height:1.2;">Built for real money, real people</h2>
-    </div>
-    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px;">
-      <!-- Card 1 -->
-      <div style="background:linear-gradient(160deg,#111422,#0d1020);border:1px solid rgba(255,255,255,.08);border-radius:18px;padding:28px 24px;transition:border-color .2s;" onmouseover="this.style.borderColor='rgba(224,32,176,.35)'" onmouseout="this.style.borderColor='rgba(255,255,255,.08)'">
-        <div style="width:44px;height:44px;border-radius:12px;background:rgba(16,185,129,.12);border:1px solid rgba(16,185,129,.2);display:flex;align-items:center;justify-content:center;font-size:20px;margin-bottom:16px;">💳</div>
-        <h3 style="font-size:15px;font-weight:700;margin-bottom:8px;">Debt Tracker</h3>
-        <p style="font-size:13px;color:#8892a4;line-height:1.6;">See every contact's balance at a glance. Who owes you, who you owe, and your net position — updated in real time.</p>
-      </div>
-      <!-- Card 2 -->
-      <div style="background:linear-gradient(160deg,#111422,#0d1020);border:1px solid rgba(255,255,255,.08);border-radius:18px;padding:28px 24px;transition:border-color .2s;" onmouseover="this.style.borderColor='rgba(224,32,176,.35)'" onmouseout="this.style.borderColor='rgba(255,255,255,.08)'">
-        <div style="width:44px;height:44px;border-radius:12px;background:rgba(139,92,246,.12);border:1px solid rgba(139,92,246,.2);display:flex;align-items:center;justify-content:center;font-size:20px;margin-bottom:16px;">📋</div>
-        <h3 style="font-size:15px;font-weight:700;margin-bottom:8px;">Custom Invoices</h3>
-        <p style="font-size:13px;color:#8892a4;line-height:1.6;">Build unlimited invoice templates with your logo, auto-calculators, and one-click send via email directly to your contacts.</p>
-      </div>
-      <!-- Card 3 -->
-      <div style="background:linear-gradient(160deg,#111422,#0d1020);border:1px solid rgba(255,255,255,.08);border-radius:18px;padding:28px 24px;transition:border-color .2s;" onmouseover="this.style.borderColor='rgba(224,32,176,.35)'" onmouseout="this.style.borderColor='rgba(255,255,255,.08)'">
-        <div style="width:44px;height:44px;border-radius:12px;background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.2);display:flex;align-items:center;justify-content:center;font-size:20px;margin-bottom:16px;">🔔</div>
-        <h3 style="font-size:15px;font-weight:700;margin-bottom:8px;">Smart Reminders</h3>
-        <p style="font-size:13px;color:#8892a4;line-height:1.6;">Schedule automatic reminders for due dates and repayments. Notify contacts, yourself, or both — with full control over timing.</p>
-      </div>
-      <!-- Card 4 -->
-      <div style="background:linear-gradient(160deg,#111422,#0d1020);border:1px solid rgba(255,255,255,.08);border-radius:18px;padding:28px 24px;transition:border-color .2s;" onmouseover="this.style.borderColor='rgba(224,32,176,.35)'" onmouseout="this.style.borderColor='rgba(255,255,255,.08)'">
-        <div style="width:44px;height:44px;border-radius:12px;background:rgba(14,165,233,.1);border:1px solid rgba(14,165,233,.2);display:flex;align-items:center;justify-content:center;font-size:20px;margin-bottom:16px;">👥</div>
-        <h3 style="font-size:15px;font-weight:700;margin-bottom:8px;">Groups &amp; Circles</h3>
-        <p style="font-size:13px;color:#8892a4;line-height:1.6;">Manage ajo, chamas, savings circles, and business ventures. Track contributions and payouts for every member.</p>
-      </div>
-      <!-- Card 5 -->
-      <div style="background:linear-gradient(160deg,#111422,#0d1020);border:1px solid rgba(255,255,255,.08);border-radius:18px;padding:28px 24px;transition:border-color .2s;" onmouseover="this.style.borderColor='rgba(224,32,176,.35)'" onmouseout="this.style.borderColor='rgba(255,255,255,.08)'">
-        <div style="width:44px;height:44px;border-radius:12px;background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.2);display:flex;align-items:center;justify-content:center;font-size:20px;margin-bottom:16px;">📈</div>
-        <h3 style="font-size:15px;font-weight:700;margin-bottom:8px;">Investment ROI</h3>
-        <p style="font-size:13px;color:#8892a4;line-height:1.6;">Record investments with multiple partners, track returns, and see exactly what each person is owed or due.</p>
-      </div>
-      <!-- Card 6 -->
-      <div style="background:linear-gradient(160deg,#111422,#0d1020);border:1px solid rgba(255,255,255,.08);border-radius:18px;padding:28px 24px;transition:border-color .2s;" onmouseover="this.style.borderColor='rgba(224,32,176,.35)'" onmouseout="this.style.borderColor='rgba(255,255,255,.08)'">
-        <div style="width:44px;height:44px;border-radius:12px;background:rgba(8,11,83,.6);border:1px solid rgba(224,32,176,.25);display:flex;align-items:center;justify-content:center;font-size:20px;margin-bottom:16px;">🔐</div>
-        <h3 style="font-size:15px;font-weight:700;margin-bottom:8px;">Trusted Access</h3>
-        <p style="font-size:13px;color:#8892a4;line-height:1.6;">Designate a trusted contact to receive your financial records if something happens to you — with full audit control.</p>
-      </div>
-    </div>
-  </div>
-
-  <!-- ═══ HOW IT WORKS ═══ -->
-  <div style="padding:16px 24px 72px;max-width:680px;margin:0 auto;text-align:center;">
-    <div style="font-size:11px;text-transform:uppercase;letter-spacing:.12em;color:#e020b0;font-weight:700;margin-bottom:10px;">Simple by design</div>
-    <h2 style="font-size:clamp(20px,3.5vw,32px);font-weight:900;margin-bottom:40px;color:#fff;">Three steps to full clarity</h2>
-    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;position:relative;">
-      <!-- Connector line (desktop only) -->
-      <div style="position:absolute;top:28px;left:calc(16.6% + 8px);right:calc(16.6% + 8px);height:1px;background:linear-gradient(90deg,transparent,rgba(224,32,176,.4),transparent);pointer-events:none;"></div>
-      <div style="background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08);border-radius:16px;padding:24px 16px;">
-        <div style="width:44px;height:44px;border-radius:50%;background:linear-gradient(135deg,#080b53,#e020b0);display:flex;align-items:center;justify-content:center;font-weight:900;font-size:18px;color:#fff;margin:0 auto 14px;box-shadow:0 4px 16px rgba(224,32,176,.3);">1</div>
-        <div style="font-size:14px;font-weight:700;margin-bottom:6px;color:#fff;">Add Contacts</div>
-        <div style="font-size:12px;color:#8892a4;line-height:1.5;">People you transact with personally or in business</div>
-      </div>
-      <div style="background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08);border-radius:16px;padding:24px 16px;">
-        <div style="width:44px;height:44px;border-radius:50%;background:linear-gradient(135deg,#e020b0,#a78bfa);display:flex;align-items:center;justify-content:center;font-weight:900;font-size:18px;color:#fff;margin:0 auto 14px;box-shadow:0 4px 16px rgba(167,139,250,.3);">2</div>
-        <div style="font-size:14px;font-weight:700;margin-bottom:6px;color:#fff;">Record Entries</div>
-        <div style="font-size:12px;color:#8892a4;line-height:1.5;">Log debts, invoices, advances, and payments instantly</div>
-      </div>
-      <div style="background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08);border-radius:16px;padding:24px 16px;">
-        <div style="width:44px;height:44px;border-radius:50%;background:linear-gradient(135deg,#a78bfa,#10b981);display:flex;align-items:center;justify-content:center;font-weight:900;font-size:18px;color:#fff;margin:0 auto 14px;box-shadow:0 4px 16px rgba(16,185,129,.2);">3</div>
-        <div style="font-size:14px;font-weight:700;margin-bottom:6px;color:#fff;">Track &amp; Settle</div>
-        <div style="font-size:12px;color:#8892a4;line-height:1.5;">View balances, send reminders, and mark things settled</div>
-      </div>
-    </div>
-  </div>
-
-  <!-- ═══ AUTH SECTION ═══ -->
-  <div id="auth-section" style="background:linear-gradient(180deg,transparent 0%,rgba(8,11,83,.15) 100%);padding:0 20px 72px;">
-  <div style="max-width:440px;margin:0 auto;">
-    <div style="text-align:center;margin-bottom:28px;">
-      <h2 style="font-size:24px;font-weight:900;color:#fff;margin-bottom:8px;">Start for free today</h2>
-      <p style="font-size:14px;color:#8892a4;">No credit card required. No hidden fees.</p>
-    </div>
-  <div class="landing-card" style="background:linear-gradient(160deg,#111422,#0d1020);border:1px solid rgba(255,255,255,.1);border-radius:20px;padding:32px 28px;box-shadow:0 24px 60px rgba(0,0,0,.6),0 0 0 1px rgba(224,32,176,.08);">
     <div class="landing-tabs">
       <button class="landing-tab active" onclick="showAuthTab('login')">Log In</button>
       <button class="landing-tab" onclick="showAuthTab('signup')">Sign Up</button>
@@ -535,7 +352,7 @@ tr.row-selected td { background: rgba(108,99,255,.1) !important; }
       <div id="login-form">
         <div class="form-group"><label>Email</label><input type="email" id="login-email" placeholder="you@example.com" autocomplete="email"></div>
         <div class="form-group"><label>Password</label><input type="password" id="login-pass" placeholder="Your password" autocomplete="current-password"></div>
-        <button class="btn btn-primary" style="width:100%;margin-top:8px;padding:14px;font-size:15px;font-weight:700;border-radius:12px;" onclick="handleLogin()">Log In →</button>
+        <button class="btn btn-primary" style="width:100%;margin-top:8px;" onclick="handleLogin()">Log In</button>
         <p style="text-align:center;margin-top:12px;font-size:13px;"><a href="#" onclick="handleForgotPassword();return false;">Forgot password?</a></p>
       </div>
       <!-- Signup form (hidden) -->
@@ -543,21 +360,9 @@ tr.row-selected td { background: rgba(108,99,255,.1) !important; }
         <div class="form-group"><label>Display Name</label><input type="text" id="signup-name" placeholder="Your name" autocomplete="name"></div>
         <div class="form-group"><label>Email</label><input type="email" id="signup-email" placeholder="you@example.com" autocomplete="email"></div>
         <div class="form-group"><label>Password</label><input type="password" id="signup-pass" placeholder="Choose a strong password" autocomplete="new-password"></div>
-        <button class="btn btn-primary" style="width:100%;margin-top:8px;padding:14px;font-size:15px;font-weight:700;border-radius:12px;" onclick="handleSignup()">Create Free Account →</button>
+        <button class="btn btn-primary" style="width:100%;margin-top:8px;" onclick="handleSignup()">Create Account</button>
       </div>
     </div>
-  </div>
-  </div>
-  </div>
-
-  <!-- ═══ FOOTER ═══ -->
-  <div style="background:#060810;border-top:1px solid rgba(255,255,255,.06);padding:28px 24px;text-align:center;">
-    <div style="display:flex;align-items:center;justify-content:center;gap:8px;margin-bottom:10px;">
-      <img src="money.png" style="height:22px;border-radius:6px;object-fit:contain;"
-        onerror="this.style.display='none';document.getElementById('lp-footer-name').style.display='inline'">
-      <span id="lp-footer-name" style="display:none;font-size:13px;font-weight:700;color:#6b7280;">Money IntX</span>
-    </div>
-    <p style="font-size:11px;color:#374151;max-width:400px;margin:0 auto;">Personal &amp; Commercial Financial Tracking. Not a bank, not a payment processor, not a financial advisor.</p>
   </div>
 
 </div>
