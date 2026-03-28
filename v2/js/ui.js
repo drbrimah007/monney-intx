@@ -133,7 +133,7 @@ export function statusBadge(status) {
   const s = STATUS_COLORS[status] || STATUS_COLORS.posted;
   const label = STATUS_LABELS[status] || status;
   return `<span style="display:inline-block;background:${s.bg};color:${s.color};border:1px solid ${s.border || s.bg};
-    border-radius:100px;padding:3px 10px;font-size:11px;font-weight:700;
+    border-radius:8px;padding:3px 10px;font-size:11px;font-weight:700;
     text-transform:uppercase;letter-spacing:0.05em;">${esc(label)}</span>`;
 }
 
