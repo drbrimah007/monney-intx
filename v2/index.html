@@ -94,7 +94,7 @@
   --sidebar-bg: #0f172a;
   --sidebar-active: #1e293b;
 }
-/* Theme: Money IntX Navy — exact logo colors */
+/* Theme: Money IntX Navy — calm deep navy */
 [data-theme="navy"] {
   --accent: #e020b0;
   --accent-hover: #c01898;
@@ -104,11 +104,11 @@
   --amber: #fbbf24;
   --blue: #60a5fa;
   --bg: #03051a;
-  --bg2: #080b53;
-  --bg3: #0f1275;
+  --bg2: #080d1e;
+  --bg3: #0e1530;
   --text: #e2e4f8;
-  --muted: #9090c0;
-  --border: #141980;
+  --muted: #7a85a8;
+  --border: rgba(100,110,200,0.18);
   --radius: 10px;
   --shadow: 0 2px 12px rgba(0,0,0,0.55);
   --shadow-lg: 0 8px 24px rgba(0,0,0,0.55);
@@ -6080,7 +6080,6 @@ async function renderSettings(el) {
           ${p.photo_url ? `<button class="bs sm" onclick="clearProfilePhoto()" style="color:var(--red);font-size:12px;">✕ Remove</button>` : ''}
         </div>
         <div id="s-photo-upload-status" style="font-size:11px;color:var(--muted);margin-top:4px;"></div>
-        <div style="font-size:11px;color:var(--muted);margin-top:2px;">Max 2 MB · JPG, PNG, WebP</div>
         <input type="hidden" id="s-photourl" value="${esc(p.photo_url || '')}">
       </div>
     </div>
@@ -6366,17 +6365,17 @@ window.uploadProfilePhoto = async function(input) {
   const file = input.files[0];
   if (!file) return;
   const statusEl = document.getElementById('s-photo-upload-status');
-  if (file.size > 2 * 1024 * 1024) {
-    statusEl.textContent = '❌ File too large — max 2 MB';
+  if (file.size > 10 * 1024 * 1024) {
+    statusEl.textContent = '❌ File too large — max 10 MB';
     input.value = '';
     return;
   }
   statusEl.textContent = '⏳ Uploading…';
   const ext  = file.name.split('.').pop();
-  const path = `${currentUser.id}/avatar.${ext}`;
-  const { error } = await supabase.storage.from('avatars').upload(path, file, { upsert: true });
+  const path = `${currentUser.id}/photo.${ext}`;
+  const { error } = await supabase.storage.from('user-logos').upload(path, file, { upsert: true });
   if (error) { statusEl.textContent = '❌ ' + error.message; return; }
-  const { data } = supabase.storage.from('avatars').getPublicUrl(path);
+  const { data } = supabase.storage.from('user-logos').getPublicUrl(path);
   const url = data.publicUrl + '?t=' + Date.now();
   document.getElementById('s-photourl').value = url;
   // Update preview ring
