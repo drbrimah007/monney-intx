@@ -6258,20 +6258,20 @@ async function renderSettings(el) {
       <p style="font-size:12px;color:var(--muted);margin-bottom:14px;">These settings apply platform-wide.</p>
 
       <!-- Platform Logo -->
-      <div class="form-group" style="margin-bottom:16px;">
-        <label>Platform Logo</label>
-        <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-top:6px;">
-          <div id="s-platform-logo-preview" style="${platformLogoUrl ? '' : 'display:none;'}">
-            <img id="s-platform-logo-img" src="${esc(platformLogoUrl)}" style="max-height:52px;max-width:200px;border-radius:8px;border:1px solid var(--border);object-fit:contain;" onerror="this.style.display='none'">
+      <div style="margin-bottom:18px;">
+        <label style="font-size:12px;font-weight:600;color:var(--muted);display:block;margin-bottom:8px;text-transform:uppercase;letter-spacing:.05em;">Platform Logo</label>
+        <div style="border:2px dashed var(--border);border-radius:10px;padding:16px 20px;display:flex;align-items:center;gap:16px;flex-wrap:wrap;background:rgba(255,255,255,.02);">
+          <div id="s-platform-logo-preview" style="${platformLogoUrl ? 'display:flex;align-items:center;' : 'display:none;'}">
+            <img id="s-platform-logo-img" ${platformLogoUrl ? 'src="' + esc(platformLogoUrl) + '"' : ''} style="max-height:56px;max-width:180px;border-radius:6px;border:1px solid var(--border);object-fit:contain;" onerror="this.parentElement.style.display='none'">
           </div>
-          <div>
-            <label style="cursor:pointer;display:inline-flex;align-items:center;gap:6px;background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:6px 12px;font-size:12px;font-weight:600;color:var(--text);margin-bottom:0;">
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+            <label style="cursor:pointer;display:inline-flex;align-items:center;gap:6px;background:var(--accent);color:#fff;border-radius:6px;padding:8px 14px;font-size:12px;font-weight:700;margin-bottom:0;white-space:nowrap;">
               🖼 Upload Logo
               <input type="file" id="s-platform-logo-file" accept="image/*" style="display:none;" onchange="uploadPlatformLogo(this)">
             </label>
-            ${platformLogoUrl ? `<button class="bs sm" onclick="clearPlatformLogo()" style="color:var(--red);font-size:12px;margin-left:8px;">✕ Remove</button>` : ''}
+            ${platformLogoUrl ? '<button class="bs sm" onclick="clearPlatformLogo()" style="color:var(--red);font-size:12px;padding:6px 12px;">✕ Remove</button>' : ''}
+            <span id="s-platform-logo-status" style="font-size:11px;color:var(--muted);"></span>
           </div>
-          <div id="s-platform-logo-status" style="font-size:11px;color:var(--muted);"></div>
         </div>
         <input type="hidden" id="s-platform-logourl" value="${esc(platformLogoUrl)}">
       </div>
