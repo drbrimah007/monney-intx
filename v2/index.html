@@ -566,9 +566,10 @@ tr.row-selected td { background: rgba(108,99,255,.1) !important; }
   <div id="topbar">
     <div id="topbar-left">
       <button class="hamburger" onclick="document.getElementById('nav').classList.toggle('open')">☰</button>
-      <div style="cursor:pointer;display:flex;align-items:center;gap:8px;" onclick="app.navigate('dash')" title="Money IntX — Dashboard">
-        <img id="topbar-logo" src="money.png" alt="Money IntX" style="height:40px;width:auto;max-width:160px;border-radius:8px;object-fit:contain;" onerror="this.style.display='none'">
-        <span style="font-size:10px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--accent);opacity:.85;white-space:nowrap;" class="hide-mobile">Record · Manage · Grow</span>
+      <div style="cursor:pointer;display:flex;align-items:center;" onclick="app.navigate('dash')" title="Money IntX — Dashboard">
+        <img id="topbar-logo" src="money.png" alt="Money IntX" style="height:40px;width:auto;max-width:160px;border-radius:8px;object-fit:contain;"
+          onerror="this.style.display='none';document.getElementById('topbar-name').style.display='inline'">
+        <span id="topbar-name" style="display:none;font-size:16px;font-weight:800;letter-spacing:.04em;color:var(--text);white-space:nowrap;">Money IntX</span>
       </div>
     </div>
     <div id="topbar-center">
