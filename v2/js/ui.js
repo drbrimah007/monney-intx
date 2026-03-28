@@ -172,26 +172,26 @@ export const TX_CREATE_LABELS = {
 };
 
 export const TX_COLORS = {
-  // Green = receivable / owed to me  (V1 dark theme --green: #4ade80)
-  owed_to_me:       '#4ade80',
-  invoice_sent:     '#4ade80',
-  bill_sent:        '#4ade80',
-  they_owe_you:     '#4ade80',
-  they_paid_you:    '#4ade80',
-  // Red = payable / I owe  (V1 dark theme --red: #f87171)
-  i_owe:            '#f87171',
-  invoice_received: '#f87171',
-  bill_received:    '#f87171',
-  you_owe_them:     '#f87171',
-  you_paid_them:    '#f87171',
-  // Purple = neutral invoice/bill  (V1 --accent #6c63ff, lightened for readability)
-  invoice:          '#818cf8',
-  bill:             '#818cf8',
-  // Teal = payment recorded (neutral settlement)
-  payment_recorded: '#2dd4bf',
-  // Amber / sky for advances
-  advance_paid:     '#fb923c',
-  advance_received: '#60a5fa'
+  // Muted green = receivable / owed to me
+  owed_to_me:       '#6aac80',
+  invoice_sent:     '#6aac80',
+  bill_sent:        '#6aac80',
+  they_owe_you:     '#6aac80',
+  they_paid_you:    '#6aac80',
+  // Muted red = payable / I owe
+  i_owe:            '#b87878',
+  invoice_received: '#b87878',
+  bill_received:    '#b87878',
+  you_owe_them:     '#b87878',
+  you_paid_them:    '#b87878',
+  // Muted slate-purple = neutral invoice/bill
+  invoice:          '#8888c0',
+  bill:             '#8888c0',
+  // Muted teal = payment recorded
+  payment_recorded: '#5aa8a0',
+  // Muted amber / slate-blue for advances
+  advance_paid:     '#b08858',
+  advance_received: '#6a95b8'
 };
 
 // Direction sign per category (canonical source of truth for new entries)

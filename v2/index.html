@@ -703,19 +703,19 @@ let notifChannel = null;
 
 /// ── Contact color: deterministic per ID, stored in localStorage ───
 // Cache key includes version — bump to invalidate stale colors
-const _CC_KEY = 'mxi_cc_v5';
+const _CC_KEY = 'mxi_cc_v6'; // bumped: muted palette
 function contactColor(id) {
   try {
     const stored = JSON.parse(localStorage.getItem(_CC_KEY) || '{}');
     if (stored[id]) return stored[id];
-    // Vivid HSL palette — 24 distinct hues
+    // Muted HSL palette — 24 distinct hues, flat/calm on dark bg
     const VIVID_HUES = [4,15,30,48,140,158,175,196,210,225,240,255,270,285,300,318,330,347,95,115,62,200,80,168];
     let h = 0;
     for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
     const hue = VIVID_HUES[h % VIVID_HUES.length];
-    // Saturation 65–75%, Lightness 55–63% — vivid on dark bg without looking washed out
-    const sat = 65 + (h % 10);
-    const lit = 55 + ((h >> 4) % 8);
+    // Saturation 32–42%, Lightness 60–68% — flat, no glow
+    const sat = 32 + (h % 10);
+    const lit = 60 + ((h >> 4) % 8);
     const color = `hsl(${hue}, ${sat}%, ${lit}%)`;
     stored[id] = color;
     localStorage.setItem(_CC_KEY, JSON.stringify(stored));
