@@ -87,46 +87,106 @@ export async function confirmShare(tokenId, recipientId) {
   await updateShareStatus(tokenId, 'confirmed');
   await linkShareToUser(tokenId, recipientId);
 
-  // Get the share token with entry details
+  // Get the share token with entry details including sender info
   const { data: token } = await supabase
     .from('share_tokens')
-    .select('*, entry:entries(id, amount, currency, tx_type, date, note, invoice_number, user_id)')
+    .select('*, entry:entries(id, amount, currency, tx_type, date, note, invoice_number, user_id, contact:contacts(name, email))')
     .eq('id', tokenId)
     .single();
   if (!token?.entry) return null;
 
-  // Flip tx_type for recipient perspective
+  const senderId = token.entry.user_id || token.sender_id;
+
+  // Flip tx_type for recipient perspective (V1-style mirror)
   const FLIP = {
     'they_owe_you': 'you_owe_them',
     'you_owe_them': 'they_owe_you',
     'they_paid_you': 'you_paid_them',
     'you_paid_them': 'they_paid_you',
-    'invoice': 'invoice',
-    'bill': 'bill'
+    'invoice': 'bill',
+    'bill': 'invoice',
+    // V2 category names
+    'owed_to_me': 'i_owe',
+    'i_owe': 'owed_to_me',
+    'invoice_sent': 'invoice_received',
+    'invoice_received': 'invoice_sent',
+    'bill_sent': 'bill_received',
+    'bill_received': 'bill_sent',
+    'advance_paid': 'advance_received',
+    'advance_received': 'advance_paid',
   };
   const flippedType = FLIP[token.entry.tx_type] || token.entry.tx_type;
 
-  // Create entry in recipient's records
+  // Find the sender's contact in the recipient's contact list
+  // (the contact that has linked_user_id = senderId)
+  let resolvedContactId = null;
+  let resolvedFromName = '';
+  let resolvedFromEmail = token.recipient_email || '';
+  if (senderId) {
+    const { data: linkedContact } = await supabase
+      .from('contacts')
+      .select('id, name, email')
+      .eq('user_id', recipientId)
+      .eq('linked_user_id', senderId)
+      .maybeSingle();
+    if (linkedContact) {
+      resolvedContactId = linkedContact.id;
+      resolvedFromName  = linkedContact.name;
+      resolvedFromEmail = linkedContact.email || resolvedFromEmail;
+    }
+  }
+
+  // Fallback: get sender's display name from their profile
+  if (!resolvedFromName) {
+    const { data: senderProfile } = await supabase
+      .from('users')
+      .select('display_name, email')
+      .eq('id', senderId)
+      .maybeSingle();
+    resolvedFromName  = senderProfile?.display_name || 'Shared contact';
+    resolvedFromEmail = resolvedFromEmail || senderProfile?.email || '';
+  }
+
+  // Create mirror entry in recipient's records
   const { data: newEntry, error } = await supabase
     .from('entries')
     .insert({
-      user_id: recipientId,
-      tx_type: flippedType,
-      sender_tx_type: token.entry.tx_type,
-      amount: token.entry.amount,
-      currency: token.entry.currency,
-      date: token.entry.date,
-      note: token.entry.note || '',
-      invoice_number: token.entry.invoice_number || '',
-      is_shared: true,
-      share_token: token.token,
-      from_name: '', // will be resolved by caller
-      from_email: '',
-      status: 'accepted'
+      user_id:          recipientId,
+      contact_id:       resolvedContactId,
+      tx_type:          flippedType,
+      sender_tx_type:   token.entry.tx_type,
+      amount:           token.entry.amount,
+      currency:         token.entry.currency,
+      date:             token.entry.date,
+      note:             token.entry.note || '',
+      invoice_number:   token.entry.invoice_number || '',
+      is_shared:        true,
+      share_token:      token.token,
+      from_name:        resolvedFromName,
+      from_email:       resolvedFromEmail,
+      status:           'confirmed'
     })
     .select()
     .single();
   if (error) console.error('[confirmShare]', error.message);
+
+  // Notify the original sender that recipient confirmed
+  if (!error && newEntry && senderId) {
+    try {
+      await supabase.from('notifications').insert({
+        user_id:      senderId,
+        type:         'confirmed',
+        message:      `${resolvedFromName || 'Your contact'} confirmed the shared record.`,
+        entry_id:     token.entry.id,
+        contact_name: resolvedFromName,
+        amount:       token.entry.amount,
+        currency:     token.entry.currency,
+        share_token_id: token.id,
+        read:         false
+      });
+    } catch(_) {}
+  }
+
   return newEntry;
 }
 

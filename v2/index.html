@@ -339,8 +339,9 @@ tr.row-selected td { background: rgba(108,99,255,.1) !important; }
   <!-- ═══ NAV BAR ═══ -->
   <nav style="display:flex;align-items:center;justify-content:space-between;padding:16px 28px;position:sticky;top:0;z-index:100;background:rgba(8,11,18,.92);backdrop-filter:blur(12px);border-bottom:1px solid rgba(255,255,255,.06);">
     <div style="display:flex;align-items:center;gap:10px;">
-      <img src="money.png" style="height:32px;width:auto;border-radius:8px;object-fit:contain;" onerror="this.style.display='none';">
-      <span style="font-size:16px;font-weight:800;background:linear-gradient(135deg,#fff 30%,#e020b0 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;">Money IntX</span>
+      <img src="money.png" style="height:36px;width:auto;border-radius:8px;object-fit:contain;"
+        onerror="this.style.display='none';document.getElementById('lp-nav-name').style.display='inline-block'">
+      <span id="lp-nav-name" style="display:none;font-size:16px;font-weight:800;background:linear-gradient(135deg,#fff 30%,#e020b0 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;">Money IntX</span>
     </div>
     <div style="display:flex;gap:10px;">
       <button class="lp-btn-secondary" style="padding:8px 18px;font-size:13px;" onclick="showAuthTab('login');document.getElementById('auth-section').scrollIntoView({behavior:'smooth'})">Log In</button>
@@ -552,8 +553,9 @@ tr.row-selected td { background: rgba(108,99,255,.1) !important; }
   <!-- ═══ FOOTER ═══ -->
   <div style="background:#060810;border-top:1px solid rgba(255,255,255,.06);padding:28px 24px;text-align:center;">
     <div style="display:flex;align-items:center;justify-content:center;gap:8px;margin-bottom:10px;">
-      <img src="money.png" style="height:22px;border-radius:6px;object-fit:contain;" onerror="this.style.display='none';">
-      <span style="font-size:13px;font-weight:700;color:#6b7280;">Money IntX</span>
+      <img src="money.png" style="height:22px;border-radius:6px;object-fit:contain;"
+        onerror="this.style.display='none';document.getElementById('lp-footer-name').style.display='inline'">
+      <span id="lp-footer-name" style="display:none;font-size:13px;font-weight:700;color:#6b7280;">Money IntX</span>
     </div>
     <p style="font-size:11px;color:#374151;max-width:400px;margin:0 auto;">Personal &amp; Commercial Financial Tracking. Not a bank, not a payment processor, not a financial advisor.</p>
   </div>
@@ -2330,14 +2332,43 @@ window.saveSettlement = async function(entryId) {
     window._settleFile = null;
   }
 
+  const settleCurrency = document.getElementById('settle-currency')?.value || 'USD';
+  const settleNote = document.getElementById('settle-note').value.trim();
   await createSettlement(entryId, {
     amount,
-    currency: document.getElementById('settle-currency')?.value || 'USD',
+    currency: settleCurrency,
     method: document.getElementById('settle-method').value,
-    note: document.getElementById('settle-note').value.trim(),
+    note: settleNote,
     proof_url: proofUrl,
     recordedBy: currentUser.id
   });
+
+  // Notify linked contact user about the settlement (V1 parity)
+  try {
+    const settleEntry = await getEntry(entryId);
+    if (settleEntry?.contact_id) {
+      const { data: settleContact } = await supabase.from('contacts')
+        .select('linked_user_id, email, name').eq('id', settleEntry.contact_id).single();
+      const fromName = currentProfile?.display_name || currentProfile?.company_name || 'Your contact';
+      const amtLabel = fmtMoney(Math.round(amount * 100), settleCurrency);
+      if (settleContact?.linked_user_id) {
+        await supabase.from('notifications').insert({
+          user_id: settleContact.linked_user_id, type: 'settlement_pending',
+          message: `${fromName} recorded a payment of ${amtLabel}${settleNote ? ': ' + settleNote : ''}. Please review.`,
+          amount: Math.round(amount * 100), currency: settleCurrency,
+          contact_name: fromName, entry_id: entryId, read: false
+        });
+      }
+      // Self-notification log
+      await supabase.from('notifications').insert({
+        user_id: currentUser.id, type: 'notification',
+        message: `Payment of ${amtLabel} recorded for ${settleContact?.name || 'contact'}${settleNote ? ': ' + settleNote : ''}`,
+        amount: Math.round(amount * 100), currency: settleCurrency,
+        contact_name: settleContact?.name || '', entry_id: entryId, read: false
+      });
+    }
+  } catch(e) { console.warn('[settle notif]', e); }
+
   closeModal();
   toast('Settlement recorded.', 'success');
   _invalidateEntries(); navTo('entries');
@@ -2508,7 +2539,7 @@ window.saveRecordFulfillment = async function(entryId) {
     await supabase.from('notifications').insert({
       user_id: currentUser.id, type: 'notification',
       message: `Advance marked as fulfilled${note ? ': ' + note : ''}`,
-      entry_id: entryId, is_read: false
+      entry_id: entryId, read: false
     });
     closeModal();
     toast('Advance marked as fulfilled ✓', 'success');
@@ -2672,8 +2703,23 @@ window.sendInvoiceNotification = async function(entryId) {
 // ── Void / Archive handlers ───────────────────────────────────────
 window.handleVoidEntry = async function(id) {
   if (!confirm('Void this entry? This cannot be undone.')) return;
+  const vEntry = await getEntry(id);
   await voidEntry(id);
   toast('Entry voided.', 'success');
+  // Notify linked contact that the record was voided
+  try {
+    if (vEntry?.contact_id) {
+      const { data: vc } = await supabase.from('contacts').select('linked_user_id, name').eq('id', vEntry.contact_id).single();
+      const fromName = currentProfile?.display_name || 'Your contact';
+      if (vc?.linked_user_id) {
+        await supabase.from('notifications').insert({
+          user_id: vc.linked_user_id, type: 'notification',
+          message: `${fromName} voided a record: ${TX_LABELS[vEntry.tx_type] || vEntry.tx_type} — ${fmtMoney(vEntry.amount, vEntry.currency)}`,
+          contact_name: fromName, entry_id: id, read: false
+        });
+      }
+    }
+  } catch(_) {}
   _invalidateEntries(); navTo('entries');
 };
 
@@ -3623,7 +3669,7 @@ window.saveNewEntry = async function() {
         user_id: currentUser.id, type: 'notification',
         message: `${txLabel} with ${contactName} — ${amtLabel}${combinedMsg ? '. ' + combinedMsg : ''}`,
         amount: parseFloat(amount), currency, contact_name: contactName,
-        entry_id: entryId, is_read: false
+        entry_id: entryId, read: false
       });
       // Self-email copy
       if (currentUser?.email) {
@@ -3653,18 +3699,41 @@ window.saveNewEntry = async function() {
     };
     const mirrorLabel = TX_LABELS[MIRROR[category] || category] || txLabel;
 
-    // In-app notification to linked contact account
+    // In-app notification + auto share-token for linked contact account
     if (notifyContact && linkedUserId) {
+      // Create share token so linked user can confirm it into their own records
+      let shareTokenId = null;
+      try {
+        const snap = { tx_type: txType, amount: parseFloat(amount), currency, date, note: combinedNote, from_name: fromName };
+        const stRes = await createShareToken(currentUser.id, entryId, { recipientEmail: contactEmail, entrySnapshot: snap });
+        if (stRes?.id) {
+          // Pre-link to recipient so it shows in their "Shared With Me" immediately
+          await supabase.from('share_tokens').update({ recipient_id: linkedUserId, status: 'sent' }).eq('id', stRes.id);
+          shareTokenId = stRes.id;
+        }
+      } catch(_) {}
+
       await supabase.from('notifications').insert({
-        user_id: linkedUserId, type: 'notification',
+        user_id: linkedUserId, type: 'shared_record',
         message: `${fromName}: ${mirrorLabel} — ${amtLabel}${combinedMsg ? '. ' + combinedMsg : ''}`,
         amount: parseFloat(amount), currency, contact_name: fromName,
-        entry_id: entryId, is_read: false
+        entry_id: entryId, share_token_id: shareTokenId, read: false
       });
     }
 
     // 3) Email — send when contact is selected recipient and email available
     if (notifyContact && contactEmail) {
+      // Build share/confirm link to include in email
+      let shareViewUrl = '';
+      try {
+        const { data: existTok } = await supabase.from('share_tokens').select('token').eq('entry_id', entryId).maybeSingle();
+        if (existTok?.token) shareViewUrl = window.location.origin + '/view?t=' + existTok.token;
+        else {
+          const newTok = await createShareToken(currentUser.id, entryId, { recipientEmail: contactEmail });
+          if (newTok?.token) shareViewUrl = window.location.origin + '/view?t=' + newTok.token;
+        }
+      } catch(_) {}
+
       let emailResult;
       if (category === 'invoice_sent') {
         // Rich invoice email
@@ -3677,7 +3746,8 @@ window.saveNewEntry = async function() {
           companyEmail: currentProfile?.company_email,
           companyAddress: currentProfile?.company_address,
           logoUrl: currentProfile?.logo_url,
-          dueDate, message: combinedMsg || note, entryId
+          dueDate, message: combinedMsg || note, entryId,
+          viewUrl: shareViewUrl
         });
       } else {
         // Standard notification email for all other categories
@@ -3688,7 +3758,8 @@ window.saveNewEntry = async function() {
           message: combinedMsg || note, entryId,
           logoUrl: currentProfile?.logo_url,
           fromEmail: currentProfile?.company_email || currentUser?.email,
-          siteUrl: 'https://moneyintx.com'
+          siteUrl: 'https://moneyintx.com',
+          viewUrl: shareViewUrl   // confirm link in email body
         });
       }
       if (emailResult?.ok) {
@@ -3735,7 +3806,10 @@ async function renderNotifications(el) {
   };
 
   let html = `<div class="page-header"><h2>Notifications</h2>
-    ${notifs.length > 0 ? `<button class="bs sm" onclick="clearAllNotifs()">Clear All</button>` : ''}
+    <div style="display:flex;gap:8px;">
+      <button class="bs sm" onclick="openSharedWithMe()" title="All records shared with you">🔗 Shared With Me</button>
+      ${notifs.length > 0 ? `<button class="bs sm" onclick="clearAllNotifs()">Clear All</button>` : ''}
+    </div>
   </div>`;
   if (notifs.length === 0) {
     html += `<div class="card" style="text-align:center;padding:40px;"><p style="color:var(--muted);">No notifications yet.</p></div>`;
@@ -3744,13 +3818,18 @@ async function renderNotifications(el) {
       <th>Contact</th><th>Amount</th><th class="hide-mobile">Message</th><th>Date</th><th>Event</th><th></th>
     </tr></thead><tbody>`;
     notifs.forEach(n => {
+      // Show "Add to my account" button for shared_record notifications that have a share token
+      const canConfirm = n.type === 'shared_record' && n.share_token_id;
       html += `<tr>
         <td style="font-weight:600;font-size:13px;">${esc(n.contact_name || '—')}</td>
         <td style="font-weight:700;font-size:13px;">${n.amount ? fmtMoney(n.amount, n.currency || 'USD') : '—'}</td>
         <td class="hide-mobile" style="font-size:13px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${esc(n.message)}">${esc(n.message)}</td>
         <td style="font-size:12px;color:var(--muted);">${fmtRelative(n.created_at)}</td>
         <td>${typeBadge(n.type)}</td>
-        <td><button onclick="deleteNotif('${n.id}')" style="background:none;border:none;color:var(--red);cursor:pointer;font-size:14px;">✕</button></td>
+        <td style="display:flex;gap:4px;align-items:center;">
+          ${canConfirm ? `<button onclick="confirmFromNotif('${n.share_token_id}','${n.id}')" style="background:var(--green);color:#fff;border:none;border-radius:5px;padding:4px 9px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap;">✅ Add</button>` : ''}
+          <button onclick="deleteNotif('${n.id}')" style="background:none;border:none;color:var(--red);cursor:pointer;font-size:14px;padding:2px 4px;">✕</button>
+        </td>
       </tr>`;
     });
     html += `</tbody></table></div></div>`;
@@ -3768,6 +3847,22 @@ window.clearAllNotifs = async function() {
   await supabase.from('notifications').delete().eq('user_id', currentUser.id);
   toast('Cleared.', 'success');
   navTo('notifications');
+};
+
+// ── Confirm shared record from notification ───────────────────────
+window.confirmFromNotif = async function(shareTokenId, notifId) {
+  try {
+    const entry = await confirmShare(shareTokenId, currentUser.id);
+    if (!entry) return toast('Could not add record — may already be confirmed.', 'error');
+    // Mark this notification as confirmed-type so button disappears
+    await supabase.from('notifications').update({ type: 'confirmed', read: true }).eq('id', notifId);
+    toast('✅ Record added to your account!', 'success');
+    _invalidateEntries();
+    navTo('notifications');
+  } catch(e) {
+    console.error('[confirmFromNotif]', e);
+    toast('Failed to confirm: ' + (e?.message || e), 'error');
+  }
 };
 
 // ── Investments ───────────────────────────────────────────────────
